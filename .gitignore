@@ -1,0 +1,7 @@
+.idea
+picows.egg-info
+*.so
+*.c
+__pycache__
+*.html
+dist

@@ -1,0 +1,40 @@
+[project]
+name = "picows"
+description = "Fast websocket client and server for asyncio"
+authors = [{name = "Taras Kozlov", email = "tarasko.projects@gmail.com"}]
+requires-python = '>=3.8'
+readme = "README.rst"
+dynamic = ["version"]
+keywords = ["websocket", "networking"]
+dependencies = []
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Cython",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: System :: Networking"
+]
+
+[build-system]
+requires = ["setuptools >= 61.0", "wheel", "Cython >= 3.0"]
+build-backend = "setuptools.build_meta"
+
+[project.optional-dependencies]
+dev = ["black", "bumpver", "isort", "pip-tools", "pytest"]
+
+[project.urls]
+Homepage = "https://github.com/tarasko/picows"
+
+[tool.setuptools.dynamic]
+version = {attr = "picows.__version__"}
