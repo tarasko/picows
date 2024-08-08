@@ -5,7 +5,7 @@ import hashlib
 import logging
 import os
 import socket
-import urllib
+import urllib.parse
 from typing import cast
 
 cimport cython
