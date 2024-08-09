@@ -264,9 +264,8 @@ cdef class WSFrameParser:
             if rsv1 or rsv2 or rsv3:
                 mem_dump = PyBytes_FromStringAndSize(
                     self._buffer.data + self._f_curr_state_start_pos,
-                    self._f_new_data_start_pos - self._f_curr_state_start_pos
+                    max(self._f_new_data_start_pos - self._f_curr_state_start_pos, 64)
                 )
-                mem_dump = mem_dump[:64]
                 raise PicowsError(
                     WSCloseCode.PROTOCOL_ERROR,
                     f"Received frame with non-zero reserved bits, rsv1={rsv1}, rsv2={rsv2}, rsv3={rsv3}, opcode={self._f_opcode}: {mem_dump}",
@@ -393,13 +392,15 @@ cdef class WSFrameParser:
         self._state = WSParserState.READ_HEADER
         self.handshake_complete_future.set_result(None)
         if self._log_debug_enabled:
-            self._logger.debug("WS handshake done, switch to upgraded state")
+            self._logger.log(PICOWS_DEBUG_LL, "WS handshake done, switch to upgraded state")
 
     cdef bytes read_upgrade_request(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
         request = data.split(b"\r\n\r\n", 1)
         if len(request) < 2:
             return None
+
+        self._logger.log(PICOWS_DEBUG_LL, "New data: %s", data)
 
         raw_headers, tail = request
 
@@ -414,8 +415,11 @@ cdef class WSFrameParser:
         if "websocket" != headers.get("upgrade"):
             raise RuntimeError(f"No WebSocket UPGRADE header: {raw_headers}\n Can 'Upgrade' only to 'websocket'")
 
-        if "Upgrade" != headers.get("connection"):
+        if "connection" not in headers:
             raise RuntimeError(f"No CONNECTION upgrade header: {raw_headers}\n")
+
+        if "upgrade" != headers["connection"].lower():
+            raise RuntimeError(f"CONNECTION header value is not 'upgrade' : {raw_headers}\n")
 
         version = headers.get("sec-websocket-version")
         if headers.get("sec-websocket-version") not in ("13", "8", "7"):
@@ -605,6 +609,8 @@ cdef class WSTransport:
                                          b"Upgrade: websocket\r\n"
                                          b"Sec-WebSocket-Accept: %b\r\n"
                                          b"\r\n" % (accept_val,))
+
+        self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", handshake_response)
         self._transport.write(handshake_response)
 
 

@@ -31,10 +31,15 @@ requires = ["setuptools >= 61.0", "wheel", "Cython >= 3.0"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
-dev = ["black", "bumpver", "isort", "pip-tools", "pytest"]
+dev = ["pytest"]
 
 [project.urls]
 Homepage = "https://github.com/tarasko/picows"
+Repository = "https://github.com/tarasko/picows"
+Issues = "https://github.com/tarasko/picows/issues"
+
+[tool.setuptools]
+packages = ["picows"]
 
 [tool.setuptools.dynamic]
 version = {attr = "picows.__version__"}

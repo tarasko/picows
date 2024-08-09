@@ -1,4 +1,5 @@
 import sys
+import os
 from setuptools import Extension, setup
 from Cython.Build import cythonize
 
@@ -6,10 +7,16 @@ vi = sys.version_info
 if vi < (3, 8):
     raise RuntimeError('picows requires Python 3.8 or greater')
 
+cython_modules = [
+    Extension("picows.picows", ["picows/picows.pyx"])
+    ]
+
+if os.getenv("PICOWS_BUILD_EXAMPLES") is not None:
+    cython_modules.append(Extension("examples.picows_client_cython", ["examples/picows_client_cython.pyx"]))
+
 setup(
-    ext_modules=cythonize([
-        Extension("picows.picows", sources=["picows/picows.pyx"], extra_compile_args=[]),
-        ],
+    ext_modules=cythonize(
+        cython_modules,
         compiler_directives = {
             'language_level' : sys.version_info[0],
             'profile': False,
