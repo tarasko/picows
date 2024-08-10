@@ -8,7 +8,7 @@ picows is implemented in Cython and thus provides unparallel performance compari
 .. image:: https://raw.githubusercontent.com/tarasko/picows/master/docs/picows_benchmark.png
   :target: https://github.com/tarasko/picows/blob/master/docs/picows_benchmark.png?raw=true
 
-The above chart shows the performance of echo clients using popular python libraries. 
+The above chart shows the performance of echo clients communicating to a server through a loopback interface using popular python libraries. 
 `boost.beast client <https://www.boost.org/doc/libs/1_85_0/libs/beast/example/websocket/client/sync/websocket_client_sync.cpp>`_
 is also included for reference. Typically picows is ~ 1.5-2 times faster than aiohttp. All python clients use uvloop. Please find the benchmark sources 
 `here <https://github.com/tarasko/picows/blob/master/examples/echo_client_benchmark.py>`_
@@ -23,7 +23,14 @@ Use pip to install it::
 
 Rationale
 ---------
+Popular websocket libraries attempt to provide high level interfaces. They take care of optional decompression, assembling websocket messages from frames, as well as implementing async iteration interface.
+These features come with a significant cost even when messages are unfragmented (every websocket frame is final) and uncompressed. Async iteration interface is done using Futures and it is an extra work for event loop, plus it introduce delays. Furthermore it is not always possible to check if more messages have already arrived, sometimes it is only last message that matters.
 
 Features
 --------
+* Maximally efficient websocket frame parser and builder in Cython
+* Re-use memory as much as possible, avoid reallocations, avoid unnecessary python object creations
+* Provide cython .pxd for efficient integration of user cythonized code with picows
+* Ability to check if a frame is the last one in the receiving buffer
+
 
