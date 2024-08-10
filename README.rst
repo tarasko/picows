@@ -24,11 +24,11 @@ Use pip to install it::
 Rationale
 ---------
 Popular websocket libraries attempt to provide high level interfaces. They take care of optional decompression, assembling websocket messages from frames, as well as implementing async iteration interface.
-These features come with a significant cost even when messages are unfragmented (every websocket frame is final) and uncompressed. Async iteration interface is done using Futures and it is an extra work for event loop, plus it introduce delays. Furthermore it is not always possible to check if more messages have already arrived, sometimes it is only last message that matters.
+These features come with a significant cost even when messages are small, unfragmented (every websocket frame is final) and uncompressed. Async iteration interface is done using Futures and it is an extra work for event loop, plus it introduce delays. Furthermore it is not always possible to check if more messages have already arrived, sometimes it is only last message that matters.
 
 Features
 --------
-* Maximally efficient websocket frame parser and builder in Cython
+* Maximally efficient websocket frame parser and builder implemented in cython
 * Re-use memory as much as possible, avoid reallocations, avoid unnecessary python object creations
 * Provide cython .pxd for efficient integration of user cythonized code with picows
 * Ability to check if a frame is the last one in the receiving buffer
