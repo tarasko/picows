@@ -718,6 +718,7 @@ cdef class WSProtocol:
                 self._handshake_timeout_handle.cancel()
                 self._handshake_timeout_handle = None
                 self.listener = self._listener_factory()
+                self._listener_factory = None
                 self.listener.on_ws_connected(self.transport)
 
         cdef WSFrame frame = self._get_next_frame()
@@ -792,7 +793,7 @@ async def ws_connect(str url, ws_listener_factory, str logger_name, ssl_context=
     else:
         raise ValueError(f"invalid url scheme: {url}")
 
-    ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, url_parts.path, True, ws_listener_factory, logger_name)
+    ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, url_parts.path, True, None, logger_name)
 
     cdef WSProtocol ws_protocol
 
