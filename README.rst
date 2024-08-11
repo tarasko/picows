@@ -22,8 +22,75 @@ Use pip to install it::
 
 Rationale
 ---------
-Popular WebSocket libraries attempt to provide high-level interfaces. They take care of optional decompression, assembling WebSocket messages from frames, as well as implementing async iteration interfaces.
+Popular WebSocket libraries attempt to provide high-level interfaces. They take care of optional decompression, flow control, assembling WebSocket messages from frames, as well as implementing async iteration interfaces.
 These features come with a significant cost even when messages are small, unfragmented (every WebSocket frame is final), and uncompressed. The async iteration interface is done using Futures, which adds extra work for the event loop and introduces delays. Furthermore, it is not always possible to check if more messages have already arrived; sometimes, only the last message matters.
+
+Getting started
+---------------
+
+Echo client
+======
+Connects to an echo server, sends a message and disconnect upon reply.
+
+.. code-block:: python
+
+  import asyncio
+  import uvloop
+  from picows import WSFrame, WSTransport, WSListener, ws_connect, WSMsgType
+  
+  class ClientListener(WSListener):
+      def on_ws_connected(self, transport: WSTransport):
+          self._transport = transport
+          self._transport.send(WSMsgType.TEXT, b"Hello world")
+  
+      def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
+          print(f"Echo reply: {frame.get_payload_as_ascii_text()}")
+          self._transport.disconnect()
+
+
+  async def main(endpoint):
+    (_, client) = await ws_connect(endpoint, ClientListener, "client")
+    await client._transport.wait_until_closed()
+
+
+  if __name__ == '__main__':
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    asyncio.run(main("ws://127.0.0.1:9001"))
+
+This prints:
+
+.. code-block::
+
+  Echo reply: Hello world
+
+Echo server
+===========
+
+.. code-block:: python
+
+  import asyncio
+  import uvloop
+  from picows import WSFrame, WSTransport, WSListener, ws_connect, WSMsgType
+
+  class ServerClientListener(WSListener):
+      def on_ws_connected(self, transport: WSTransport):
+          self._transport = transport
+  
+      def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
+          self._transport.send(frame.opcode, frame.get_payload_as_bytes())
+          if frame.opcode == WSMsgType.CLOSE:
+              self._transport.disconnect()
+
+  async def main():
+      url = "ws://127.0.0.1:9001"
+      server = await ws_create_server(url, ServerClientListener, "server")
+      print(f"Server started on {url}")
+      await server.serve_forever()
+
+  if __name__ == '__main__':
+      asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+      asyncio.run(main())
+
 
 Features
 --------
@@ -31,3 +98,5 @@ Features
 * Re-use memory as much as possible, avoid reallocations, and avoid unnecessary Python object creations
 * Provide Cython .pxd for efficient integration of user Cythonized code with picows
 * Ability to check if a frame is the last one in the receiving buffer
+* Support both secure and unsecure protocols (ws and wss schemes)
+
