@@ -78,7 +78,7 @@ Echo server
 
   import asyncio
   import uvloop
-  from picows import WSFrame, WSTransport, WSListener, ws_connect, WSMsgType
+  from picows import WSFrame, WSTransport, WSListener, ws_create_server, WSMsgType
 
   class ServerClientListener(WSListener):
       def on_ws_connected(self, transport: WSTransport):
