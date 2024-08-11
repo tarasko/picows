@@ -2,7 +2,7 @@ picows is a library for building WebSocket clients and servers with a focus on p
 
 Performance
 -----------
-picows is implemented in Cython and thus provides unparalleled performance compared to other popular WebSocket libraries.
+picows is implemented in Cython and provides unparalleled performance compared to other popular WebSocket libraries.
 
 .. image:: https://raw.githubusercontent.com/tarasko/picows/master/docs/picows_benchmark.png
   :target: https://github.com/tarasko/picows/blob/master/docs/picows_benchmark.png?raw=true
@@ -28,7 +28,7 @@ These features come with a significant cost even when messages are small, unfrag
 API Design
 ----------
 The API follows low-level `transport/protocol design from asyncio <https://docs.python.org/3/library/asyncio-protocol.html#asyncio-transports-protocols>`_
-It passes frames instead of messages to a user handler. A message can potentially consist of multiple frame but it is up to user to choose the best strategy of merging frames.
+It passes frames instead of messages to a user handler. A message can potentially consist of multiple frame but it is up to user to choose the best strategy for merging frames.
 Though the most common case is when messages and frames are the same i.e. a message consists of only a single frame.
 
 Getting started
