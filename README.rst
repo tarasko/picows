@@ -22,14 +22,19 @@ Use pip to install it::
 
 Rationale
 ---------
-Popular WebSocket libraries attempt to provide high-level interfaces. They take care of optional decompression, flow control, assembling WebSocket messages from frames, as well as implementing async iteration interfaces.
+Popular WebSocket libraries attempt to provide high-level interfaces. They take care of timeouts, flow control, optional compression/decompression, assembling WebSocket messages from frames, as well as implementing async iteration interfaces.
 These features come with a significant cost even when messages are small, unfragmented (every WebSocket frame is final), and uncompressed. The async iteration interface is done using Futures, which adds extra work for the event loop and introduces delays. Furthermore, it is not always possible to check if more messages have already arrived; sometimes, only the last message matters.
+
+API Design
+----------
+The API follows low-level `transport/protocol design from asyncio <https://docs.python.org/3/library/asyncio-protocol.html#asyncio-transports-protocols>`_
+
 
 Getting started
 ---------------
 
 Echo client
-======
+===========
 Connects to an echo server, sends a message and disconnect upon reply.
 
 .. code-block:: python
@@ -37,18 +42,18 @@ Connects to an echo server, sends a message and disconnect upon reply.
   import asyncio
   import uvloop
   from picows import WSFrame, WSTransport, WSListener, ws_connect, WSMsgType
-  
+
   class ClientListener(WSListener):
       def on_ws_connected(self, transport: WSTransport):
-          self._transport = transport
-          self._transport.send(WSMsgType.TEXT, b"Hello world")
+          transport.send(WSMsgType.TEXT, b"Hello world")
   
       def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
           print(f"Echo reply: {frame.get_payload_as_ascii_text()}")
-          self._transport.disconnect()
+          transport.disconnect()
 
 
   async def main(endpoint):
+    # ClientListener instance will be created after successfull accept and http upgrade.
     (_, client) = await ws_connect(endpoint, ClientListener, "client")
     await client._transport.wait_until_closed()
 
@@ -74,15 +79,16 @@ Echo server
 
   class ServerClientListener(WSListener):
       def on_ws_connected(self, transport: WSTransport):
-          self._transport = transport
+          print("New client connected")
   
       def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
-          self._transport.send(frame.opcode, frame.get_payload_as_bytes())
+          transport.send(frame.opcode, frame.get_payload_as_bytes())
           if frame.opcode == WSMsgType.CLOSE:
-              self._transport.disconnect()
+              transport.disconnect()
 
   async def main():
       url = "ws://127.0.0.1:9001"
+      # ServerClientListener instance will be created for each client after accept and successfull http upgrade. 
       server = await ws_create_server(url, ServerClientListener, "server")
       print(f"Server started on {url}")
       await server.serve_forever()
