@@ -48,6 +48,7 @@ Connects to an echo server, sends a message and disconnect upon reply.
 
   class ClientListener(WSListener):
       def on_ws_connected(self, transport: WSTransport):
+          self.transport = transport
           transport.send(WSMsgType.TEXT, b"Hello world")
   
       def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
@@ -58,7 +59,7 @@ Connects to an echo server, sends a message and disconnect upon reply.
   async def main(endpoint):
     # ClientListener instance will be created after successfull accept and http upgrade.
     (_, client) = await ws_connect(endpoint, ClientListener, "client")
-    await client._transport.wait_until_closed()
+    await client.transport.wait_until_closed()
 
 
   if __name__ == '__main__':
