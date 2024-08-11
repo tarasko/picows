@@ -9,7 +9,7 @@ import websockets
 import aiohttp
 from aiohttp import ClientSession, WSMsgType as aiohttp_WSMsgType
 
-from picows import WSFrame, WSTransport, ws_create_server, WSListener, ws_connect, WSMsgType
+from picows import WSFrame, WSTransport, WSListener, ws_connect, WSMsgType
 from time import time
 
 _logger = getLogger(__name__)
