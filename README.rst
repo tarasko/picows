@@ -28,8 +28,10 @@ These features come with a significant cost even when messages are small, unfrag
 API Design
 ----------
 The API follows the low-level `transport/protocol design from asyncio <https://docs.python.org/3/library/asyncio-protocol.html#asyncio-transports-protocols>`_.
-It passes frames instead of messages to a user handler. A message can potentially consist of multiple frame but it is up to user to choose the best strategy for merging frames.
-Though the most common case is when messages and frames are the same, i.e. a message consists of only a single frame.
+It passes frames instead of messages to a user handler. A message can potentially consist of multiple frames but it is up to user to choose the best strategy for merging them. 
+Same principle applies for compression and flow control. User can implement their own strategies using the most appropriate tools.
+
+That being said that the most common use-case is when messages and frames are the same, i.e. a message consists of only a single frame, and no compression is being used.
 
 Getting started
 ---------------
