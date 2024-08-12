@@ -1,3 +1,7 @@
+.. image:: https://github.com/tarasko/picows/workflows/run%20tests/badge.svg
+   :target: https://github.com/tarasko/picows/actions?query=workflow%3Arun-tests
+   :alt: GitHub Actions status for master branch
+
 .. image:: https://badge.fury.io/py/picows.svg
    :target: https://pypi.org/project/picows
    :alt: Latest PyPI package version
