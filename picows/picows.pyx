@@ -264,7 +264,7 @@ cdef class WSFrameParser:
             if rsv1 or rsv2 or rsv3:
                 mem_dump = PyBytes_FromStringAndSize(
                     self._buffer.data + self._f_curr_state_start_pos,
-                    max(self._f_new_data_start_pos - self._f_curr_state_start_pos, 64)
+                    max(self._f_new_data_start_pos - self._f_curr_state_start_pos, <size_t>64)
                 )
                 raise PicowsError(
                     WSCloseCode.PROTOCOL_ERROR,
