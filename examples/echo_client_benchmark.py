@@ -3,7 +3,7 @@ import asyncio
 import os
 
 import uvloop
-from logging import getLogger, DEBUG, INFO, basicConfig
+from logging import getLogger
 
 import websockets
 import aiohttp
@@ -18,6 +18,7 @@ _logger = getLogger(__name__)
 RPS = {
     "c++ boost.beast": 38013
 }
+
 
 async def picows_main(endpoint: str, msg: bytes, duration: int):
     class PicowsClientListener(WSListener):
@@ -102,9 +103,8 @@ async def aiohttp_main(url: str, data: bytes, duration: int) -> None:
                     break
 
 
-
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description = "Publish updates to telegram subscribers",
+    parser = argparse.ArgumentParser(description="Publish updates to telegram subscribers",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--url", default="ws://127.0.0.1:9001", help="Server url")
     parser.add_argument("--msg-size", default="64", help="Message size")
@@ -156,3 +156,4 @@ if __name__ == '__main__':
         plt.show()
     except ImportError:
         pass
+    

@@ -17,8 +17,8 @@ if os.getenv("PICOWS_BUILD_EXAMPLES") is not None:
 setup(
     ext_modules=cythonize(
         cython_modules,
-        compiler_directives = {
-            'language_level' : sys.version_info[0],
+        compiler_directives={
+            'language_level': sys.version_info[0],
             'profile': False,
             'nonecheck': False,
             'boundscheck': False,
@@ -31,4 +31,3 @@ setup(
         gdb_debug=False
     )
 )
-
