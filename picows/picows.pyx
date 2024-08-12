@@ -46,7 +46,6 @@ cdef extern from * nogil:
       #define be64toh(x) betoh64(x)
     #elif defined(__WINDOWS__)
       #include <winsock2.h>
-      #include <sys/param.h>
       #if BYTE_ORDER == LITTLE_ENDIAN
         #define be64toh(x) ntohll(x)
         #define htobe64(x) htonll(x)
