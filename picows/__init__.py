@@ -10,3 +10,14 @@ from .picows import (
     ws_create_server,
     PICOWS_DEBUG_LL
 )
+
+__all__ = [
+    'WSMsgType',
+    'WSCloseCode',
+    'WSFrame',
+    'WSTransport',
+    'WSListener',
+    'ws_connect',
+    'ws_create_server',
+    'PICOWS_DEBUG_LL'
+]
