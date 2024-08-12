@@ -23,9 +23,6 @@ from libc.stdlib cimport rand
 PICOWS_DEBUG_LL = 9
 
 
-cdef extern from "arpa/inet.h" nogil:
-
-
 cdef extern from * nogil:
     """
     #if (defined(_WIN16) || defined(_WIN32) || defined(_WIN64)) && !defined(__WINDOWS__)
