@@ -30,7 +30,14 @@ cdef extern from "arpa/inet.h" nogil:
     uint16_t htons(uint16_t)
 
 
-cdef extern from "endian.h" nogil:
+cdef extern from * nogil:
+    """
+    #if defined(__linux__)
+      #include <endian.h>
+    #elif defined(__APPLE__)
+      #include <machine/endian.h>
+    #endif
+    """
     # Network order is big-endian
     uint64_t be64toh(uint64_t)
     uint64_t htobe64(uint64_t)
