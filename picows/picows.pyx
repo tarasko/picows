@@ -627,7 +627,6 @@ cdef class WSProtocol:
         WSFrameParser _frame_parser
         object _loop
         object _handshake_timeout_handle
-        object _listener_factory
         bint _is_client_side
         bint _log_debug_enabled
 
@@ -641,12 +640,11 @@ cdef class WSProtocol:
         self._frame_parser = None
         self._loop = asyncio.get_running_loop()
         self._handshake_timeout_handle = None
-        self._listener_factory = ws_listener_factory
         self._is_client_side = is_client_side
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
 
         self.transport = None
-        self.listener = None
+        self.listener = ws_listener_factory()
 
     def connection_made(self, transport: asyncio.Transport):
         sock = transport.get_extra_info('socket')
@@ -717,8 +715,6 @@ cdef class WSProtocol:
                 self._frame_parser.handshake_complete_future.set_result(None)
                 self._handshake_timeout_handle.cancel()
                 self._handshake_timeout_handle = None
-                self.listener = self._listener_factory()
-                self._listener_factory = None
                 self.listener.on_ws_connected(self.transport)
 
         cdef WSFrame frame = self._get_next_frame()
@@ -793,7 +789,7 @@ async def ws_connect(str url, ws_listener_factory, str logger_name, ssl_context=
     else:
         raise ValueError(f"invalid url scheme: {url}")
 
-    ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, url_parts.path, True, None, logger_name)
+    ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, url_parts.path, True, ws_listener_factory, logger_name)
 
     cdef WSProtocol ws_protocol
 
@@ -802,7 +798,6 @@ async def ws_connect(str url, ws_listener_factory, str logger_name, ssl_context=
         ssl_handshake_timeout=ssl_handshake_timeout, ssl_shutdown_timeout=ssl_shutdown_timeout)
 
     await ws_protocol.wait_until_handshake_complete()
-    ws_protocol.listener = ws_listener_factory()
     ws_protocol.listener.on_ws_connected(ws_protocol.transport)
 
     return ws_protocol.transport, ws_protocol.listener

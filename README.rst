@@ -54,7 +54,6 @@ Connects to an echo server, sends a message and disconnect upon reply.
 
 
   async def main(endpoint):
-    # ClientListener instance will be created after successfull accept and http upgrade.
     (_, client) = await ws_connect(endpoint, ClientListener, "client")
     await client._transport.wait_until_closed()
 
@@ -89,7 +88,6 @@ Echo server
 
   async def main():
       url = "ws://127.0.0.1:9001"
-      # ServerClientListener instance will be created for each client after accept and successfull http upgrade. 
       server = await ws_create_server(url, ServerClientListener, "server")
       print(f"Server started on {url}")
       await server.serve_forever()
