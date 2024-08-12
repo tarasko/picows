@@ -7,8 +7,13 @@ vi = sys.version_info
 if vi < (3, 8):
     raise RuntimeError('picows requires Python 3.8 or greater')
 
+if os.name == 'nt':
+    libraries = ["Ws2_32"]
+else:
+    libraries = None
+
 cython_modules = [
-    Extension("picows.picows", ["picows/picows.pyx"])
+    Extension("picows.picows", ["picows/picows.pyx"], libraries=libraries)
     ]
 
 if os.getenv("PICOWS_BUILD_EXAMPLES") is not None:
