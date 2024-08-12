@@ -1,3 +1,11 @@
+.. image:: https://badge.fury.io/py/picows.svg
+   :target: https://pypi.org/project/picows
+   :alt: Latest PyPI package version
+
+.. image:: https://img.shields.io/pypi/dm/picows
+   :target: https://pypistats.org/packages/picows
+   :alt: Downloads count
+
 picows is a library for building WebSocket clients and servers with a focus on performance.
 
 Performance
