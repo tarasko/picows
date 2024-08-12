@@ -24,10 +24,6 @@ PICOWS_DEBUG_LL = 9
 
 
 cdef extern from "arpa/inet.h" nogil:
-    uint32_t ntohl(uint32_t)
-    uint32_t htonl(uint32_t)
-    uint16_t ntohs(uint16_t)
-    uint16_t htons(uint16_t)
 
 
 cdef extern from * nogil:
@@ -37,17 +33,23 @@ cdef extern from * nogil:
     #endif
 
     #if defined(__linux__)
+      #include <arpa/inet.h>
       #include <endian.h>
     #elif defined(__APPLE__)
+      #include <arpa/inet.h>
       #include <libkern/OSByteOrder.h>
       #define be64toh(x) OSSwapBigToHostInt64(x)
       #define htobe64(x) OSSwapHostToBigInt64(x)
     #elif defined(__OpenBSD__)
+      #include <arpa/inet.h>
       #include <sys/endian.h>
     #elif defined(__NetBSD__) || defined(__FreeBSD__) || defined(__DragonFly__)
+      #include <arpa/inet.h>
       #include <sys/endian.h>
       #define be64toh(x) betoh64(x)
     #elif defined(__WINDOWS__)
+      #include <winsock2.h>
+      #include <sys/param.h>
       #if BYTE_ORDER == LITTLE_ENDIAN
         #define be64toh(x) ntohll(x)
         #define htobe64(x) htonll(x)
@@ -59,7 +61,14 @@ cdef extern from * nogil:
       error byte order not supported
     #endif
     """
+
     # Network order is big-endian
+
+    uint32_t ntohl(uint32_t)
+    uint32_t htonl(uint32_t)
+    uint16_t ntohs(uint16_t)
+    uint16_t htons(uint16_t)
+
     uint64_t be64toh(uint64_t)
     uint64_t htobe64(uint64_t)
 
