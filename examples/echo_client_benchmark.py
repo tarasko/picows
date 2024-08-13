@@ -117,10 +117,12 @@ if __name__ == '__main__':
     msg = os.urandom(msg_size)
     duration = int(args.duration)
 
+    loop_name = "asyncio"
     if not args.disable_uvloop:
         if os.name != 'nt':
             import uvloop
             asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+            loop_name = "uvloop"
 
     try:
         from examples.picows_client_cython import picows_main_cython
@@ -128,9 +130,9 @@ if __name__ == '__main__':
     except ImportError:
         pass
 
-    asyncio.get_event_loop().run_until_complete(picows_main(args.url, msg, duration))
-    asyncio.get_event_loop().run_until_complete(aiohttp_main(args.url, msg, duration))
-    asyncio.get_event_loop().run_until_complete(websockets_main(args.url, msg, duration))
+    asyncio.run(picows_main(args.url, msg, duration))
+    asyncio.run(aiohttp_main(args.url, msg, duration))
+    asyncio.run(websockets_main(args.url, msg, duration))
 
     for k, v in RPS.items():
         print(k, v)
@@ -147,10 +149,7 @@ if __name__ == '__main__':
         ax.bar(libraries, counts, label=libraries, color=bar_colors)
 
         ax.set_ylabel('Roundtrips per second')
-        if not args.disable_uvloop:
-            ax.set_title('Echo roundtrip performance (uvloop)')
-        else:
-            ax.set_title('Echo roundtrip performance (asyncio)')
+        ax.set_title(f'Echo roundtrip performance ({loop_name})')
 
         # ax.legend(title="Libraries")
 
