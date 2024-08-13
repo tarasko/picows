@@ -71,6 +71,7 @@ cdef extern from * nogil:
 
 cdef extern from "Python.h":
     PyObject *PyUnicode_FromStringAndSize(const char *u, Py_ssize_t size)
+    PyObject *PyUnicode_DecodeASCII(char *s, Py_ssize_t size, char *errors)
 
 
 class PicowsError(Exception):
@@ -112,15 +113,40 @@ cdef _mask_payload(uint8_t* input, size_t input_len, uint32_t mask):
 @cython.freelist(64)
 cdef class WSFrame:
     cpdef bytes get_payload_as_bytes(self):
+        """
+        Returns a new bytes object with a copy of frame payload.
+        """
         return PyBytes_FromStringAndSize(self.payload_ptr, <Py_ssize_t>self.payload_size)
 
-    cpdef str get_payload_as_ascii_text(self):
+    cpdef str get_payload_as_utf8_text(self):
+        """
+        Interpret payload as UTF8 text and returns a new str object.
+        Behaviour is underfined (most likely python will crash) if payload doesn't contain a valid UTF8
+        """
+        cdef str s = <str>PyUnicode_FromStringAndSize(self.payload_ptr, <Py_ssize_t>self.payload_size)
         # Workaround for broken cython reference counting
-        cdef str s = <str> PyUnicode_FromStringAndSize(self.payload_ptr, <Py_ssize_t>self.payload_size)
+        Py_DECREF(s)
+        return s
+
+    cpdef str get_payload_as_ascii_text(self):
+        """
+        Interpret payload as UTF8 text and returns a new str object.
+        Behaviour is underfined (most likely python will crash) if payload doesn't contain a valid UTF8
+        """
+        cdef PyObject* ptr = PyUnicode_DecodeASCII(self.payload_ptr, <Py_ssize_t>self.payload_size, NULL)
+        if ptr == NULL:
+            raise PicowsError("payload doesn't contain ASCII string")
+        cdef str s = <str>ptr
+        # Workaround for broken cython reference counting
         Py_DECREF(s)
         return s
 
     cpdef object get_payload_as_memoryview(self):
+        """
+        Return continous memoryview to a parser buffer with payload. 
+        Memoryview content will be invalidated after on_ws_frame is complete.
+        Please process payload or copy it as soon as possible.
+        """
         return PyMemoryView_FromMemory(self.payload_ptr, <Py_ssize_t>self.payload_size, PyBUF_READ)
 
     cpdef WSCloseCode get_close_code(self):

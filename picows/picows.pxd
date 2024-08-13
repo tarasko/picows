@@ -59,8 +59,8 @@ cdef class WSFrame:
         readonly uint8_t fin
         readonly uint8_t last_in_buffer
 
-    # Creates a new python object every time
     cpdef bytes get_payload_as_bytes(self)
+    cpdef str get_payload_as_utf8_text(self)
     cpdef str get_payload_as_ascii_text(self)
     cpdef object get_payload_as_memoryview(self)
 
