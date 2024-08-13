@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import os
 
-import uvloop
 from logging import getLogger
 
 import websockets
@@ -119,7 +118,9 @@ if __name__ == '__main__':
     duration = int(args.duration)
 
     if not args.disable_uvloop:
-        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        if os.name != 'nt':
+            import uvloop
+            asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
     try:
         from examples.picows_client_cython import picows_main_cython

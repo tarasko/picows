@@ -1,5 +1,5 @@
 import asyncio
-import uvloop
+import os
 from logging import getLogger, INFO, basicConfig
 from picows import WSFrame, WSTransport, ws_create_server, WSListener, WSMsgType
 
@@ -25,6 +25,9 @@ async def async_main():
 
 
 if __name__ == '__main__':
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    if os.name != 'nt':
+        import uvloop
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        
     basicConfig(level=INFO)
     asyncio.run(async_main())

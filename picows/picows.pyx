@@ -711,24 +711,27 @@ cdef class WSProtocol:
         sockname = transport.get_extra_info('sockname')
 
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK, 1)
+        if hasattr(socket, "TCP_QUICKACK"):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK, 1)
 
         self._logger = self._logger.getChild(str(sock.fileno()))
         self._frame_parser = WSFrameParser(self._logger)
+
+        quickack = sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK) if hasattr(socket, "TCP_QUICKACK") else False
 
         if self._is_client_side:
             self._logger.info("WS connection established: %s -> %s, recvbuf=%d, sendbuf=%d, quickack=%d, nodelay=%d",
                               peername, sockname,
                               sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF),
                               sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF),
-                              sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK),
+                              quickack,
                               sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
         else:
             self._logger.info("New connection accepted: %s -> %s, recvbuf=%d, sendbuf=%d, quickack=%d, nodelay=%d",
                               peername, sockname,
                               sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF),
                               sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF),
-                              sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK),
+                              quickack,
                               sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
 
 
