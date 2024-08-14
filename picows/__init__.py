@@ -25,21 +25,23 @@ __all__ = [
 
 
 __pdoc__ = {
+    "picows.picows": False,
     "picows.WSProtocol": False,
     "picows.WSFrameParser": False,
     "picows.WSFrameBuilder": False,
     "picows.MemoryBuffer": False,
-    "picows.WSFrame.fin": "Indicates whether this is the last frame of the message.\n\n"
+    "picows.WSFrame.fin": "Boolean. Indicates whether this is the last frame of the message.\n\n"
                           "Websocket messages MAY consist of multiple frames. "
                           "Unfragmented message:\n\n"
                           "    WSFrame(opcode=WSMsgType.<actual message type>, fin=True)\n"
-                          "Fragmented message example:\n\n"
+                          "Fragmented message:\n\n"
                           "    WSFrame(opcode=WSMsgType.<actual message type>, fin=False)\n"
                           "    WSFrame(opcode=WSMsgType.CONTINUATION, fin=False)\n"
                           "    ...\n"
                           "    # the last frame of the message\n"                          
-                          "    WSFrame(opcode=WSMsgType.CONTINUATION, fin=True) \n"
-                          ""
-    "picows.WSFrame."
-
+                          "    WSFrame(opcode=WSMsgType.CONTINUATION, fin=True) \n",
+    "picows.WSFrame.last_in_buffer": "Boolean. Indicates whether this is the last available frame in the receiving "
+                                     "buffer. The buffer may contain more available data, but not the full frame yet.",
+    "picows.WSFrame.tail_size": "Integer. Indicates how many bytes are in the receiving buffer after the current frame.",
+    "picows.WSFrame.opcode": "`picows.WSMsgType`. The message type"
 }

@@ -69,7 +69,7 @@ cdef extern from * nogil:
     uint64_t htobe64(uint64_t)
 
 
-class PicowsError(Exception):
+class WSError(Exception):
     """WebSocket protocol parser error."""
 
     def __init__(self, WSCloseCode code, str message) -> None:
@@ -336,13 +336,13 @@ cdef class WSFrameParser:
                     self._buffer.data + self._f_curr_state_start_pos,
                     max(self._f_new_data_start_pos - self._f_curr_state_start_pos, <size_t>64)
                 )
-                raise PicowsError(
+                raise WSError(
                     WSCloseCode.PROTOCOL_ERROR,
                     f"Received frame with non-zero reserved bits, rsv1={rsv1}, rsv2={rsv2}, rsv3={rsv3}, opcode={self._f_opcode}: {mem_dump}",
                 )
 
             if self._f_opcode > 0x7 and not self._f_fin:
-                raise PicowsError(
+                raise WSError(
                     WSCloseCode.PROTOCOL_ERROR,
                     "Received fragmented control frame",
                 )
@@ -353,7 +353,7 @@ cdef class WSFrameParser:
             # Control frames MUST have a payload
             # length of 125 bytes or less
             if self._f_opcode > 0x7 and self._f_payload_length_flag > 125:
-                raise PicowsError(
+                raise WSError(
                     WSCloseCode.PROTOCOL_ERROR,
                     "Control frame payload cannot be " "larger than 125 bytes",
                 )
@@ -416,11 +416,11 @@ cdef class WSFrameParser:
 
             if frame.opcode == WSMsgType.CLOSE:
                 if frame.get_close_code() < 3000 and frame.get_close_code() not in ALLOWED_CLOSE_CODES:
-                    raise PicowsError(WSCloseCode.PROTOCOL_ERROR,
+                    raise WSError(WSCloseCode.PROTOCOL_ERROR,
                                          f"Invalid close code: {frame.get_close_code()}")
 
                 if frame.payload_size > 0 and frame.payload_size < 2:
-                    raise PicowsError(WSCloseCode.PROTOCOL_ERROR,
+                    raise WSError(WSCloseCode.PROTOCOL_ERROR,
                                          f"Invalid close frame: {frame.fin} {frame.opcode} {frame.get_payload_as_bytes()}")
 
             return frame
@@ -614,19 +614,49 @@ cdef class WSFrameBuilder:
 
 
 cdef class WSListener:
+    """
+    Base class for user handlers.\n
+    All `on_ws_*` methods receive `transport` as a first argument for convenience. It is guaranteed that passed
+    `transport` object is always the same for the same connection.
+    """
+
     cpdef on_ws_connected(self, WSTransport transport):
+        """        
+        Called after websocket handshake is complete and websocket is ready to send and receive frames.\n
+        `transport`: `picows.WSTransport`.\n      
+        """
         pass
 
     cpdef on_ws_frame(self, WSTransport transport, WSFrame frame):
+        """
+        Called when a new frame is received.\n
+        .. DANGER::
+            WSFrame is essentially just a pointer to a chunk of memory in the receiving buffer. It does not own 
+            the memory. Do NOT cache or store WSFrame object for later processing because the data may be invalidated
+            after `picows.WSListener.on_ws_frame` is complete.
+            Process the payload immediatelly or just copy it with one of `WSFrame.get_*` methods.
+        `transport`: `picows.WSTransport`\n
+        `frame`: `picows.WSFrame`\n                           
+        """
         pass
 
     cpdef on_ws_disconnected(self, WSTransport transport):
+        """
+        Called when websocket has been disconnected.\
+        `transport`: `picows.WSTransport`\n
+        """
         pass
 
     cpdef pause_writing(self):
+        """
+        Called when the underlying transport’s buffer goes over the high watermark.
+        """
         pass
 
     cpdef resume_writing(self):
+        """
+        Called when the underlying transport’s buffer drains below the low watermark.
+        """
         pass
 
 
