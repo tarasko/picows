@@ -55,7 +55,7 @@ cdef class WSFrame:
         char* payload_ptr
         size_t payload_size
         readonly size_t tail_size
-        readonly WSMsgType opcode
+        readonly WSMsgType msg_type
         readonly uint8_t fin
         readonly uint8_t last_in_buffer
 
@@ -86,7 +86,7 @@ cdef class WSFrameParser:
         size_t _f_curr_frame_start_pos
         uint64_t _f_payload_length
         size_t _f_payload_start_pos
-        WSMsgType _f_opcode
+        WSMsgType _f_msg_type
         uint32_t _f_mask
         uint8_t _f_fin
         uint8_t _f_has_mask
@@ -107,8 +107,8 @@ cdef class WSFrameBuilder:
         MemoryBuffer _write_buf
         bint is_client_side
 
-    cdef prepare_frame_in_external_buffer(self, WSMsgType opcode, uint8_t* msg_ptr, size_t msg_length)
-    cpdef prepare_frame(self, WSMsgType opcode, message)
+    cdef prepare_frame_in_external_buffer(self, WSMsgType msg_type, uint8_t* msg_ptr, size_t msg_length)
+    cpdef prepare_frame(self, WSMsgType msg_type, message)
 
 
 cdef class WSTransport:
@@ -118,8 +118,8 @@ cdef class WSTransport:
         object _disconnected_future
         WSFrameBuilder _frame_builder
 
-    cdef send_reuse_external_buffer(self, WSMsgType opcode, char* message, size_t message_size)
-    cpdef send(self, WSMsgType opcode, message)
+    cdef send_reuse_external_buffer(self, WSMsgType msg_type, char* message, size_t message_size)
+    cpdef send(self, WSMsgType msg_type, message)
     cpdef send_ping(self, message=*)
     cpdef send_pong(self, message=*)
     cpdef send_close(self, WSCloseCode close_code=*, close_message=*)

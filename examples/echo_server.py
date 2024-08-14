@@ -11,8 +11,8 @@ class PicowsServerListener(WSListener):
         self._transport = transport
 
     def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
-        self._transport.send(frame.opcode, frame.get_payload_as_bytes())
-        if frame.opcode == WSMsgType.CLOSE:
+        self._transport.send(frame.msg_type, frame.get_payload_as_bytes())
+        if frame.msg_type == WSMsgType.CLOSE:
             self._transport.disconnect()
 
 

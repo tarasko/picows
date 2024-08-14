@@ -7,7 +7,7 @@ import os
 import socket
 import struct
 import urllib.parse
-from typing import cast, Tuple
+from typing import cast, Tuple, Optional
 
 cimport cython
 
@@ -152,7 +152,7 @@ cdef class WSFrame:
         Returns WSCloseCode. Only valid for WSMsgType.CLOSE frames        
         """
 
-        assert self.opcode == WSMsgType.CLOSE, "get_close_code can be called only for CLOSE frames"
+        assert self.msg_type == WSMsgType.CLOSE, "get_close_code can be called only for CLOSE frames"
 
         if self.payload_size < 2:
             return WSCloseCode.NO_INFO
@@ -165,7 +165,7 @@ cdef class WSFrame:
         Only valid for WSMsgType.CLOSE frames.
         """
 
-        assert self.opcode == WSMsgType.CLOSE, "get_close_message can be called only for CLOSE frames"
+        assert self.msg_type == WSMsgType.CLOSE, "get_close_message can be called only for CLOSE frames"
 
         if self.payload_size <= 2:
             return None
@@ -173,7 +173,7 @@ cdef class WSFrame:
             return PyBytes_FromStringAndSize(self.payload_ptr + 2, <Py_ssize_t>self.payload_size - 2)
 
     def __str__(self):
-        return (f"WSFrame({WSMsgType(self.opcode).name}, fin={True if self.fin else False}, "
+        return (f"WSFrame({WSMsgType(self.msg_type).name}, fin={True if self.fin else False}, "
                 f"lib={True if self.last_in_buffer else False}, psz={self.payload_size}, tsz={self.tail_size})")
 
 
@@ -242,7 +242,7 @@ cdef class WSFrameParser:
         self._f_curr_frame_start_pos = 0
         self._f_payload_length = 0
         self._f_payload_start_pos = 0
-        self._f_opcode = WSMsgType.CLOSE
+        self._f_msg_type = WSMsgType.CLOSE
         self._f_mask = 0
         self._f_fin = 0
         self._f_has_mask = 0
@@ -319,7 +319,7 @@ cdef class WSFrameParser:
             rsv1 = (first_byte >> 6) & 1
             rsv2 = (first_byte >> 5) & 1
             rsv3 = (first_byte >> 4) & 1
-            self._f_opcode = <WSMsgType>(first_byte & 0xF)
+            self._f_msg_type = <WSMsgType>(first_byte & 0xF)
 
             # frame-fin = %x0 ; more frames of this message follow
             #           / %x1 ; final frame of this message
@@ -338,10 +338,10 @@ cdef class WSFrameParser:
                 )
                 raise WSError(
                     WSCloseCode.PROTOCOL_ERROR,
-                    f"Received frame with non-zero reserved bits, rsv1={rsv1}, rsv2={rsv2}, rsv3={rsv3}, opcode={self._f_opcode}: {mem_dump}",
+                    f"Received frame with non-zero reserved bits, rsv1={rsv1}, rsv2={rsv2}, rsv3={rsv3}, msg_type={self._f_msg_type}: {mem_dump}",
                 )
 
-            if self._f_opcode > 0x7 and not self._f_fin:
+            if self._f_msg_type > 0x7 and not self._f_fin:
                 raise WSError(
                     WSCloseCode.PROTOCOL_ERROR,
                     "Received fragmented control frame",
@@ -352,7 +352,7 @@ cdef class WSFrameParser:
 
             # Control frames MUST have a payload
             # length of 125 bytes or less
-            if self._f_opcode > 0x7 and self._f_payload_length_flag > 125:
+            if self._f_msg_type > 0x7 and self._f_payload_length_flag > 125:
                 raise WSError(
                     WSCloseCode.PROTOCOL_ERROR,
                     "Control frame payload cannot be " "larger than 125 bytes",
@@ -406,7 +406,7 @@ cdef class WSFrameParser:
             frame.payload_ptr = self._buffer.data + self._f_payload_start_pos
             frame.payload_size = self._f_payload_length
             frame.tail_size = self._f_new_data_start_pos - (self._f_curr_state_start_pos + self._f_payload_length)
-            frame.opcode = self._f_opcode
+            frame.msg_type = self._f_msg_type
             frame.fin = self._f_fin
             frame.last_in_buffer = 0
 
@@ -414,14 +414,14 @@ cdef class WSFrameParser:
             self._f_curr_frame_start_pos = self._f_curr_state_start_pos
             self._state = WSParserState.READ_HEADER
 
-            if frame.opcode == WSMsgType.CLOSE:
+            if frame.msg_type == WSMsgType.CLOSE:
                 if frame.get_close_code() < 3000 and frame.get_close_code() not in ALLOWED_CLOSE_CODES:
                     raise WSError(WSCloseCode.PROTOCOL_ERROR,
                                          f"Invalid close code: {frame.get_close_code()}")
 
                 if frame.payload_size > 0 and frame.payload_size < 2:
                     raise WSError(WSCloseCode.PROTOCOL_ERROR,
-                                         f"Invalid close frame: {frame.fin} {frame.opcode} {frame.get_payload_as_bytes()}")
+                                         f"Invalid close frame: {frame.fin} {frame.msg_type} {frame.get_payload_as_bytes()}")
 
             return frame
 
@@ -517,15 +517,15 @@ cdef class WSFrameBuilder:
         self._write_buf = MemoryBuffer(1024)
         self.is_client_side = is_client_side
 
-    cdef prepare_frame_in_external_buffer(self, WSMsgType opcode, uint8_t* msg_ptr, size_t msg_length):
+    cdef prepare_frame_in_external_buffer(self, WSMsgType msg_type, uint8_t* msg_ptr, size_t msg_length):
         cdef:
-            # Just fin byte and opcode
+            # Just fin byte and msg_type
             # No support for rsv/compression
             uint8_t* header_ptr = msg_ptr
             uint64_t extended_payload_length_64
             uint32_t mask = <uint32_t> rand() if self.is_client_side else 0
             uint16_t extended_payload_length_16
-            uint8_t first_byte = 0x80 | <uint8_t> opcode
+            uint8_t first_byte = 0x80 | <uint8_t> msg_type
             uint8_t second_byte = 0x80 if self.is_client_side else 0
 
         if msg_length < 126:
@@ -553,7 +553,7 @@ cdef class WSFrameBuilder:
         return PyBytes_FromStringAndSize(<char*>header_ptr, total_length)
         # return PyMemoryView_FromMemory(header_ptr, total_length, PyBUF_READ)
 
-    cpdef prepare_frame(self, WSMsgType opcode, message):
+    cpdef prepare_frame(self, WSMsgType msg_type, message):
         """Send a frame over the websocket with message as its payload."""
         cdef:
             Py_buffer msg_buffer
@@ -575,9 +575,9 @@ cdef class WSFrameBuilder:
             PyBuffer_Release(&msg_buffer)
 
         cdef:
-            # Just fin byte and opcode
+            # Just fin byte and msg_type
             # No support for rsv/compression
-            uint8_t first_byte = 0x80 | <uint8_t>opcode
+            uint8_t first_byte = 0x80 | <uint8_t>msg_type
             uint8_t second_byte = 0x80 if self.is_client_side else 0
             uint32_t mask = <uint32_t>rand() if self.is_client_side else 0
             uint16_t extended_payload_length_16
@@ -667,7 +667,7 @@ cdef class WSTransport:
         self._disconnected_future = loop.create_future()
         self._frame_builder = WSFrameBuilder(is_client_side)
 
-    cdef send_reuse_external_buffer(self, WSMsgType opcode, char* message, size_t message_size):
+    cdef send_reuse_external_buffer(self, WSMsgType msg_type, char* message, size_t message_size):
         """
         Send a frame over the websocket with a message as its payload.
         The message is a bytes-like object.
@@ -675,32 +675,29 @@ cdef class WSTransport:
         Message's buffer should have at least 10 bytes in front of the message pointer available for writing.
         This API is only available from Cython.
         """
-        frame = self._frame_builder.prepare_frame_in_external_buffer(opcode, <uint8_t*>message, message_size)
+        frame = self._frame_builder.prepare_frame_in_external_buffer(msg_type, <uint8_t*>message, message_size)
         self._transport.write(frame)
 
-    cpdef send(self, WSMsgType opcode, message):
+    cpdef send(self, WSMsgType msg_type, message):
         """
         Send a frame over the websocket with a message as its payload.
         
-        `opcode`: one of WSMsgType enum values
-        
+        `msg_type`: one of WSMsgType enum values\n 
         `message`: an optional bytes-like object
         """
-        frame = self._frame_builder.prepare_frame(opcode, message)
+        frame = self._frame_builder.prepare_frame(msg_type, message)
         self._transport.write(frame)
 
     cpdef send_ping(self, message=None):
         """
-        Send a PING control frame with an optional message.
-        
+        Send a PING control frame with an optional message.\n        
         `message`: an optional bytes-like object        
         """
         self.send(WSMsgType.PING, message)
 
     cpdef send_pong(self, message=None):
         """
-        Send a PONG control frame with an optional message.
-
+        Send a PONG control frame with an optional message.\n
         `message`: an optional bytes-like object        
         """
         self.send(WSMsgType.PONG, message)
@@ -709,10 +706,8 @@ cdef class WSTransport:
         """
         Send a CLOSE control frame with an optional message.
         This method doesn't disconnect the underlying transport.
-        Does nothing if the underlying transport is already disconnected.
-        
-        `close_code`: WSCloseCode value
-                
+        Does nothing if the underlying transport is already disconnected.\n        
+        `close_code`: `picows.WSCloseCode` value\n                
         `close_message`: an optional bytes-like object        
         """
         if self._transport.is_closing():
@@ -943,11 +938,23 @@ cdef class WSProtocol:
         self.transport.close()
 
 
-async def ws_connect(str url, ws_listener_factory, str logger_name, ssl_context=None, bint disconnect_on_exception=True) -> Tuple[WSTransport, WSListener]:
+async def ws_connect(str url: str,
+                     ws_listener_factory,
+                     str logger_name: str,
+                     ssl=None, bint disconnect_on_exception=True) -> Tuple[WSTransport, WSListener]:
+    """
+    :param url:
+    :param ws_listener_factory:
+    :param logger_name:
+    :param ss:
+    :param disconnect_on_exception:
+    :return:
+    """
+
     url_parts = urllib.parse.urlparse(url, allow_fragments=False)
 
     if url_parts.scheme == "wss":
-        ssl_context = ssl_context or True
+        ssl = ssl or True
         port = url_parts.port or 443
         ssl_handshake_timeout = 2
         ssl_shutdown_timeout = 2
@@ -964,7 +971,7 @@ async def ws_connect(str url, ws_listener_factory, str logger_name, ssl_context=
     cdef WSProtocol ws_protocol
 
     (_, ws_protocol) = await asyncio.get_running_loop().create_connection(
-        ws_protocol_factory, url_parts.hostname, port, ssl=ssl_context,
+        ws_protocol_factory, url_parts.hostname, port, ssl=ssl,
         ssl_handshake_timeout=ssl_handshake_timeout, ssl_shutdown_timeout=ssl_shutdown_timeout)
 
     await ws_protocol.wait_until_handshake_complete()
