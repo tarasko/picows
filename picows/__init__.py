@@ -34,7 +34,7 @@ __pdoc__ = {
                    "    WSFrame(opcode=WSMsgType.<actual message type>, fin=False)\n"
                    "    WSFrame(opcode=WSMsgType.CONTINUATION, fin=False)\n"
                    "    ...\n"
-                   "    # the last frame of the message\n"                          
+                   "    # the last frame of the message\n"
                    "    WSFrame(opcode=WSMsgType.CONTINUATION, fin=True) \n",
     "WSFrame.last_in_buffer": "Boolean. Indicates whether this is the last available frame in the receiving "
                               "buffer. The buffer may contain more available data, but not the full frame yet.",

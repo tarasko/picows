@@ -2,8 +2,6 @@ import asyncio
 import base64
 import os
 
-import pytest_asyncio
-
 import picows
 import pytest
 import async_timeout
@@ -58,7 +56,7 @@ async def echo_server():
     # Teardown server
     task.cancel()
     try:
-        await(task)
+        await task
     except:
         pass
 
