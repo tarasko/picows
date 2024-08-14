@@ -15,6 +15,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX",
     "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
@@ -31,7 +32,7 @@ requires = ["setuptools >= 61.0", "wheel", "Cython >= 3.0"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "pytest-asyncio", "websockets", "aiohttp"]
 
 [project.urls]
 Homepage = "https://github.com/tarasko/picows"

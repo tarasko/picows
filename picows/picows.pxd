@@ -54,7 +54,7 @@ cdef class WSFrame:
     cdef:
         char* payload_ptr
         size_t payload_size
-        size_t tail_size
+        readonly size_t tail_size
         readonly WSMsgType opcode
         readonly uint8_t fin
         readonly uint8_t last_in_buffer
@@ -118,13 +118,12 @@ cdef class WSTransport:
         object _disconnected_future
         WSFrameBuilder _frame_builder
 
-    # Don't copy message, reuse its memory and append websocket header in front of the message
-    # Message's buffer should have at least 10 bytes in front of the message pointer available for writing
     cdef send_reuse_external_buffer(self, WSMsgType opcode, char* message, size_t message_size)
     cpdef send(self, WSMsgType opcode, message)
-    cpdef ping(self, message=*)
-    cpdef pong(self, message=*)
-    cpdef disconnect(self, close_message=*)
+    cpdef send_ping(self, message=*)
+    cpdef send_pong(self, message=*)
+    cpdef send_close(self, WSCloseCode close_code=*, close_message=*)
+    cpdef disconnect(self)
 
     cdef send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64)
     cdef send_http_handshake_response(self, bytes accept_val)

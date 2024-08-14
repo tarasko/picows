@@ -5,8 +5,9 @@ import hashlib
 import logging
 import os
 import socket
+import struct
 import urllib.parse
-from typing import cast
+from typing import cast, Tuple
 
 cimport cython
 
@@ -14,8 +15,7 @@ from cpython.bytes cimport PyBytes_GET_SIZE, PyBytes_AS_STRING, PyBytes_FromStri
 from cpython.memoryview cimport PyMemoryView_FromMemory
 from cpython.mem cimport PyMem_Malloc, PyMem_Realloc, PyMem_Free
 from cpython.buffer cimport PyBUF_WRITE, PyBUF_READ, PyBUF_SIMPLE, PyObject_GetBuffer, PyBuffer_Release
-from cpython.object cimport PyObject
-from cpython.ref cimport Py_DECREF
+from cpython.unicode cimport PyUnicode_FromStringAndSize, PyUnicode_DecodeASCII
 
 from libc.string cimport memmove, memcpy
 from libc.stdlib cimport rand
@@ -69,11 +69,6 @@ cdef extern from * nogil:
     uint64_t htobe64(uint64_t)
 
 
-cdef extern from "Python.h":
-    PyObject *PyUnicode_FromStringAndSize(const char *u, Py_ssize_t size)
-    PyObject *PyUnicode_DecodeASCII(char *s, Py_ssize_t size, char *errors)
-
-
 class PicowsError(Exception):
     """WebSocket protocol parser error."""
 
@@ -112,50 +107,66 @@ cdef _mask_payload(uint8_t* input, size_t input_len, uint32_t mask):
 @cython.no_gc
 @cython.freelist(64)
 cdef class WSFrame:
+    """
+    Received websocket frame.\n\n
+    Internally WSFrame just points to a chunk of memory in the receiving buffer without copying or owning memory.
+    .. DANGER::
+        Do NOT cache or use WSFrame object beyond `picows.WSListener.on_ws_frame` callback.
+    In order to actually copy payload use one of the `get_*` methods.
+    """
+
     cpdef bytes get_payload_as_bytes(self):
         """
         Returns a new bytes object with a copy of frame payload.
+        Does not cache results. Payload is copied and a new bytes object is created every time this method is called.
         """
         return PyBytes_FromStringAndSize(self.payload_ptr, <Py_ssize_t>self.payload_size)
 
     cpdef str get_payload_as_utf8_text(self):
         """
         Interpret payload as UTF8 text and returns a new str object.
-        Behaviour is underfined (most likely python will crash) if payload doesn't contain a valid UTF8
+        Does not cache results. Payload is copied and a new str object is created every time this method is called.
+        Throws if payload is not a valid UTF8 string.
         """
-        cdef str s = <str>PyUnicode_FromStringAndSize(self.payload_ptr, <Py_ssize_t>self.payload_size)
-        # Workaround for broken cython reference counting
-        Py_DECREF(s)
-        return s
+        return PyUnicode_FromStringAndSize(self.payload_ptr, <Py_ssize_t>self.payload_size)
 
     cpdef str get_payload_as_ascii_text(self):
         """
-        Interpret payload as UTF8 text and returns a new str object.
-        Behaviour is underfined (most likely python will crash) if payload doesn't contain a valid UTF8
+        Interpret payload as 7 ASCII text and returns a new str object.
+        Does not cache results. Payload is copied and a new str object is created every time this method is called.
+        Throws if payload is not a valid 7 ASCII string.
         """
-        cdef PyObject* ptr = PyUnicode_DecodeASCII(self.payload_ptr, <Py_ssize_t>self.payload_size, NULL)
-        if ptr == NULL:
-            raise PicowsError("payload doesn't contain ASCII string")
-        cdef str s = <str>ptr
-        # Workaround for broken cython reference counting
-        Py_DECREF(s)
-        return s
+        return PyUnicode_DecodeASCII(self.payload_ptr, <Py_ssize_t>self.payload_size, NULL)
 
     cpdef object get_payload_as_memoryview(self):
         """
-        Return continous memoryview to a parser buffer with payload. 
-        Memoryview content will be invalidated after on_ws_frame is complete.
-        Please process payload or copy it as soon as possible.
+        Returns continous memoryview to a parser buffer with payload. 
+        .. DANGER::
+            Memoryview content will be invalidated after `picows.WSListener.on_ws_frame` is complete.
+            Please process payload or copy it as soon as possible.
         """
         return PyMemoryView_FromMemory(self.payload_ptr, <Py_ssize_t>self.payload_size, PyBUF_READ)
 
     cpdef WSCloseCode get_close_code(self):
+        """
+        Returns WSCloseCode. Only valid for WSMsgType.CLOSE frames        
+        """
+
+        assert self.opcode == WSMsgType.CLOSE, "get_close_code can be called only for CLOSE frames"
+
         if self.payload_size < 2:
             return WSCloseCode.NO_INFO
         else:
             return <WSCloseCode>ntohs((<uint16_t *>self.payload_ptr)[0])
 
     cpdef bytes get_close_message(self):
+        """
+        Returns a new bytes object with a close message. If there is no close message then returns None. 
+        Only valid for WSMsgType.CLOSE frames.
+        """
+
+        assert self.opcode == WSMsgType.CLOSE, "get_close_message can be called only for CLOSE frames"
+
         if self.payload_size <= 2:
             return None
         else:
@@ -627,28 +638,76 @@ cdef class WSTransport:
         self._frame_builder = WSFrameBuilder(is_client_side)
 
     cdef send_reuse_external_buffer(self, WSMsgType opcode, char* message, size_t message_size):
+        """
+        Send a frame over the websocket with a message as its payload.
+        The message is a bytes-like object.
+        Don't copy message, reuse its memory and append websocket header in front of the message
+        Message's buffer should have at least 10 bytes in front of the message pointer available for writing.
+        This API is only available from Cython.
+        """
         frame = self._frame_builder.prepare_frame_in_external_buffer(opcode, <uint8_t*>message, message_size)
         self._transport.write(frame)
 
     cpdef send(self, WSMsgType opcode, message):
-        """Send a frame over the websocket with message as its payload."""
+        """
+        Send a frame over the websocket with a message as its payload.
+        
+        `opcode`: one of WSMsgType enum values
+        
+        `message`: an optional bytes-like object
+        """
         frame = self._frame_builder.prepare_frame(opcode, message)
         self._transport.write(frame)
 
-    cpdef ping(self, message=None):
+    cpdef send_ping(self, message=None):
+        """
+        Send a PING control frame with an optional message.
+        
+        `message`: an optional bytes-like object        
+        """
         self.send(WSMsgType.PING, message)
 
-    cpdef pong(self, message=None):
+    cpdef send_pong(self, message=None):
+        """
+        Send a PONG control frame with an optional message.
+
+        `message`: an optional bytes-like object        
+        """
         self.send(WSMsgType.PONG, message)
 
-    cpdef disconnect(self, close_message=None):
+    cpdef send_close(self, WSCloseCode close_code=WSCloseCode.NO_INFO, close_message=None):
+        """
+        Send a CLOSE control frame with an optional message.
+        This method doesn't disconnect the underlying transport.
+        Does nothing if the underlying transport is already disconnected.
+        
+        `close_code`: WSCloseCode value
+                
+        `close_message`: an optional bytes-like object        
+        """
         if self._transport.is_closing():
             return
 
-        self.send(WSMsgType.CLOSE, close_message)
+        cdef bytes close_payload = struct.pack("!H", <uint16_t>close_code)
+        if close_message is not None:
+            close_payload += close_message
+
+        self.send(WSMsgType.CLOSE, close_payload)
+
+    cpdef disconnect(self):
+        """
+        Immediately disconnect the underlying transport. 
+        It is ok to call this method multiple times. It does nothing if the transport is already disconnected.         
+        """
+        if self._transport.is_closing():
+            return
         self._transport.close()
 
     async def wait_until_closed(self):
+        """
+        Coroutine that conveniently allows to wait until websocket is completely closed
+        (underlying transport is disconnected)
+        """
         if not self._disconnected_future.done():
             await asyncio.shield(self._disconnected_future)
 
@@ -687,12 +746,14 @@ cdef class WSProtocol:
         object _loop
         object _handshake_timeout_handle
         bint _is_client_side
+        bint _disconnect_on_exception
         bint _log_debug_enabled
 
         WSTransport transport
         WSListener listener
 
-    def __init__(self, str host_port, str ws_path, bint is_client_side, ws_listener_factory, str logger_name):
+    def __init__(self, str host_port, str ws_path, bint is_client_side, ws_listener_factory, str logger_name,
+                 bint disconnect_on_exception):
         self._host_port = host_port.encode()
         self._ws_path = ws_path.encode() if ws_path else b"/"
         self._logger = logging.getLogger(f"pico_ws.{logger_name}")
@@ -700,6 +761,7 @@ cdef class WSProtocol:
         self._loop = asyncio.get_running_loop()
         self._handshake_timeout_handle = None
         self._is_client_side = is_client_side
+        self._disconnect_on_exception = disconnect_on_exception
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
 
         self.transport = None
@@ -818,14 +880,30 @@ cdef class WSProtocol:
             return self._frame_parser.get_next_frame()
         except:
             self._logger.exception("WS parser failure, initiate disconnect")
+            self.transport.send_close(WSCloseCode.PROTOCOL_ERROR)
             self.transport.disconnect()
+
+    cdef _invoke_on_ws_connected(self, WSFrame frame):
+        try:
+            self.listener.on_ws_connected(self.transport)
+        except Exception as e:
+            if self._disconnect_on_exception:
+                self._logger.exception("Unhandled exception in on_ws_connected, initiate disconnect")
+                self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
+                self.transport.disconnect()
+            else:
+                self._logger.exception("Unhandled exception in on_ws_frame")
 
     cdef _invoke_on_ws_frame(self, WSFrame frame):
         try:
             self.listener.on_ws_frame(self.transport, frame)
-        except:
-            self._logger.exception("Unhandled exception in on_ws_frame, initiate disconnect")
-            self.transport.disconnect()
+        except Exception as e:
+            if self._disconnect_on_exception:
+                self._logger.exception("Unhandled exception in on_ws_frame, initiate disconnect")
+                self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
+                self.transport.disconnect()
+            else:
+                self._logger.exception("Unhandled exception in on_ws_frame")
 
     async def wait_until_handshake_complete(self):
         await asyncio.shield(self._frame_parser.handshake_complete_future)
@@ -835,7 +913,7 @@ cdef class WSProtocol:
         self.transport.close()
 
 
-async def ws_connect(str url, ws_listener_factory, str logger_name, ssl_context=None):
+async def ws_connect(str url, ws_listener_factory, str logger_name, ssl_context=None, bint disconnect_on_exception=True) -> Tuple[WSTransport, WSListener]:
     url_parts = urllib.parse.urlparse(url, allow_fragments=False)
 
     if url_parts.scheme == "wss":
@@ -851,7 +929,7 @@ async def ws_connect(str url, ws_listener_factory, str logger_name, ssl_context=
     else:
         raise ValueError(f"invalid url scheme: {url}")
 
-    ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, url_parts.path, True, ws_listener_factory, logger_name)
+    ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, url_parts.path, True, ws_listener_factory, logger_name, disconnect_on_exception)
 
     cdef WSProtocol ws_protocol
 
@@ -865,7 +943,8 @@ async def ws_connect(str url, ws_listener_factory, str logger_name, ssl_context=
     return ws_protocol.transport, ws_protocol.listener
 
 
-async def ws_create_server(str url, ws_listener_factory, str logger_name, ssl_context=None) -> asyncio.Server:
+async def ws_create_server(str url, ws_listener_factory, str logger_name, ssl_context=None,
+                           disconnect_on_exception=True) -> asyncio.Server:
     url_parts = urllib.parse.urlparse(url, allow_fragments=False)
 
     if url_parts.scheme == "wss":
@@ -881,7 +960,8 @@ async def ws_create_server(str url, ws_listener_factory, str logger_name, ssl_co
     else:
         raise ValueError(f"invalid url scheme: {url}")
 
-    ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, url_parts.path, False, ws_listener_factory, logger_name)
+    ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, url_parts.path, False, ws_listener_factory, logger_name,
+                                             disconnect_on_exception)
 
     cdef WSProtocol ws_protocol
 
