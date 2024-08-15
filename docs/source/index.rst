@@ -4,6 +4,6 @@ picows documentation
 .. toctree::
     :hidden:
 
-    introduction
-    reference
+   introduction
+   reference
 
