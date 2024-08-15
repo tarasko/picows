@@ -13,7 +13,7 @@
 picows is a library for building WebSocket clients and servers with a focus on performance.
 
 Performance
------------
+===========
 picows is implemented in Cython and provides unparalleled performance compared to other popular WebSocket libraries.
 
 .. image:: https://raw.githubusercontent.com/tarasko/picows/master/docs/source/_static/picows_benchmark.png
@@ -25,7 +25,7 @@ is also included for reference. Typically, picows is ~1.5-2 times faster than ai
 `here <https://github.com/tarasko/picows/blob/master/examples/echo_client_benchmark.py>`_.
 
 Installation
-------------
+============
 
 picows requires Python 3.8 or greater and is available on PyPI.
 Use pip to install it::
@@ -33,12 +33,12 @@ Use pip to install it::
     $ pip install picows
 
 Rationale
----------
+=========
 Popular WebSocket libraries attempt to provide high-level interfaces. They take care of timeouts, flow control, optional compression/decompression, assembling WebSocket messages from frames, as well as implementing async iteration interfaces.
 These features come with a significant cost even when messages are small, unfragmented (every WebSocket frame is final), and uncompressed. The async iteration interface is done using Futures, which adds extra work for the event loop and introduces delays. Furthermore, it is not always possible to check if more messages have already arrived; sometimes, only the last message matters.
 
 API Design
-----------
+==========
 The API follows the low-level `transport/protocol design from asyncio <https://docs.python.org/3/library/asyncio-protocol.html#asyncio-transports-protocols>`_.
 It passes frames instead of messages to a user handler. A message can potentially consist of multiple frames but it is up to user to choose the best strategy for merging them. 
 Same principle applies for compression and flow control. User can implement their own strategies using the most appropriate tools.
@@ -46,10 +46,10 @@ Same principle applies for compression and flow control. User can implement thei
 That being said that the most common use-case is when messages and frames are the same, i.e. a message consists of only a single frame, and no compression is being used.
 
 Getting started
----------------
+===============
 
 Echo client
-===========
+-----------
 Connects to an echo server, sends a message and disconnect upon reply.
 
 .. code-block:: python
@@ -84,7 +84,7 @@ This prints:
   Echo reply: Hello world
 
 Echo server
-===========
+-----------
 
 .. code-block:: python
 
