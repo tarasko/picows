@@ -1000,6 +1000,8 @@ async def ws_connect(str url: str,
         port = url_parts.port or 443
     elif url_parts.scheme == "ws":
         ssl_context = None
+        ssl_handshake_timeout = None
+        ssl_shutdown_timeout = None
         port = url_parts.port or 80
     else:
         raise ValueError(f"invalid url scheme: {url}")
@@ -1069,6 +1071,8 @@ async def ws_create_server(str url,
         port = url_parts.port or 443
     elif url_parts.scheme == "ws":
         ssl_context = None
+        ssl_handshake_timeout = None
+        ssl_shutdown_timeout = None
         port = url_parts.port or 80
     else:
         raise ValueError(f"invalid url scheme: {url}")
