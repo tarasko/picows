@@ -241,292 +241,6 @@ cdef class MemoryBuffer:
         self.size = new_size
 
 
-cdef class WSFrameParser:
-    def __init__(self, logger):
-        self.websocket_key_b64 = base64.b64encode(os.urandom(16))
-        self.handshake_complete_future = asyncio.get_running_loop().create_future()
-
-        self._logger = logger
-
-        self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
-        self._state = WSParserState.WAIT_UPGRADE_RESPONSE
-        self._buffer = MemoryBuffer()
-
-        self._f_new_data_start_pos = 0
-        self._f_curr_state_start_pos = 0
-        self._f_curr_frame_start_pos = 0
-        self._f_payload_length = 0
-        self._f_payload_start_pos = 0
-        self._f_msg_type = WSMsgType.CLOSE
-        self._f_mask = 0
-        self._f_fin = 0
-        self._f_has_mask = 0
-        self._f_payload_length_flag = 0
-
-    cdef get_buffer(self, size_t size_hint):
-        cdef sz = size_hint + 1024
-        if self._buffer.size - self._f_new_data_start_pos < sz:
-            self._buffer.resize(self._f_new_data_start_pos + sz)
-
-        if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
-                             size_hint,
-                             self._buffer.size - self._f_new_data_start_pos,
-                             self._buffer.size,
-                             self._buffer.capacity)
-
-        return PyMemoryView_FromMemory(
-            self._buffer.data + self._f_new_data_start_pos,
-            self._buffer.size - self._f_new_data_start_pos,
-            PyBUF_WRITE)
-
-    cdef buffer_updated(self, size_t nbytes):
-        if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
-                             self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)
-        self._f_new_data_start_pos += nbytes
-
-    cdef feed_data(self, bytes data):
-        cdef:
-            const char* ptr = PyBytes_AS_STRING(data)
-            size_t sz = PyBytes_GET_SIZE(data)
-
-        # Leave some space for simd parsers like simdjson, they required extra space beyond normal data to make sure
-        # that vector reads don't cause access violation
-        if self._buffer.size - self._f_new_data_start_pos < (sz + 64):
-            self._buffer.resize(self._f_new_data_start_pos + sz + 64)
-
-        memcpy(self._buffer.data + self._f_new_data_start_pos, ptr, sz)
-        self._f_new_data_start_pos += sz
-
-    cdef shrink_buffer(self):
-        if self._f_curr_frame_start_pos > 0:
-            memmove(self._buffer.data,
-                    self._buffer.data + self._f_curr_frame_start_pos,
-                    self._f_new_data_start_pos - self._f_curr_frame_start_pos)
-
-            self._f_new_data_start_pos -= self._f_curr_frame_start_pos
-            self._f_curr_state_start_pos -= self._f_curr_frame_start_pos
-            self._f_payload_start_pos -= self._f_curr_frame_start_pos
-            self._f_curr_frame_start_pos = 0
-
-    cdef WSFrame get_next_frame(self): #  -> Optional[WSFrame]
-        """Return the next frame from the socket."""
-        cdef:
-            uint8_t first_byte
-            uint8_t second_byte
-            uint8_t rsv1, rsv2, rsv3
-            WSFrame frame
-
-        if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
-            self._handle_upgrade_response()
-            if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
-                return None
-
-        if self._state == WSParserState.READ_HEADER:
-            if self._f_new_data_start_pos - self._f_curr_state_start_pos < 2:
-                return None
-
-            first_byte = <uint8_t>self._buffer.data[self._f_curr_state_start_pos]
-            second_byte = <uint8_t>self._buffer.data[self._f_curr_state_start_pos + 1]
-
-            self._f_fin = (first_byte >> 7) & 1
-            rsv1 = (first_byte >> 6) & 1
-            rsv2 = (first_byte >> 5) & 1
-            rsv3 = (first_byte >> 4) & 1
-            self._f_msg_type = <WSMsgType>(first_byte & 0xF)
-
-            # frame-fin = %x0 ; more frames of this message follow
-            #           / %x1 ; final frame of this message
-            # frame-rsv1 = %x0 ;
-            #    1 bit, MUST be 0 unless negotiated otherwise
-            # frame-rsv2 = %x0 ;
-            #    1 bit, MUST be 0 unless negotiated otherwise
-            # frame-rsv3 = %x0 ;
-            #    1 bit, MUST be 0 unless negotiated otherwise
-            #
-            # Remove rsv1 from this test for deflate development
-            if rsv1 or rsv2 or rsv3:
-                mem_dump = PyBytes_FromStringAndSize(
-                    self._buffer.data + self._f_curr_state_start_pos,
-                    max(self._f_new_data_start_pos - self._f_curr_state_start_pos, <size_t>64)
-                )
-                raise WSError(
-                    WSCloseCode.PROTOCOL_ERROR,
-                    f"Received frame with non-zero reserved bits, rsv1={rsv1}, rsv2={rsv2}, rsv3={rsv3}, msg_type={self._f_msg_type}: {mem_dump}",
-                )
-
-            if self._f_msg_type > 0x7 and not self._f_fin:
-                raise WSError(
-                    WSCloseCode.PROTOCOL_ERROR,
-                    "Received fragmented control frame",
-                )
-
-            self._f_has_mask = (second_byte >> 7) & 1
-            self._f_payload_length_flag = second_byte & 0x7F
-
-            # Control frames MUST have a payload
-            # length of 125 bytes or less
-            if self._f_msg_type > 0x7 and self._f_payload_length_flag > 125:
-                raise WSError(
-                    WSCloseCode.PROTOCOL_ERROR,
-                    "Control frame payload cannot be " "larger than 125 bytes",
-                )
-
-            self._f_curr_state_start_pos += 2
-            self._state = WSParserState.READ_PAYLOAD_LENGTH
-
-        # read payload length
-        if self._state == WSParserState.READ_PAYLOAD_LENGTH:
-            if self._f_payload_length_flag == 126:
-                if self._f_new_data_start_pos - self._f_curr_state_start_pos < 2:
-                    return None
-                self._f_payload_length = ntohs((<uint16_t*>&self._buffer.data[self._f_curr_state_start_pos])[0])
-                self._f_curr_state_start_pos += 2
-            elif self._f_payload_length_flag > 126:
-                if self._f_new_data_start_pos - self._f_curr_state_start_pos < 8:
-                    return None
-                self._f_payload_length = be64toh((<uint64_t*>&self._buffer.data[self._f_curr_state_start_pos])[0])
-                self._f_curr_state_start_pos += 8
-            else:
-                self._f_payload_length = self._f_payload_length_flag
-
-            if self._f_has_mask:
-                self._state = WSParserState.READ_PAYLOAD_MASK
-            else:
-                self._f_payload_start_pos = self._f_curr_state_start_pos
-                self._state = WSParserState.READ_PAYLOAD
-
-        # read payload mask
-        if self._state == WSParserState.READ_PAYLOAD_MASK:
-            if self._f_new_data_start_pos - self._f_curr_state_start_pos < 4:
-                return None
-
-            self._f_mask = (<uint32_t*>&self._buffer.data[self._f_curr_state_start_pos])[0]
-            self._f_curr_state_start_pos += 4
-            self._f_payload_start_pos = self._f_curr_state_start_pos
-            self._state = WSParserState.READ_PAYLOAD
-
-        if self._state == WSParserState.READ_PAYLOAD:
-            # Check if we have not yet received the whole payload
-            if self._f_new_data_start_pos - self._f_payload_start_pos < self._f_payload_length:
-                return None
-
-            if self._f_has_mask:
-                _mask_payload(<uint8_t*>self._buffer.data + self._f_payload_start_pos,
-                              self._f_payload_length,
-                              self._f_mask)
-
-            frame = <WSFrame>WSFrame.__new__(WSFrame)
-            frame.payload_ptr = self._buffer.data + self._f_payload_start_pos
-            frame.payload_size = self._f_payload_length
-            frame.tail_size = self._f_new_data_start_pos - (self._f_curr_state_start_pos + self._f_payload_length)
-            frame.msg_type = self._f_msg_type
-            frame.fin = self._f_fin
-            frame.last_in_buffer = 0
-
-            self._f_curr_state_start_pos += self._f_payload_length
-            self._f_curr_frame_start_pos = self._f_curr_state_start_pos
-            self._state = WSParserState.READ_HEADER
-
-            if frame.msg_type == WSMsgType.CLOSE:
-                if frame.get_close_code() < 3000 and frame.get_close_code() not in ALLOWED_CLOSE_CODES:
-                    raise WSError(WSCloseCode.PROTOCOL_ERROR,
-                                         f"Invalid close code: {frame.get_close_code()}")
-
-                if frame.payload_size > 0 and frame.payload_size < 2:
-                    raise WSError(WSCloseCode.PROTOCOL_ERROR,
-                                         f"Invalid close frame: {frame.fin} {frame.msg_type} {frame.get_payload_as_bytes()}")
-
-            return frame
-
-        assert False, "we should never reach this state"
-
-    cdef _handle_upgrade_response(self):
-        cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
-        response = data.split(b"\r\n\r\n", 1)
-        if len(response) < 2:
-            return None
-
-        raw_headers, tail = response
-
-        lines = raw_headers.split(b"\r\n")
-        response_status_line = lines[0]
-
-        response_headers = {}
-        for line in lines[1:]:
-            name, value = line.split(b":", maxsplit=1)
-            response_headers[name.strip().decode().lower()] = value.strip().decode()
-
-        # check handshake
-        if response_status_line.decode().lower() != "http/1.1 101 switching protocols":
-            raise RuntimeError(f"invalid status in upgrade response: {response_status_line}")
-
-        connection_value = response_headers.get("connection")
-        connection_value = connection_value if connection_value is None else connection_value.lower()
-        if connection_value != "upgrade":
-            raise RuntimeError(f"invalid connection header: {response_headers['connection']}")
-
-        r_key = response_headers.get("sec-websocket-accept")
-        match = base64.b64encode(hashlib.sha1(self.websocket_key_b64 + _WS_KEY).digest()).decode()
-        if r_key != match:
-            raise RuntimeError(f"invalid sec-websocket-accept response")
-
-        memmove(self._buffer.data, self._buffer.data + len(raw_headers) + 4, self._buffer.size - len(raw_headers) - 4)
-        self._f_new_data_start_pos = len(tail)
-        self._state = WSParserState.READ_HEADER
-        self.handshake_complete_future.set_result(None)
-        if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "WS handshake done, switch to upgraded state")
-
-    cdef bytes read_upgrade_request(self):
-        cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
-        request = data.split(b"\r\n\r\n", 1)
-        if len(request) < 2:
-            return None
-
-        self._logger.log(PICOWS_DEBUG_LL, "New data: %s", data)
-
-        raw_headers, tail = request
-
-        lines = raw_headers.split(b"\r\n")
-        response_status_line = lines[0]
-
-        headers = {}
-        for line in lines[1:]:
-            name, value = line.split(b":", maxsplit=1)
-            headers[name.strip().decode().lower()] = value.strip().decode()
-
-        if "websocket" != headers.get("upgrade"):
-            raise RuntimeError(f"No WebSocket UPGRADE header: {raw_headers}\n Can 'Upgrade' only to 'websocket'")
-
-        if "connection" not in headers:
-            raise RuntimeError(f"No CONNECTION upgrade header: {raw_headers}\n")
-
-        if "upgrade" != headers["connection"].lower():
-            raise RuntimeError(f"CONNECTION header value is not 'upgrade' : {raw_headers}\n")
-
-        version = headers.get("sec-websocket-version")
-        if headers.get("sec-websocket-version") not in ("13", "8", "7"):
-            raise RuntimeError(f"Upgrade requested to unsupported websocket version: {version}")
-
-        key = headers.get("sec-websocket-key")
-        try:
-            if not key or len(base64.b64decode(key)) != 16:
-                raise RuntimeError(f"Handshake error: {key!r}")
-        except binascii.Error:
-            raise RuntimeError(f"Handshake error: {key!r}") from None
-
-        cdef bytes accept_val = base64.b64encode(hashlib.sha1(key.encode() + _WS_KEY).digest())
-
-        memmove(self._buffer.data, self._buffer.data + len(raw_headers) + 4, self._buffer.size - len(raw_headers) - 4)
-
-        self._f_new_data_start_pos = len(tail)
-        self._state = WSParserState.READ_HEADER
-
-        return accept_val
-
-
 cdef class WSFrameBuilder:
     def __init__(self, bint is_client_side):
         self._write_buf = MemoryBuffer(1024)
@@ -779,6 +493,9 @@ cdef class WSTransport:
 
 cdef class WSProtocol:
     cdef:
+        WSTransport transport
+        WSListener listener
+
         bytes _host_port
         bytes _ws_path
         object _logger                          #: Logger
@@ -786,31 +503,61 @@ cdef class WSProtocol:
         bint _is_client_side
         bint _disconnect_on_exception
 
-        object _websocket_handshake_timeout
-        object _handshake_timeout_handle
-
         object _loop
-        WSFrameParser _frame_parser
 
-        WSTransport transport
-        WSListener listener
+        object _handshake_timeout
+        object _handshake_timeout_handle
+        object _handshake_complete_future
+
+        bytes _websocket_key_b64
+
+        # The following are the parts of an unfinished frame
+        # Once the frame is finished WSFrame is created and returned
+        WSParserState _state
+        MemoryBuffer _buffer
+        size_t _f_new_data_start_pos
+        size_t _f_curr_state_start_pos
+        size_t _f_curr_frame_start_pos
+        uint64_t _f_payload_length
+        size_t _f_payload_start_pos
+        WSMsgType _f_msg_type
+        uint32_t _f_mask
+        uint8_t _f_fin
+        uint8_t _f_has_mask
+        uint8_t _f_payload_length_flag
 
     def __init__(self, str host_port, str ws_path, bint is_client_side, ws_listener_factory, str logger_name,
                  bint disconnect_on_exception, websocket_handshake_timeout):
+        self.transport = None
+        self.listener = ws_listener_factory()
+
         self._host_port = host_port.encode()
         self._ws_path = ws_path.encode() if ws_path else b"/"
         self._logger = logging.getLogger(f"pico_ws.{logger_name}")
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
         self._is_client_side = is_client_side
         self._disconnect_on_exception = disconnect_on_exception
-        self._websocket_handshake_timeout = websocket_handshake_timeout
 
-        self._handshake_timeout_handle = None
         self._loop = asyncio.get_running_loop()
-        self._frame_parser = None
 
-        self.transport = None
-        self.listener = ws_listener_factory()
+        self._handshake_timeout = websocket_handshake_timeout
+        self._handshake_timeout_handle = None
+        self._handshake_complete_future = self._loop.create_future()
+
+        self._websocket_key_b64 = base64.b64encode(os.urandom(16))
+
+        self._state = WSParserState.WAIT_UPGRADE_RESPONSE
+        self._buffer = MemoryBuffer()
+        self._f_new_data_start_pos = 0
+        self._f_curr_state_start_pos = 0
+        self._f_curr_frame_start_pos = 0
+        self._f_payload_length = 0
+        self._f_payload_start_pos = 0
+        self._f_msg_type = WSMsgType.CLOSE
+        self._f_mask = 0
+        self._f_fin = 0
+        self._f_has_mask = 0
+        self._f_payload_length_flag = 0
 
     def connection_made(self, transport: asyncio.Transport):
         sock = transport.get_extra_info('socket')
@@ -822,7 +569,6 @@ cdef class WSProtocol:
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK, 1)
 
         self._logger = self._logger.getChild(str(sock.fileno()))
-        self._frame_parser = WSFrameParser(self._logger)
 
         quickack = sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK) if hasattr(socket, "TCP_QUICKACK") else False
 
@@ -845,19 +591,21 @@ cdef class WSProtocol:
         self.transport = WSTransport(self._is_client_side, transport, self._logger, self._loop)
 
         if self._is_client_side:
-            self.transport.send_http_handshake(self._ws_path, self._host_port, self._frame_parser.websocket_key_b64)
+            self.transport.send_http_handshake(self._ws_path, self._host_port, self._websocket_key_b64)
+            self._handshake_timeout_handle = self._loop.call_later(
+                self._handshake_timeout, self._handshake_timeout_callback)
         else:
             self._handshake_timeout_handle = self._loop.call_later(
-                self._websocket_handshake_timeout, self._handshake_timeout)
+                self._handshake_timeout, self._handshake_timeout_callback)
 
     def connection_lost(self, exc):
         self._logger.info("Disconnected")
 
-        if self._frame_parser.handshake_complete_future.done():
+        if self._handshake_complete_future.done():
             self.listener.on_ws_disconnected(self.transport)
 
-        if not self._frame_parser.handshake_complete_future.done():
-            self._frame_parser.handshake_complete_future.set_result(None)
+        if not self._handshake_complete_future.done():
+            self._handshake_complete_future.set_result(None)
 
         self.transport.mark_disconnected()
 
@@ -877,15 +625,68 @@ cdef class WSProtocol:
         self._logger.warning("Protocol writing resume requested, crossed writing buffer low-watermark,")
         self.listener.resume_writing()
 
+    def data_received(self, bytes data):
+        cdef:
+            const char * ptr = PyBytes_AS_STRING(data)
+            size_t sz = PyBytes_GET_SIZE(data)
+
+        # Leave some space for simd parsers like simdjson, they required extra space beyond normal data to make sure
+        # that vector reads don't cause access violation
+        if self._buffer.size - self._f_new_data_start_pos < (sz + 64):
+            self._buffer.resize(self._f_new_data_start_pos + sz + 64)
+
+        memcpy(self._buffer.data + self._f_new_data_start_pos, ptr, sz)
+        self._f_new_data_start_pos += sz
+
+        self._handle_new_data()
+
+    def get_buffer(self, Py_ssize_t size_hint):
+        cdef sz = size_hint + 1024
+        if self._buffer.size - self._f_new_data_start_pos < sz:
+            self._buffer.resize(self._f_new_data_start_pos + sz)
+
+        if self._log_debug_enabled:
+            self._logger.log(PICOWS_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
+                             size_hint,
+                             self._buffer.size - self._f_new_data_start_pos,
+                             self._buffer.size,
+                             self._buffer.capacity)
+
+        return PyMemoryView_FromMemory(
+            self._buffer.data + self._f_new_data_start_pos,
+            self._buffer.size - self._f_new_data_start_pos,
+            PyBUF_WRITE)
+
+    def buffer_updated(self, Py_ssize_t nbytes):
+        if self._log_debug_enabled:
+            self._logger.log(PICOWS_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
+                             self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)
+        self._f_new_data_start_pos += nbytes
+        self._handle_new_data()
+
+    async def wait_until_handshake_complete(self):
+        await asyncio.shield(self._handshake_complete_future)
+
     cdef _handle_new_data(self):
-        if not self._is_client_side:
-            accept_val = self._frame_parser.read_upgrade_request()
-            if accept_val is not None:
+        if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
+            if self._is_client_side:
+                self._handle_upgrade_response()
+                if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
+                    # Upgrade response hasn't fully arrived yet
+                    return
+
+            else:
+                accept_val = self._read_upgrade_request()
+                if accept_val is None:
+                    # Upgrade request hasn't fully arrived yet
+                    return
+
                 self.transport.send_http_handshake_response(accept_val)
-                self._frame_parser.handshake_complete_future.set_result(None)
-                self._handshake_timeout_handle.cancel()
-                self._handshake_timeout_handle = None
-                self.listener.on_ws_connected(self.transport)
+
+            self._handshake_complete_future.set_result(None)
+            self._handshake_timeout_handle.cancel()
+            self._handshake_timeout_handle = None
+            self.listener.on_ws_connected(self.transport)
 
         cdef WSFrame frame = self._get_next_frame()
         if frame is None:
@@ -895,7 +696,7 @@ cdef class WSProtocol:
         if next_frame is None:
             frame.last_in_buffer = 1
             self._invoke_on_ws_frame(frame)
-            self._frame_parser.shrink_buffer()
+            self._shrink_buffer()
             return
         else:
             self._invoke_on_ws_frame(frame)
@@ -907,27 +708,226 @@ cdef class WSProtocol:
                 frame.last_in_buffer = 1
             self._invoke_on_ws_frame(frame)
 
-        self._frame_parser.shrink_buffer()
+        self._shrink_buffer()
 
-    def data_received(self, bytes data):
-        self._frame_parser.feed_data(data)
-        self._handle_new_data()
+    cdef bytes _read_upgrade_request(self):
+        cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
+        request = data.split(b"\r\n\r\n", 1)
+        if len(request) < 2:
+            return None
 
-    def get_buffer(self, Py_ssize_t size_hint):
-        return self._frame_parser.get_buffer(size_hint)
+        self._logger.log(PICOWS_DEBUG_LL, "New data: %s", data)
 
-    def buffer_updated(self, Py_ssize_t nbytes):
-        self._frame_parser.buffer_updated(nbytes)
-        self._handle_new_data()
+        raw_headers, tail = request
+
+        lines = raw_headers.split(b"\r\n")
+        response_status_line = lines[0]
+
+        headers = {}
+        for line in lines[1:]:
+            name, value = line.split(b":", maxsplit=1)
+            headers[name.strip().decode().lower()] = value.strip().decode()
+
+        if "websocket" != headers.get("upgrade"):
+            raise RuntimeError(f"No WebSocket UPGRADE header: {raw_headers}\n Can 'Upgrade' only to 'websocket'")
+
+        if "connection" not in headers:
+            raise RuntimeError(f"No CONNECTION upgrade header: {raw_headers}\n")
+
+        if "upgrade" != headers["connection"].lower():
+            raise RuntimeError(f"CONNECTION header value is not 'upgrade' : {raw_headers}\n")
+
+        version = headers.get("sec-websocket-version")
+        if headers.get("sec-websocket-version") not in ("13", "8", "7"):
+            raise RuntimeError(f"Upgrade requested to unsupported websocket version: {version}")
+
+        key = headers.get("sec-websocket-key")
+        try:
+            if not key or len(base64.b64decode(key)) != 16:
+                raise RuntimeError(f"Handshake error: {key!r}")
+        except binascii.Error:
+            raise RuntimeError(f"Handshake error: {key!r}") from None
+
+        cdef bytes accept_val = base64.b64encode(hashlib.sha1(key.encode() + _WS_KEY).digest())
+
+        memmove(self._buffer.data, self._buffer.data + len(raw_headers) + 4, self._buffer.size - len(raw_headers) - 4)
+
+        self._f_new_data_start_pos = len(tail)
+        self._state = WSParserState.READ_HEADER
+
+        return accept_val
+
+    cdef _handle_upgrade_response(self):
+        cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
+        response = data.split(b"\r\n\r\n", 1)
+        if len(response) < 2:
+            return None
+
+        raw_headers, tail = response
+
+        lines = raw_headers.split(b"\r\n")
+        response_status_line = lines[0]
+
+        response_headers = {}
+        for line in lines[1:]:
+            name, value = line.split(b":", maxsplit=1)
+            response_headers[name.strip().decode().lower()] = value.strip().decode()
+
+        # check handshake
+        if response_status_line.decode().lower() != "http/1.1 101 switching protocols":
+            raise RuntimeError(f"invalid status in upgrade response: {response_status_line}")
+
+        connection_value = response_headers.get("connection")
+        connection_value = connection_value if connection_value is None else connection_value.lower()
+        if connection_value != "upgrade":
+            raise RuntimeError(f"invalid connection header: {response_headers['connection']}")
+
+        r_key = response_headers.get("sec-websocket-accept")
+        match = base64.b64encode(hashlib.sha1(self._websocket_key_b64 + _WS_KEY).digest()).decode()
+        if r_key != match:
+            raise RuntimeError(f"invalid sec-websocket-accept response")
+
+        memmove(self._buffer.data, self._buffer.data + len(raw_headers) + 4, self._buffer.size - len(raw_headers) - 4)
+        self._f_new_data_start_pos = len(tail)
+        self._state = WSParserState.READ_HEADER
+        if self._log_debug_enabled:
+            self._logger.log(PICOWS_DEBUG_LL, "WS handshake done, switch to upgraded state")
 
     cdef WSFrame _get_next_frame(self):
         cdef WSFrame frame
         try:
-            return self._frame_parser.get_next_frame()
+            return self._get_next_frame_impl()
         except:
             self._logger.exception("WS parser failure, initiate disconnect")
             self.transport.send_close(WSCloseCode.PROTOCOL_ERROR)
             self.transport.disconnect()
+
+    cdef WSFrame _get_next_frame_impl(self): #  -> Optional[WSFrame]
+        """Return the next frame from the socket."""
+        cdef:
+            uint8_t first_byte
+            uint8_t second_byte
+            uint8_t rsv1, rsv2, rsv3
+            WSFrame frame
+
+        if self._state == WSParserState.READ_HEADER:
+            if self._f_new_data_start_pos - self._f_curr_state_start_pos < 2:
+                return None
+
+            first_byte = <uint8_t>self._buffer.data[self._f_curr_state_start_pos]
+            second_byte = <uint8_t>self._buffer.data[self._f_curr_state_start_pos + 1]
+
+            self._f_fin = (first_byte >> 7) & 1
+            rsv1 = (first_byte >> 6) & 1
+            rsv2 = (first_byte >> 5) & 1
+            rsv3 = (first_byte >> 4) & 1
+            self._f_msg_type = <WSMsgType>(first_byte & 0xF)
+
+            # frame-fin = %x0 ; more frames of this message follow
+            #           / %x1 ; final frame of this message
+            # frame-rsv1 = %x0 ;
+            #    1 bit, MUST be 0 unless negotiated otherwise
+            # frame-rsv2 = %x0 ;
+            #    1 bit, MUST be 0 unless negotiated otherwise
+            # frame-rsv3 = %x0 ;
+            #    1 bit, MUST be 0 unless negotiated otherwise
+            #
+            # Remove rsv1 from this test for deflate development
+            if rsv1 or rsv2 or rsv3:
+                mem_dump = PyBytes_FromStringAndSize(
+                    self._buffer.data + self._f_curr_state_start_pos,
+                    max(self._f_new_data_start_pos - self._f_curr_state_start_pos, <size_t>64)
+                )
+                raise WSError(
+                    WSCloseCode.PROTOCOL_ERROR,
+                    f"Received frame with non-zero reserved bits, rsv1={rsv1}, rsv2={rsv2}, rsv3={rsv3}, msg_type={self._f_msg_type}: {mem_dump}",
+                )
+
+            if self._f_msg_type > 0x7 and not self._f_fin:
+                raise WSError(
+                    WSCloseCode.PROTOCOL_ERROR,
+                    "Received fragmented control frame",
+                )
+
+            self._f_has_mask = (second_byte >> 7) & 1
+            self._f_payload_length_flag = second_byte & 0x7F
+
+            # Control frames MUST have a payload
+            # length of 125 bytes or less
+            if self._f_msg_type > 0x7 and self._f_payload_length_flag > 125:
+                raise WSError(
+                    WSCloseCode.PROTOCOL_ERROR,
+                    "Control frame payload cannot be " "larger than 125 bytes",
+                )
+
+            self._f_curr_state_start_pos += 2
+            self._state = WSParserState.READ_PAYLOAD_LENGTH
+
+        # read payload length
+        if self._state == WSParserState.READ_PAYLOAD_LENGTH:
+            if self._f_payload_length_flag == 126:
+                if self._f_new_data_start_pos - self._f_curr_state_start_pos < 2:
+                    return None
+                self._f_payload_length = ntohs((<uint16_t*>&self._buffer.data[self._f_curr_state_start_pos])[0])
+                self._f_curr_state_start_pos += 2
+            elif self._f_payload_length_flag > 126:
+                if self._f_new_data_start_pos - self._f_curr_state_start_pos < 8:
+                    return None
+                self._f_payload_length = be64toh((<uint64_t*>&self._buffer.data[self._f_curr_state_start_pos])[0])
+                self._f_curr_state_start_pos += 8
+            else:
+                self._f_payload_length = self._f_payload_length_flag
+
+            if self._f_has_mask:
+                self._state = WSParserState.READ_PAYLOAD_MASK
+            else:
+                self._f_payload_start_pos = self._f_curr_state_start_pos
+                self._state = WSParserState.READ_PAYLOAD
+
+        # read payload mask
+        if self._state == WSParserState.READ_PAYLOAD_MASK:
+            if self._f_new_data_start_pos - self._f_curr_state_start_pos < 4:
+                return None
+
+            self._f_mask = (<uint32_t*>&self._buffer.data[self._f_curr_state_start_pos])[0]
+            self._f_curr_state_start_pos += 4
+            self._f_payload_start_pos = self._f_curr_state_start_pos
+            self._state = WSParserState.READ_PAYLOAD
+
+        if self._state == WSParserState.READ_PAYLOAD:
+            # Check if we have not yet received the whole payload
+            if self._f_new_data_start_pos - self._f_payload_start_pos < self._f_payload_length:
+                return None
+
+            if self._f_has_mask:
+                _mask_payload(<uint8_t*>self._buffer.data + self._f_payload_start_pos,
+                              self._f_payload_length,
+                              self._f_mask)
+
+            frame = <WSFrame>WSFrame.__new__(WSFrame)
+            frame.payload_ptr = self._buffer.data + self._f_payload_start_pos
+            frame.payload_size = self._f_payload_length
+            frame.tail_size = self._f_new_data_start_pos - (self._f_curr_state_start_pos + self._f_payload_length)
+            frame.msg_type = self._f_msg_type
+            frame.fin = self._f_fin
+            frame.last_in_buffer = 0
+
+            self._f_curr_state_start_pos += self._f_payload_length
+            self._f_curr_frame_start_pos = self._f_curr_state_start_pos
+            self._state = WSParserState.READ_HEADER
+
+            if frame.msg_type == WSMsgType.CLOSE:
+                if frame.get_close_code() < 3000 and frame.get_close_code() not in ALLOWED_CLOSE_CODES:
+                    raise WSError(WSCloseCode.PROTOCOL_ERROR,
+                                         f"Invalid close code: {frame.get_close_code()}")
+
+                if frame.payload_size > 0 and frame.payload_size < 2:
+                    raise WSError(WSCloseCode.PROTOCOL_ERROR,
+                                         f"Invalid close frame: {frame.fin} {frame.msg_type} {frame.get_payload_as_bytes()}")
+
+            return frame
+
+        assert False, "we should never reach this state"
 
     cdef _invoke_on_ws_connected(self, WSFrame frame):
         try:
@@ -951,10 +951,18 @@ cdef class WSProtocol:
             else:
                 self._logger.exception("Unhandled exception in on_ws_frame")
 
-    async def wait_until_handshake_complete(self):
-        await asyncio.shield(self._frame_parser.handshake_complete_future)
+    cdef _shrink_buffer(self):
+        if self._f_curr_frame_start_pos > 0:
+            memmove(self._buffer.data,
+                    self._buffer.data + self._f_curr_frame_start_pos,
+                    self._f_new_data_start_pos - self._f_curr_frame_start_pos)
 
-    def _handshake_timeout(self):
+            self._f_new_data_start_pos -= self._f_curr_frame_start_pos
+            self._f_curr_state_start_pos -= self._f_curr_frame_start_pos
+            self._f_payload_start_pos -= self._f_curr_frame_start_pos
+            self._f_curr_frame_start_pos = 0
+
+    def _handshake_timeout_callback(self):
         self._logger.info("Handshake timeout, the client hasn't requested upgrade within required time, close connection")
         self.transport.close()
 

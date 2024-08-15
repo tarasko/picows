@@ -19,8 +19,6 @@ Introduction
 
 picows is a library for building WebSocket clients and servers with a focus on performance.
 
-Performance
-===========
 picows is implemented in Cython and provides unparalleled performance compared to other popular WebSocket libraries.
 
 .. image:: https://raw.githubusercontent.com/tarasko/picows/master/docs/source/_static/picows_benchmark.png

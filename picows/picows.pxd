@@ -68,40 +68,6 @@ cdef class WSFrame:
     cpdef bytes get_close_message(self)
 
 
-cdef class WSFrameParser:
-    cdef:
-        bytes websocket_key_b64
-        object handshake_complete_future
-
-        object _logger
-
-        bint _log_debug_enabled
-        WSParserState _state
-        MemoryBuffer _buffer
-
-        # The following are the parts of an unfinished frame
-        # Once the frame is finished WSFrame is created and returned
-        size_t _f_new_data_start_pos
-        size_t _f_curr_state_start_pos
-        size_t _f_curr_frame_start_pos
-        uint64_t _f_payload_length
-        size_t _f_payload_start_pos
-        WSMsgType _f_msg_type
-        uint32_t _f_mask
-        uint8_t _f_fin
-        uint8_t _f_has_mask
-        uint8_t _f_payload_length_flag
-
-    cdef object get_buffer(self, size_t size_hint)
-    cdef buffer_updated(self, size_t nbytes)
-    cdef feed_data(self, bytes data)
-    cdef shrink_buffer(self)
-
-    cdef WSFrame get_next_frame(self)
-    cdef _handle_upgrade_response(self)
-    cdef bytes read_upgrade_request(self)
-
-
 cdef class WSFrameBuilder:
     cdef:
         MemoryBuffer _write_buf
