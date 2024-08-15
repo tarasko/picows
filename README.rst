@@ -17,7 +17,7 @@ Performance
 picows is implemented in Cython and provides unparalleled performance compared to other popular WebSocket libraries.
 
 .. image:: https://raw.githubusercontent.com/tarasko/picows/master/docs/picows_benchmark.png
-  :target: https://github.com/tarasko/picows/blob/master/docs/picows_benchmark.png?raw=true
+  :target: https://github.com/tarasko/picows/blob/master/docs/source/_static/picows_benchmark.png?raw=true
 
 The above chart shows the performance of echo clients communicating with a server through a loopback interface using popular Python libraries. 
 `boost.beast client <https://www.boost.org/doc/libs/1_85_0/libs/beast/example/websocket/client/sync/websocket_client_sync.cpp>`_

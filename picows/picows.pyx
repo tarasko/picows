@@ -108,16 +108,16 @@ cdef _mask_payload(uint8_t* input, size_t input_len, uint32_t mask):
 @cython.freelist(64)
 cdef class WSFrame:
     """
-    Received websocket frame.\n\n
-    Internally WSFrame just points to a chunk of memory in the receiving buffer without copying or owning memory.
+    Received websocket frame.\n
+    Internally WSFrame just points to a chunk of memory in the receiving buffer without copying or owning memory.\n
     .. DANGER::
-        Do NOT cache or use WSFrame object beyond `picows.WSListener.on_ws_frame` callback.
+        Do NOT cache or use WSFrame object beyond `WSListener.on_ws_frame` callback.
     In order to actually copy payload use one of the `get_*` methods.
     """
 
     cpdef bytes get_payload_as_bytes(self):
         """
-        Returns a new bytes object with a copy of frame payload.
+        :return: a new bytes object with a copy of frame payload.
         Does not cache results. Payload is copied and a new bytes object is created every time this method is called.
         """
         return PyBytes_FromStringAndSize(self.payload_ptr, <Py_ssize_t>self.payload_size)
@@ -140,7 +140,7 @@ cdef class WSFrame:
 
     cpdef object get_payload_as_memoryview(self):
         """
-        Returns continous memoryview to a parser buffer with payload. 
+        :return: continous memoryview to a parser buffer with payload.\n
         .. DANGER::
             Memoryview content will be invalidated after `picows.WSListener.on_ws_frame` is complete.
             Please process payload or copy it as soon as possible.
