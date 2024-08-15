@@ -1,6 +1,7 @@
 import os
 import sys
 sys.path.insert(0, os.path.abspath('../../'))
+import picows
 
 # Configuration file for the Sphinx documentation builder.
 #
@@ -12,8 +13,8 @@ sys.path.insert(0, os.path.abspath('../../'))
 
 project = 'picows'
 copyright = '2024, Taras Kozlov'
-author = 'Taras Kozlov'
-release = '0.2.2'
+author = picows.__author__
+release = picows.__version__
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
