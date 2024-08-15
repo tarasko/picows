@@ -149,7 +149,7 @@ if __name__ == '__main__':
         ax.bar(libraries, counts, label=libraries, color=bar_colors)
 
         ax.set_ylabel('Roundtrips per second')
-        ax.set_title(f'Echo roundtrip performance ({loop_name})')
+        ax.set_title(f'Echo roundtrip performance ({loop_name}, msg_size={msg_size})')
 
         # ax.legend(title="Libraries")
 
