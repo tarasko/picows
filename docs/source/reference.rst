@@ -28,15 +28,15 @@ Classes
 
         Unfragmented message:
         ::
-            WSFrame(opcode=WSMsgType.<actual message type>, fin=True)
+            WSFrame(msg_type=WSMsgType.<actual message type>, fin=True)
 
         Fragmented message:
         ::
-            WSFrame(opcode=WSMsgType.<actual message type>, fin=False)
-            WSFrame(opcode=WSMsgType.CONTINUATION, fin=False)
+            WSFrame(msg_type=WSMsgType.<actual message type>, fin=False)
+            WSFrame(msg_type=WSMsgType.CONTINUATION, fin=False)
             ...
             # the last frame of the message
-            WSFrame(opcode=WSMsgType.CONTINUATION, fin=True)
+            WSFrame(msg_type=WSMsgType.CONTINUATION, fin=True)
 
     .. py:attribute:: last_in_buffer
         :type: bool
