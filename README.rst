@@ -97,8 +97,8 @@ Echo server
           print("New client connected")
   
       def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
-          transport.send(frame.opcode, frame.get_payload_as_bytes())
-          if frame.opcode == WSMsgType.CLOSE:
+          transport.send(frame.msg_type, frame.get_payload_as_bytes())
+          if frame.msg_type == WSMsgType.CLOSE:
               transport.disconnect()
 
   async def main():

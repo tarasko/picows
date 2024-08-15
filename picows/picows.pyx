@@ -113,7 +113,7 @@ cdef class WSFrame:
     Internally WSFrame just points to a chunk of memory in the receiving buffer without copying or owning memory.\n
     .. DANGER::
         Only use WSFrame object during :any:`WSListener.on_ws_frame` callback. WSFrame objects are essentially just
-        pointers to the underlying receiving buffer. After :any:`WSListener.on_ws_frame` is completed the buffer
+        pointers to the underlying receiving buffer. After :any:`WSListener.on_ws_frame` has completed the buffer
         will be reused for the new incoming data.
 
     In order to actually copy payload use one of the `get_*` methods.
@@ -153,7 +153,7 @@ cdef class WSFrame:
         
         .. DANGER::
             Returned memoryview does NOT own the underlying memory. 
-            The content will be invalidated after :any:`WSListener.on_ws_frame` is complete.
+            The content will be invalidated after :any:`WSListener.on_ws_frame` has completed.
             Please process payload or copy it as soon as possible.
         """
         return PyMemoryView_FromMemory(self.payload_ptr, <Py_ssize_t>self.payload_size, PyBUF_READ)
