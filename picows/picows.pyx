@@ -108,48 +108,61 @@ cdef _mask_payload(uint8_t* input, size_t input_len, uint32_t mask):
 @cython.freelist(64)
 cdef class WSFrame:
     """
-    Received websocket frame.\n
+    Received websocket frame.
+
     Internally WSFrame just points to a chunk of memory in the receiving buffer without copying or owning memory.\n
     .. DANGER::
-        Do NOT cache or use WSFrame object beyond `WSListener.on_ws_frame` callback.
+        Only use WSFrame object during :any:`WSListener.on_ws_frame` callback. WSFrame objects are essentially just
+        pointers to the underlying receiving buffer. After :any:`WSListener.on_ws_frame` is completed the buffer
+        will be reused for the new incoming data.
+
     In order to actually copy payload use one of the `get_*` methods.
     """
 
     cpdef bytes get_payload_as_bytes(self):
         """
         :return: a new bytes object with a copy of frame payload.
-        Does not cache results. Payload is copied and a new bytes object is created every time this method is called.
+        
+        This method does not cache results. Payload is copied and a new bytes object is created every time this method is called.
         """
         return PyBytes_FromStringAndSize(self.payload_ptr, <Py_ssize_t>self.payload_size)
 
     cpdef str get_payload_as_utf8_text(self):
         """
-        Interpret payload as UTF8 text and returns a new str object.
-        Does not cache results. Payload is copied and a new str object is created every time this method is called.
-        Throws if payload is not a valid UTF8 string.
+        :return: a new str object with a copy of frame payload.
+        
+        This method will throw if payload does not contain valid UTF8 text.
+        
+        This method does not cache results. Payload is copied and a new str object is created every time this method is called.
         """
         return PyUnicode_FromStringAndSize(self.payload_ptr, <Py_ssize_t>self.payload_size)
 
     cpdef str get_payload_as_ascii_text(self):
         """
-        Interpret payload as 7 ASCII text and returns a new str object.
-        Does not cache results. Payload is copied and a new str object is created every time this method is called.
-        Throws if payload is not a valid 7 ASCII string.
+        :return: a new str object with a copy of frame payload.
+        
+        This method will throw if payload does not contain valid ASCII 7 text.
+        
+        This method does not cache results. Payload is copied and a new str object is created every time this method is called.
         """
         return PyUnicode_DecodeASCII(self.payload_ptr, <Py_ssize_t>self.payload_size, NULL)
 
     cpdef object get_payload_as_memoryview(self):
         """
-        :return: continous memoryview to a parser buffer with payload.\n
+        :return: continous memoryview to a parser buffer with payload.
+        
         .. DANGER::
-            Memoryview content will be invalidated after `picows.WSListener.on_ws_frame` is complete.
+            Returned memoryview does NOT own the underlying memory. 
+            The content will be invalidated after :any:`WSListener.on_ws_frame` is complete.
             Please process payload or copy it as soon as possible.
         """
         return PyMemoryView_FromMemory(self.payload_ptr, <Py_ssize_t>self.payload_size, PyBUF_READ)
 
     cpdef WSCloseCode get_close_code(self):
         """
-        Returns WSCloseCode. Only valid for WSMsgType.CLOSE frames        
+        :return: :any:`WSCloseCode` 
+        
+        This method is only valid for WSMsgType.CLOSE frames.        
         """
 
         assert self.msg_type == WSMsgType.CLOSE, "get_close_code can be called only for CLOSE frames"
@@ -161,8 +174,9 @@ cdef class WSFrame:
 
     cpdef bytes get_close_message(self):
         """
-        Returns a new bytes object with a close message. If there is no close message then returns None. 
-        Only valid for WSMsgType.CLOSE frames.
+        :return: a new bytes object with a close message. If there is no close message then returns None. 
+        
+        This method is only valid for WSMsgType.CLOSE frames.
         """
 
         assert self.msg_type == WSMsgType.CLOSE, "get_close_message can be called only for CLOSE frames"
@@ -615,7 +629,8 @@ cdef class WSFrameBuilder:
 
 cdef class WSListener:
     """
-    Base class for user handlers.\n
+    Base class for user handlers.
+
     All `on_ws_*` methods receive `transport` as a first argument for convenience. It is guaranteed that passed
     `transport` object is always the same for the same connection.
     """
@@ -623,27 +638,29 @@ cdef class WSListener:
     cpdef on_ws_connected(self, WSTransport transport):
         """        
         Called after websocket handshake is complete and websocket is ready to send and receive frames.\n
-        `transport`: `picows.WSTransport`.\n      
+        :param transport: :any:`WSTransport` object      
         """
         pass
 
     cpdef on_ws_frame(self, WSTransport transport, WSFrame frame):
         """
-        Called when a new frame is received.\n
+        :param transport: :any:`WSTransport` object
+        :param frame: :any:`WSFrame` object            
+
+        Called when a new frame is received.
+        
         .. DANGER::
             WSFrame is essentially just a pointer to a chunk of memory in the receiving buffer. It does not own 
             the memory. Do NOT cache or store WSFrame object for later processing because the data may be invalidated
-            after `picows.WSListener.on_ws_frame` is complete.
-            Process the payload immediatelly or just copy it with one of `WSFrame.get_*` methods.
-        `transport`: `picows.WSTransport`\n
-        `frame`: `picows.WSFrame`\n                           
+            after :any:`WSListener.on_ws_frame` is complete.
+            Process the payload immediatelly or just copy it with one of `WSFrame.get_*` methods.            
         """
         pass
 
     cpdef on_ws_disconnected(self, WSTransport transport):
         """
         Called when websocket has been disconnected.\
-        `transport`: `picows.WSTransport`\n
+        `transport`: :any:`WSTransport`\n
         """
         pass
 
@@ -682,7 +699,7 @@ cdef class WSTransport:
         """
         Send a frame over the websocket with a message as its payload.
         
-        `msg_type`: one of WSMsgType enum values\n 
+        `msg_type`: one of :any:`WSMsgType` enum values\n 
         `message`: an optional bytes-like object
         """
         frame = self._frame_builder.prepare_frame(msg_type, message)
@@ -707,7 +724,7 @@ cdef class WSTransport:
         Send a CLOSE control frame with an optional message.
         This method doesn't disconnect the underlying transport.
         Does nothing if the underlying transport is already disconnected.\n        
-        `close_code`: `picows.WSCloseCode` value\n                
+        `close_code`: :any:`WSCloseCode` value\n                
         `close_message`: an optional bytes-like object        
         """
         if self._transport.is_closing():
