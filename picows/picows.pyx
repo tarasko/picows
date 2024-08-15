@@ -686,7 +686,7 @@ cdef class WSProtocol:
             self._handshake_complete_future.set_result(None)
             self._handshake_timeout_handle.cancel()
             self._handshake_timeout_handle = None
-            self.listener.on_ws_connected(self.transport)
+            self._invoke_on_ws_connected()
 
         cdef WSFrame frame = self._get_next_frame()
         if frame is None:
@@ -929,7 +929,7 @@ cdef class WSProtocol:
 
         assert False, "we should never reach this state"
 
-    cdef _invoke_on_ws_connected(self, WSFrame frame):
+    cdef _invoke_on_ws_connected(self):
         try:
             self.listener.on_ws_connected(self.transport)
         except Exception as e:
@@ -938,7 +938,7 @@ cdef class WSProtocol:
                 self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
                 self.transport.disconnect()
             else:
-                self._logger.exception("Unhandled exception in on_ws_frame")
+                self._logger.exception("Unhandled exception in on_ws_connected")
 
     cdef _invoke_on_ws_frame(self, WSFrame frame):
         try:
@@ -1027,7 +1027,6 @@ async def ws_connect(str url: str,
         ssl_shutdown_timeout=ssl_shutdown_timeout)
 
     await ws_protocol.wait_until_handshake_complete()
-    ws_protocol.listener.on_ws_connected(ws_protocol.transport)
 
     return ws_protocol.transport, ws_protocol.listener
 

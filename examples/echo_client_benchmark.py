@@ -15,7 +15,7 @@ _logger = getLogger(__name__)
 
 
 RPS = {
-    "c++ boost.beast": 38013
+    "c++ boost.beast(sync)": 42489
 }
 
 
@@ -106,7 +106,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Publish updates to telegram subscribers",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--url", default="ws://127.0.0.1:9001", help="Server url")
-    parser.add_argument("--msg-size", default="64", help="Message size")
+    parser.add_argument("--msg-size", default="256", help="Message size")
     parser.add_argument("--level", default="INFO", help="python logger level")
     parser.add_argument("--duration", default="5", help="duration of test in seconds")
     parser.add_argument("--disable-uvloop", action="store_true", help="Disable uvloop")
