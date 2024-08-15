@@ -1,9 +1,8 @@
-picows documentation
-====================
+.. include:: ../../README.rst
 
 .. toctree::
     :hidden:
 
-   introduction
-   reference
+    introduction
+    reference
 

@@ -1,3 +1,6 @@
+Introduction
+============
+
 .. image:: https://github.com/tarasko/picows/workflows/run%20tests/badge.svg
    :target: https://github.com/tarasko/picows/actions?query=workflow%3Arun-tests
    :alt: GitHub Actions status for master branch
@@ -113,7 +116,7 @@ Echo server
 
 
 Features
---------
+========
 * Maximally efficient WebSocket frame parser and builder implemented in Cython
 * Re-use memory as much as possible, avoid reallocations, and avoid unnecessary Python object creations
 * Provide Cython .pxd for efficient integration of user Cythonized code with picows
