@@ -1062,7 +1062,7 @@ async def ws_create_server(str url,
         accepting connections.
     :return: asyncio.Server object
 
-    Create a TCP server listening on interface and port specified by `url`.
+    Create a websocket server listening on interface and port specified by `url`.
     """
     url_parts = urllib.parse.urlparse(url, allow_fragments=False)
 

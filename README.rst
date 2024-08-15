@@ -13,6 +13,10 @@ Introduction
    :target: https://pypistats.org/packages/picows
    :alt: Downloads count
 
+.. image:: https://readthedocs.org/projects/picows/badge/?version=latest
+   :target: https://picows.readthedocs.io/en/latest/
+   :alt: Latest Read The Docs
+
 picows is a library for building WebSocket clients and servers with a focus on performance.
 
 Performance
@@ -123,3 +127,7 @@ Features
 * Ability to check if a frame is the last one in the receiving buffer
 * Support both secure and unsecure protocols (ws and wss schemes)
 
+Documentation
+=============
+
+https://picows.readthedocs.io/
