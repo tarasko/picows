@@ -38,6 +38,7 @@ dev = ["pytest", "pytest-asyncio", "websockets", "aiohttp", "async_timeout"]
 Homepage = "https://github.com/tarasko/picows"
 Repository = "https://github.com/tarasko/picows"
 Issues = "https://github.com/tarasko/picows/issues"
+Documentaion = "https://picows.readthedocs.io/en/latest"
 
 [tool.setuptools]
 packages = ["picows"]
