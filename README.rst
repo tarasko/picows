@@ -128,4 +128,4 @@ Features
 Documentation
 =============
 
-https://picows.readthedocs.io/
+https://picows.readthedocs.io/en/stable/
