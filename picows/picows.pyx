@@ -509,6 +509,7 @@ cdef class WSProtocol:
         object _handshake_timeout
         object _handshake_timeout_handle
         object _handshake_complete_future
+        Py_ssize_t _upgrade_request_max_size
 
         bytes _websocket_key_b64
 
@@ -544,6 +545,7 @@ cdef class WSProtocol:
         self._handshake_timeout = websocket_handshake_timeout
         self._handshake_timeout_handle = None
         self._handshake_complete_future = self._loop.create_future()
+        self._upgrade_request_max_size = 16*1024
 
         self._websocket_key_b64 = base64.b64encode(os.urandom(16))
 
@@ -715,9 +717,19 @@ cdef class WSProtocol:
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
         request = data.split(b"\r\n\r\n", 1)
         if len(request) < 2:
+            if len(data) >= self._upgrade_request_max_size:
+                self.transport.disconnect()
+                self._logger.info("Disconnect because upgrade request violated max_size threshold: %d", 16*1024)
+
             return None
 
-        self._logger.log(PICOWS_DEBUG_LL, "New data: %s", data)
+        if len(request[0]) >= self._upgrade_request_max_size:
+            self.transport.disconnect()
+            self._logger.info("Disconnect because upgrade request violated max_size threshold: %d", 16*1024)
+            return None
+
+        if self._log_debug_enabled:
+            self._logger.log(PICOWS_DEBUG_LL, "New data: %s", data)
 
         raw_headers, tail = request
 

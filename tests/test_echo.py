@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import itertools
 import os
 import pathlib
 import ssl
@@ -117,7 +116,7 @@ async def echo_client(echo_server):
         client.transport.disconnect()
 
 
-@pytest.mark.parametrize("msg_size", [256, 1024])
+@pytest.mark.parametrize("msg_size", [256, 1024, 100*1024])
 async def test_echo(echo_client, msg_size):
     msg = os.urandom(msg_size)
     echo_client.transport.send(picows.WSMsgType.BINARY, msg)
@@ -135,8 +134,8 @@ async def test_echo(echo_client, msg_size):
 
 
 async def test_close(echo_client):
-    echo_client.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"goodbay")
+    echo_client.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"goodbye")
     frame = await echo_client.get_message()
     assert frame.msg_type == picows.WSMsgType.CLOSE
     assert frame.close_code == picows.WSCloseCode.GOING_AWAY
-    assert frame.close_message == b"goodbay"
+    assert frame.close_message == b"goodbye"
