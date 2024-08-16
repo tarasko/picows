@@ -68,7 +68,8 @@ async def echo_server(request):
                 self._transport.disconnect()
 
     server = await picows.ws_create_server(request.param, PicowsServerListener, "server",
-                                           ssl_context=create_server_ssl_context())
+                                           ssl_context=create_server_ssl_context(),
+                                           websocket_handshake_timeout=0.5)
     task = asyncio.create_task(server.serve_forever())
     yield request.param
 
@@ -103,7 +104,8 @@ async def echo_client(echo_server):
                 return await self.msg_queue.get()
 
     (_, client) = await picows.ws_connect(echo_server, PicowsClientListener, "client",
-                                          ssl=create_client_ssl_context())
+                                          ssl=create_client_ssl_context(),
+                                          websocket_handshake_timeout=0.5)
     yield client
 
     # Teardown client
@@ -139,3 +141,32 @@ async def test_close(echo_client):
     assert frame.msg_type == picows.WSMsgType.CLOSE
     assert frame.close_code == picows.WSCloseCode.GOING_AWAY
     assert frame.close_message == b"goodbye"
+
+
+async def test_client_handshake_timeout(echo_server):
+    # Set unreasonably small timeout
+    with pytest.raises(TimeoutError):
+        (_, client) = await picows.ws_connect(echo_server, picows.WSListener, "client",
+                                              ssl=create_client_ssl_context(),
+                                              websocket_handshake_timeout=0.00001)
+
+
+async def test_server_handshake_timeout():
+    server = await picows.ws_create_server(URL, picows.WSListener, "server", websocket_handshake_timeout=0.1)
+    server_task = asyncio.create_task(server.serve_forever())
+
+    try:
+        # Give some time for server to start
+        await asyncio.sleep(0.1)
+
+        client_reader, client_writer = await asyncio.open_connection("127.0.0.1", 9001)
+        assert not client_reader.at_eof()
+        await asyncio.sleep(0.2)
+        assert client_reader.at_eof()
+    finally:
+        # Teardown server
+        server_task.cancel()
+        try:
+            await server_task
+        except:
+            pass

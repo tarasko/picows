@@ -49,6 +49,19 @@ Classes
 
         Indicates how many bytes are in the receiving buffer after the current frame.
 
+    .. py:attribute:: payload_ptr
+        :type: char*
+
+        **Available only from Cython.**
+
+        Raw pointer to the beginning of the frame payload in the receiving buffer.
+
+    .. py:attribute:: payload_size
+        :type: size_t
+
+        **Available only from Cython.**
+
+        Size of the payload.
 
 .. autoclass:: WSListener
     :members:

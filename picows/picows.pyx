@@ -607,9 +607,9 @@ cdef class WSProtocol:
         self._logger.info("Disconnected")
 
         if self._handshake_complete_future.done():
-            self.listener.on_ws_disconnected(self.transport)
-
-        if not self._handshake_complete_future.done():
+            if self._handshake_complete_future.exception() is None:
+                self.listener.on_ws_disconnected(self.transport)
+        else:
             self._handshake_complete_future.set_result(None)
 
         if self._handshake_timeout_handle is not None:
@@ -987,6 +987,8 @@ cdef class WSProtocol:
 
     def _handshake_timeout_callback(self):
         self._logger.info("Handshake timeout, the client hasn't requested upgrade within required time, close connection")
+        if self._handshake_complete_future is not None and not self._handshake_complete_future.done():
+            self._handshake_complete_future.set_exception(TimeoutError("websocket handshake timeout"))
         self.transport.disconnect()
 
 
@@ -995,9 +997,9 @@ async def ws_connect(str url: str,
                      str logger_name: str,
                      ssl: Optional[Union[bool, SSLContext]]=None,
                      bint disconnect_on_exception: bool=True,
-                     ssl_handshake_timeout: int=5,
-                     ssl_shutdown_timeout: int=5,
-                     websocket_handshake_timeout: int=5,
+                     ssl_handshake_timeout=5,
+                     ssl_shutdown_timeout=5,
+                     websocket_handshake_timeout=5,
                      local_addr: Optional[Tuple[str, int]]=None,
                      ) -> Tuple[WSTransport, WSListener]:
     """
@@ -1060,9 +1062,9 @@ async def ws_create_server(str url,
                            str logger_name,
                            ssl_context=None,
                            disconnect_on_exception=True,
-                           ssl_handshake_timeout: int=5,
-                           ssl_shutdown_timeout: int=5,
-                           websocket_handshake_timeout: int=5,
+                           ssl_handshake_timeout=5,
+                           ssl_shutdown_timeout=5,
+                           websocket_handshake_timeout=5,
                            reuse_port: bool=None,
                            start_serving: bool=False
                            ) -> asyncio.Server:
