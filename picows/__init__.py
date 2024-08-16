@@ -21,5 +21,5 @@ __all__ = [
     'PICOWS_DEBUG_LL'
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 __author__ = "Taras Kozlov"
