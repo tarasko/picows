@@ -139,7 +139,7 @@ if __name__ == '__main__':
 
     try:
         from examples.picows_client_cython import picows_main_cython
-        asyncio.get_event_loop().run_until_complete(picows_main_cython(args.url, msg, duration, ssl_context))
+        asyncio.run(picows_main_cython(args.url, msg, duration, ssl_context))
     except ImportError:
         pass
 

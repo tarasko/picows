@@ -21,23 +21,31 @@ class PicowsServerListener(WSListener):
 
 
 async def async_main():
-    url = "wss://127.0.0.1:9001"
+    url = "ws://127.0.0.1:9001"
+    url_ssl = "wss://127.0.0.1:9002"
+
+    plain_server = await ws_create_server(url, PicowsServerListener, "server",
+                                          websocket_handshake_timeout=0.5)
+    _logger.info("Server started on %s", url)
+
     ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     ssl_context.load_cert_chain(pathlib.Path(__file__).parent.parent / "tests" / "picows_test.crt",
                                 pathlib.Path(__file__).parent.parent / "tests" / "picows_test.key")
     ssl_context.check_hostname = False
     ssl_context.hostname_checks_common_name = False
     ssl_context.verify_mode = ssl.CERT_NONE
-    server = await ws_create_server(url, PicowsServerListener, "server", ssl_context=ssl_context)
-    _logger.info("Server started on %s", url)
-    server_task = asyncio.get_running_loop().create_task(server.serve_forever())
-    await server_task
+    ssl_server = await ws_create_server(url_ssl, PicowsServerListener, "server",
+                                        ssl_context=ssl_context,
+                                        websocket_handshake_timeout=0.5)
+    _logger.info("Server started on %s", url_ssl)
+
+    await asyncio.gather(plain_server.serve_forever(), ssl_server.serve_forever())
 
 
 if __name__ == '__main__':
     if os.name != 'nt':
         import uvloop
         asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-        
+
     basicConfig(level=INFO)
     asyncio.run(async_main())
