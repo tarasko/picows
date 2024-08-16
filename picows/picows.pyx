@@ -5,10 +5,11 @@ import hashlib
 import logging
 import os
 import socket
+import ssl
 import struct
 import urllib.parse
 from ssl import SSLContext
-from typing import cast, Tuple, Optional, Callable
+from typing import cast, Tuple, Optional, Callable, Union
 
 cimport cython
 
@@ -607,10 +608,10 @@ cdef class WSProtocol:
         if not self._handshake_complete_future.done():
             self._handshake_complete_future.set_result(None)
 
-        self.transport.mark_disconnected()
-
         if self._handshake_timeout_handle is not None:
             self._handshake_timeout_handle.cancel()
+
+        self.transport.mark_disconnected()
 
     def eof_received(self) -> bool:
         self._logger.debug("WS eof received")
@@ -964,13 +965,13 @@ cdef class WSProtocol:
 
     def _handshake_timeout_callback(self):
         self._logger.info("Handshake timeout, the client hasn't requested upgrade within required time, close connection")
-        self.transport.close()
+        self.transport.disconnect()
 
 
 async def ws_connect(str url: str,
                      ws_listener_factory: Callable[[], WSListener],
                      str logger_name: str,
-                     ssl: Optional[SSLContext]=None,
+                     ssl: Optional[Union[bool, SSLContext]]=None,
                      bint disconnect_on_exception: bool=True,
                      ssl_handshake_timeout: int=5,
                      ssl_shutdown_timeout: int=5,
@@ -1004,10 +1005,11 @@ async def ws_connect(str url: str,
     url_parts = urllib.parse.urlparse(url, allow_fragments=False)
 
     if url_parts.scheme == "wss":
-        ssl = ssl or True
+        if ssl is None:
+            ssl = True
         port = url_parts.port or 443
     elif url_parts.scheme == "ws":
-        ssl_context = None
+        ssl = None
         ssl_handshake_timeout = None
         ssl_shutdown_timeout = None
         port = url_parts.port or 80
@@ -1033,7 +1035,8 @@ async def ws_connect(str url: str,
 
 async def ws_create_server(str url,
                            ws_listener_factory,
-                           str logger_name, ssl_context=None,
+                           str logger_name,
+                           ssl_context=None,
                            disconnect_on_exception=True,
                            ssl_handshake_timeout: int=5,
                            ssl_shutdown_timeout: int=5,
@@ -1074,7 +1077,8 @@ async def ws_create_server(str url,
     url_parts = urllib.parse.urlparse(url, allow_fragments=False)
 
     if url_parts.scheme == "wss":
-        ssl_context = ssl_context or True
+        if ssl_context is None:
+            ssl_context = SSLContext(ssl.PROTOCOL_TLS_SERVER)
         port = url_parts.port or 443
     elif url_parts.scheme == "ws":
         ssl_context = None
@@ -1089,7 +1093,7 @@ async def ws_create_server(str url,
 
     cdef WSProtocol ws_protocol
 
-    server = await asyncio.get_running_loop().create_server(
+    return await asyncio.get_running_loop().create_server(
         ws_protocol_factory,
         host=url_parts.hostname, port=port,
         ssl=ssl_context,
@@ -1097,5 +1101,3 @@ async def ws_create_server(str url,
         ssl_shutdown_timeout=ssl_shutdown_timeout,
         reuse_port=reuse_port,
         start_serving=start_serving)
-
-    return server

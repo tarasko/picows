@@ -1,8 +1,10 @@
 import argparse
 import asyncio
 import os
+import ssl
 
 from logging import getLogger
+from ssl import SSLContext
 
 import websockets
 import aiohttp
@@ -19,7 +21,16 @@ RPS = {
 }
 
 
-async def picows_main(endpoint: str, msg: bytes, duration: int):
+def create_client_ssl_context():
+    ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+    ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
+    ssl_context.check_hostname = False
+    ssl_context.hostname_checks_common_name = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    return ssl_context
+
+
+async def picows_main(endpoint: str, msg: bytes, duration: int, ssl_context):
     class PicowsClientListener(WSListener):
         def __init__(self):
             super().__init__()
@@ -52,12 +63,12 @@ async def picows_main(endpoint: str, msg: bytes, duration: int):
             else:
                 self._transport.send(WSMsgType.BINARY, msg)
 
-    (_, client) = await ws_connect(endpoint, PicowsClientListener, "client")
+    (_, client) = await ws_connect(endpoint, PicowsClientListener, "client", ssl=ssl_context)
     await client._transport.wait_until_closed()
 
 
-async def websockets_main(endpoint: str, msg: bytes, duration: int):
-    async with websockets.connect(endpoint) as websocket:
+async def websockets_main(endpoint: str, msg: bytes, duration: int, ssl_context):
+    async with websockets.connect(endpoint, ssl=ssl_context) as websocket:
         await websocket.send(msg)
         start_time = time()
         cnt = 0
@@ -73,9 +84,9 @@ async def websockets_main(endpoint: str, msg: bytes, duration: int):
         RPS[f"websockets({websockets.__version__})"] = int(cnt / duration)
 
 
-async def aiohttp_main(url: str, data: bytes, duration: int) -> None:
+async def aiohttp_main(url: str, data: bytes, duration: int, ssl_context) -> None:
     async with ClientSession() as session:
-        async with session.ws_connect(url) as ws:
+        async with session.ws_connect(url, ssl_context=ssl_context) as ws:
             # send request
             cnt = 0
             start_time = time()
@@ -124,15 +135,17 @@ if __name__ == '__main__':
             asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
             loop_name = "uvloop"
 
+    ssl_context = create_client_ssl_context() if args.url.startswith("wss://") else None
+
     try:
         from examples.picows_client_cython import picows_main_cython
-        asyncio.get_event_loop().run_until_complete(picows_main_cython(args.url, msg, duration))
+        asyncio.get_event_loop().run_until_complete(picows_main_cython(args.url, msg, duration, ssl_context))
     except ImportError:
         pass
 
-    asyncio.run(picows_main(args.url, msg, duration))
-    asyncio.run(aiohttp_main(args.url, msg, duration))
-    asyncio.run(websockets_main(args.url, msg, duration))
+    asyncio.run(picows_main(args.url, msg, duration, ssl_context))
+    asyncio.run(aiohttp_main(args.url, msg, duration, ssl_context))
+    asyncio.run(websockets_main(args.url, msg, duration, ssl_context))
 
     for k, v in RPS.items():
         print(k, v)

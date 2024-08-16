@@ -74,7 +74,7 @@ cdef class PicowsClientListener(WSListener):
             self._transport.send(WSMsgType.BINARY, self._data)
 
 
-async def picows_main_cython(url: str, data: bytes, duration: int):
+async def picows_main_cython(url: str, data: bytes, duration: int, ssl_context):
     cdef PicowsClientListener client
-    (_, client) = await ws_connect("ws://127.0.0.1:9001", lambda: PicowsClientListener(data, duration), "client")
+    (_, client) = await ws_connect(url, lambda: PicowsClientListener(data, duration), "client", ssl=ssl_context)
     await client._transport.wait_until_closed()

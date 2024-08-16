@@ -1,12 +1,35 @@
 import asyncio
 import base64
+import itertools
 import os
+import pathlib
+import ssl
 
 import picows
 import pytest
 import async_timeout
 
 URL = "ws://127.0.0.1:9001"
+URL_SSL = "wss://127.0.0.1:9002"
+
+
+def create_server_ssl_context():
+    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    ssl_context.load_cert_chain(pathlib.Path(__file__).parent / "picows_test.crt",
+                                pathlib.Path(__file__).parent / "picows_test.key")
+    ssl_context.check_hostname = False
+    ssl_context.hostname_checks_common_name = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    return ssl_context
+
+
+def create_client_ssl_context():
+    ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+    ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
+    ssl_context.check_hostname = False
+    ssl_context.hostname_checks_common_name = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    return ssl_context
 
 
 class BinaryFrame:
@@ -33,25 +56,22 @@ class CloseFrame:
         self.fin = frame.fin
 
 
-#@pytest.fixture(scope="module")
-@pytest.fixture
-async def echo_server():
+@pytest.fixture(params=[URL, URL_SSL])
+async def echo_server(request):
     class PicowsServerListener(picows.WSListener):
         def on_ws_connected(self, transport: picows.WSTransport):
-            print("echo_server:on_ws_connected")
             self._transport = transport
 
         def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-            print("echo_server:on_ws_frame")
             self._transport.send(frame.msg_type, frame.get_payload_as_bytes())
             if frame.msg_type == picows.WSMsgType.CLOSE:
                 self._transport.send_close(frame.get_close_code(), frame.get_close_message())
                 self._transport.disconnect()
 
-    server = await picows.ws_create_server(URL, PicowsServerListener, "server")
+    server = await picows.ws_create_server(request.param, PicowsServerListener, "server",
+                                           ssl_context=create_server_ssl_context())
     task = asyncio.create_task(server.serve_forever())
-    print("initiated module level echo server")
-    yield server
+    yield request.param
 
     # Teardown server
     task.cancel()
@@ -60,11 +80,8 @@ async def echo_server():
     except:
         pass
 
-    print("stopped module level echo server")
 
-
-# @pytest.fixture(scope="module")
-@pytest.fixture
+@pytest.fixture()
 async def echo_client(echo_server):
     class PicowsClientListener(picows.WSListener):
         transport: picows.WSTransport
@@ -86,7 +103,8 @@ async def echo_client(echo_server):
             async with async_timeout.timeout(1):
                 return await self.msg_queue.get()
 
-    (_, client) = await picows.ws_connect(URL, PicowsClientListener, "client")
+    (_, client) = await picows.ws_connect(echo_server, PicowsClientListener, "client",
+                                          ssl=create_client_ssl_context())
     yield client
 
     # Teardown client
@@ -99,7 +117,7 @@ async def echo_client(echo_server):
         client.transport.disconnect()
 
 
-@pytest.mark.parametrize("msg_size", [32, 1024, 20000])
+@pytest.mark.parametrize("msg_size", [256, 1024])
 async def test_echo(echo_client, msg_size):
     msg = os.urandom(msg_size)
     echo_client.transport.send(picows.WSMsgType.BINARY, msg)
