@@ -512,6 +512,7 @@ cdef class WSProtocol:
         Py_ssize_t _upgrade_request_max_size
 
         bytes _websocket_key_b64
+        size_t _max_frame_size
 
         # The following are the parts of an unfinished frame
         # Once the frame is finished WSFrame is created and returned
@@ -545,9 +546,10 @@ cdef class WSProtocol:
         self._handshake_timeout = websocket_handshake_timeout
         self._handshake_timeout_handle = None
         self._handshake_complete_future = self._loop.create_future()
-        self._upgrade_request_max_size = 16*1024
+        self._upgrade_request_max_size = 16 * 1024
 
         self._websocket_key_b64 = base64.b64encode(os.urandom(16))
+        self._max_frame_size = 1024 * 1024
 
         self._state = WSParserState.WAIT_UPGRADE_RESPONSE
         self._buffer = MemoryBuffer()
@@ -616,7 +618,8 @@ cdef class WSProtocol:
         self.transport.mark_disconnected()
 
     def eof_received(self) -> bool:
-        self._logger.debug("WS eof received")
+        if self._log_debug_enabled:
+            self._logger.log(PICOWS_DEBUG_LL, "EOF marker received")
         # Returning False here means that the transport should close itself
         return False
 
@@ -810,6 +813,10 @@ cdef class WSProtocol:
         cdef WSFrame frame
         try:
             return self._get_next_frame_impl()
+        except WSError as ex:
+            self._logger.error("WS parser error: %s, initiate disconnect", ex.args)
+            self.transport.send_close(ex.args[0], ex.args[1].encode())
+            self.transport.disconnect()
         except:
             self._logger.exception("WS parser failure, initiate disconnect")
             self.transport.send_close(WSCloseCode.PROTOCOL_ERROR)
@@ -896,6 +903,9 @@ cdef class WSProtocol:
             else:
                 self._f_payload_start_pos = self._f_curr_state_start_pos
                 self._state = WSParserState.READ_PAYLOAD
+
+            if self._f_payload_length > self._max_frame_size:
+                raise WSError(WSCloseCode.PROTOCOL_ERROR, f"Frame payload size violates max allowed size {self._f_payload_length} > {self._max_frame_size}")
 
         # read payload mask
         if self._state == WSParserState.READ_PAYLOAD_MASK:
