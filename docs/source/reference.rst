@@ -69,6 +69,13 @@ Classes
 .. autoclass:: WSTransport
     :members:
 
+    .. py:attribute:: underlying_transport
+        :type: asyncio.Transport
+
+        Underlying TCP or SSL transport. Can be used to set buffer limits, check connection state, etc.
+
+        **Please don't use it to send data. Use only WSTransport.send_* methods to send frames.**
+
     .. py:method:: send_reuse_external_buffer(WSMsgType msg_type, char* message, size_t message_size)
 
         :param msg_type: Message type

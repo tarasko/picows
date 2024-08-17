@@ -68,21 +68,14 @@ cdef class WSFrame:
     cpdef bytes get_close_message(self)
 
 
-cdef class WSFrameBuilder:
-    cdef:
-        MemoryBuffer _write_buf
-        bint is_client_side
-
-    cdef prepare_frame_in_external_buffer(self, WSMsgType msg_type, uint8_t* msg_ptr, size_t msg_length)
-    cpdef prepare_frame(self, WSMsgType msg_type, message)
-
-
 cdef class WSTransport:
     cdef:
-        object _transport                       #: Optional[asyncio.Transport]
+        readonly object underlying_transport    #: asyncio.Transport
+
         object _logger                          #: Logger
-        object _disconnected_future
-        WSFrameBuilder _frame_builder
+        object _disconnected_future             #: asyncio.Future
+        MemoryBuffer _write_buf
+        bint _is_client_side
 
     cdef send_reuse_external_buffer(self, WSMsgType msg_type, char* message, size_t message_size)
     cpdef send(self, WSMsgType msg_type, message)
@@ -94,6 +87,9 @@ cdef class WSTransport:
     cdef send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64)
     cdef send_http_handshake_response(self, bytes accept_val)
     cdef mark_disconnected(self)
+
+    cdef bytes _prepare_frame_in_external_buffer(self, WSMsgType msg_type, uint8_t* msg_ptr, size_t msg_length)
+    cdef bytes _prepare_frame(self, WSMsgType msg_type, message)
 
 
 cdef class WSListener:
