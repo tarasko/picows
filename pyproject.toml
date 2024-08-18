@@ -4,6 +4,7 @@ description = "Fast websocket client and server for asyncio"
 authors = [{name = "Taras Kozlov", email = "tarasko.projects@gmail.com"}]
 requires-python = '>=3.8'
 readme = "README.rst"
+license = {text = "MIT License"}
 dynamic = ["version"]
 keywords = ["websocket", "networking"]
 dependencies = []
@@ -11,7 +12,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Framework :: AsyncIO",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
     "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX",
     "Operating System :: MacOS :: MacOS X",
