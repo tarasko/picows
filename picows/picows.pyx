@@ -538,7 +538,7 @@ cdef class WSProtocol:
 
         self._host_port = host_port.encode()
         self._ws_path = ws_path.encode() if ws_path else b"/"
-        self._logger = logging.getLogger(f"pico_ws.{logger_name}")
+        self._logger = logging.getLogger(f"picows.{logger_name}")
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
         self._is_client_side = is_client_side
         self._disconnect_on_exception = disconnect_on_exception
