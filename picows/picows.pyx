@@ -996,20 +996,18 @@ cdef class WSProtocol:
 
 async def ws_connect(str url: str,
                      ws_listener_factory: Callable[[], WSListener],
-                     str logger_name: str,
                      ssl: Optional[Union[bool, SSLContext]]=None,
                      bint disconnect_on_exception: bool=True,
                      ssl_handshake_timeout=5,
                      ssl_shutdown_timeout=5,
                      websocket_handshake_timeout=5,
                      local_addr: Optional[Tuple[str, int]]=None,
+                     logger_name: str="client"
                      ) -> Tuple[WSTransport, WSListener]:
     """
     :param url: Destination URL
     :param ws_listener_factory:
         A parameterless factory function that returns a user handler. User handler has to derive from :any:`WSListener`.
-    :param logger_name:
-        picows will use `picows.<logger_name>` logger to do all the logging.
     :param ssl: optional SSLContext to override default one when wss scheme is used
     :param disconnect_on_exception:
         Indicates whether the client should initiate disconnect on any exception
@@ -1023,6 +1021,8 @@ async def ws_connect(str url: str,
     :param local_addr:
         if given, is a (local_host, local_port) tuple used to bind the socket locally. The local_host and local_port
         are looked up using getaddrinfo(), similarly to host and port from url.
+    :param logger_name:
+        picows will use `picows.<logger_name>` logger to do all the logging.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()'
 
     Open a websocket connection to a given URL.
@@ -1060,15 +1060,15 @@ async def ws_connect(str url: str,
 
 
 async def ws_create_server(str url,
-                           ws_listener_factory,
-                           str logger_name,
-                           ssl_context=None,
-                           disconnect_on_exception=True,
+                           ws_listener_factory: Callable[[], WSListener],
+                           ssl_context: Optional[SSLContext]=None,
+                           bint disconnect_on_exception: bool=True,
                            ssl_handshake_timeout=5,
                            ssl_shutdown_timeout=5,
                            websocket_handshake_timeout=5,
                            reuse_port: bool=None,
-                           start_serving: bool=False
+                           str logger_name: str="server",
+                           start_serving: bool=False,
                            ) -> asyncio.Server:
     """
     :param url:
@@ -1077,8 +1077,6 @@ async def ws_create_server(str url,
     :param ws_listener_factory:
         A parameterless factory function that returns a user handler for a newly accepted connection.
         User handler has to derive from :any:`WSListener`.
-    :param logger_name:
-        picows will use `picows.<logger_name>` logger to do all the logging.
     :param ssl: optional SSLContext to override default one when wss scheme is used
     :param disconnect_on_exception:
         Indicates whether the client should initiate disconnect on any exception
@@ -1092,6 +1090,8 @@ async def ws_create_server(str url,
     :param reuse_port:
         tells the kernel to allow this endpoint to be bound to the same port as other existing endpoints are bound to,
         so long as they all set this flag when being created. This option is not supported on Windows
+    :param logger_name:
+        picows will use `picows.<logger_name>` logger to do all the logging.
     :param start_serving:
         causes the created server to start accepting connections immediately. When set to False,
         the user should await on `Server.start_serving()` or `Server.serve_forever()` to make the server to start

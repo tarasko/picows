@@ -24,7 +24,7 @@ async def async_main():
     url = "ws://127.0.0.1:9001"
     url_ssl = "wss://127.0.0.1:9002"
 
-    plain_server = await ws_create_server(url, PicowsServerListener, "server",
+    plain_server = await ws_create_server(url, PicowsServerListener,
                                           websocket_handshake_timeout=0.5)
     _logger.info("Server started on %s", url)
 
@@ -34,7 +34,7 @@ async def async_main():
     ssl_context.check_hostname = False
     ssl_context.hostname_checks_common_name = False
     ssl_context.verify_mode = ssl.CERT_NONE
-    ssl_server = await ws_create_server(url_ssl, PicowsServerListener, "server",
+    ssl_server = await ws_create_server(url_ssl, PicowsServerListener,
                                         ssl_context=ssl_context,
                                         websocket_handshake_timeout=0.5)
     _logger.info("Server started on %s", url_ssl)

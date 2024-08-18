@@ -63,7 +63,7 @@ async def picows_main(endpoint: str, msg: bytes, duration: int, ssl_context):
             else:
                 self._transport.send(WSMsgType.BINARY, msg)
 
-    (_, client) = await ws_connect(endpoint, PicowsClientListener, "client", ssl=ssl_context)
+    (_, client) = await ws_connect(endpoint, PicowsClientListener, ssl=ssl_context)
     await client._transport.wait_until_closed()
 
 
@@ -133,13 +133,14 @@ if __name__ == '__main__':
         if os.name != 'nt':
             import uvloop
             asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-            loop_name = "uvloop"
+            loop_name = f"uvloop({uvloop.__version__})"
 
     ssl_context = create_client_ssl_context() if args.url.startswith("wss://") else None
 
     try:
-        from examples.picows_client_cython import picows_main_cython
-        asyncio.run(picows_main_cython(args.url, msg, duration, ssl_context))
+        from examples.echo_client_cython import picows_main_cython
+        picows_cython_rps = asyncio.run(picows_main_cython(args.url, msg, duration, ssl_context))
+        RPS["picows(cython)"] = picows_cython_rps
     except ImportError:
         pass
 
@@ -157,7 +158,7 @@ if __name__ == '__main__':
 
         libraries = list(RPS.keys())
         counts = list(RPS.values())
-        bar_colors = ['tab:blue', 'tab:green', 'tab:orange', 'tab:red']
+        bar_colors = ['tab:blue', 'tab:green', 'tab:green', 'tab:orange', 'tab:red']
 
         ax.bar(libraries, counts, label=libraries, color=bar_colors)
 

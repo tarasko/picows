@@ -28,7 +28,7 @@ cdef double get_now_timestamp() except -1.0:
     return <double>tspec.tv_sec + <double>tspec.tv_nsec * 1e-9
 
 
-cdef class PicowsClientListener(WSListener):
+cdef class EchoClientListener(WSListener):
     cdef:
         WSTransport _transport
         double _begin_time
@@ -36,6 +36,7 @@ cdef class PicowsClientListener(WSListener):
         int _cnt
         bytes _data
         bytearray _full_reply
+        readonly int rps
 
     def __init__(self, bytes data, int duration):
         super().__init__()
@@ -45,6 +46,7 @@ cdef class PicowsClientListener(WSListener):
         self._cnt = 0
         self._data = data
         self._full_reply = bytearray()
+        self.rps = 0
 
     cpdef on_ws_connected(self, WSTransport transport):
         self._transport = transport
@@ -55,11 +57,7 @@ cdef class PicowsClientListener(WSListener):
         if frame.fin:
             if self._full_reply:
                 self._full_reply += frame.get_payload_as_memoryview()
-                # assert self._full_msg == msg
                 self._full_reply.clear()
-            else:
-                # assert frame.get_payload_as_bytes() == msg
-                pass
         else:
             self._full_reply += frame.get_payload_as_memoryview()
             return
@@ -68,13 +66,14 @@ cdef class PicowsClientListener(WSListener):
         cdef double ts = get_now_timestamp()
 
         if ts - self._begin_time >= self._duration:
-            print("picows(cython)", int(self._cnt / self._duration))
+            self.rps = int(self._cnt / self._duration)
             self._transport.disconnect()
         else:
             self._transport.send(WSMsgType.BINARY, self._data)
 
 
 async def picows_main_cython(url: str, data: bytes, duration: int, ssl_context):
-    cdef PicowsClientListener client
-    (_, client) = await ws_connect(url, lambda: PicowsClientListener(data, duration), "client", ssl=ssl_context)
+    cdef EchoClientListener client
+    (_, client) = await ws_connect(url, lambda: EchoClientListener(data, duration), ssl=ssl_context)
     await client._transport.wait_until_closed()
+    return client.rps

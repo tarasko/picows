@@ -74,7 +74,7 @@ Connects to an echo server, sends a message and disconnect upon reply.
 
 
   async def main(endpoint):
-    (_, client) = await ws_connect(endpoint, ClientListener, "client")
+    (_, client) = await ws_connect(endpoint, ClientListener)
     await client.transport.wait_until_closed()
 
 
@@ -108,7 +108,7 @@ Echo server
 
   async def main():
       url = "ws://127.0.0.1:9001"
-      server = await ws_create_server(url, ServerClientListener, "server")
+      server = await ws_create_server(url, ServerClientListener)
       print(f"Server started on {url}")
       await server.serve_forever()
 

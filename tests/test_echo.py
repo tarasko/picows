@@ -67,7 +67,7 @@ async def echo_server(request):
                 self._transport.send_close(frame.get_close_code(), frame.get_close_message())
                 self._transport.disconnect()
 
-    server = await picows.ws_create_server(request.param, PicowsServerListener, "server",
+    server = await picows.ws_create_server(request.param, PicowsServerListener,
                                            ssl_context=create_server_ssl_context(),
                                            websocket_handshake_timeout=0.5)
     task = asyncio.create_task(server.serve_forever())
@@ -103,7 +103,7 @@ async def echo_client(echo_server):
             async with async_timeout.timeout(1):
                 return await self.msg_queue.get()
 
-    (_, client) = await picows.ws_connect(echo_server, PicowsClientListener, "client",
+    (_, client) = await picows.ws_connect(echo_server, PicowsClientListener,
                                           ssl=create_client_ssl_context(),
                                           websocket_handshake_timeout=0.5)
     yield client
@@ -146,13 +146,13 @@ async def test_close(echo_client):
 async def test_client_handshake_timeout(echo_server):
     # Set unreasonably small timeout
     with pytest.raises(TimeoutError):
-        (_, client) = await picows.ws_connect(echo_server, picows.WSListener, "client",
+        (_, client) = await picows.ws_connect(echo_server, picows.WSListener,
                                               ssl=create_client_ssl_context(),
                                               websocket_handshake_timeout=0.00001)
 
 
 async def test_server_handshake_timeout():
-    server = await picows.ws_create_server(URL, picows.WSListener, "server", websocket_handshake_timeout=0.1)
+    server = await picows.ws_create_server(URL, picows.WSListener, websocket_handshake_timeout=0.1)
     server_task = asyncio.create_task(server.serve_forever())
 
     try:

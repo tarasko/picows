@@ -17,7 +17,7 @@ cython_modules = [
     ]
 
 if os.getenv("PICOWS_BUILD_EXAMPLES") is not None:
-    cython_modules.append(Extension("examples.picows_client_cython", ["examples/picows_client_cython.pyx"]))
+    cython_modules.append(Extension("examples.echo_client_cython", ["examples/echo_client_cython.pyx"]))
 
 setup(
     ext_modules=cythonize(
