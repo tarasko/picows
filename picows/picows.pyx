@@ -699,7 +699,7 @@ cdef class WSProtocol:
         memcpy(self._buffer.data + self._f_new_data_start_pos, ptr, sz)
         self._f_new_data_start_pos += sz
 
-        self._handle_new_data()
+        self._process_new_data()
 
     def get_buffer(self, Py_ssize_t size_hint):
         cdef sz = size_hint + 1024
@@ -723,12 +723,12 @@ cdef class WSProtocol:
             self._logger.log(PICOWS_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
                              self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)
         self._f_new_data_start_pos += nbytes
-        self._handle_new_data()
+        self._process_new_data()
 
     async def wait_until_handshake_complete(self):
         await asyncio.shield(self._handshake_complete_future)
 
-    cdef _handle_new_data(self):
+    cdef _process_new_data(self):
         cdef WSUpgradeRequest upgrade_request
         cdef bytes accept_val
         if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
@@ -760,7 +760,7 @@ cdef class WSProtocol:
     cdef _negotiate(self):
         if self._is_client_side:
             try:
-                self._handle_upgrade_response()
+                self._try_read_and_process_upgrade_response()
                 if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
                     # Upgrade response hasn't fully arrived yet
                     return False
@@ -772,7 +772,7 @@ cdef class WSProtocol:
                 return False
         else:
             try:
-                upgrade_request, accept_val = self._read_upgrade_request()
+                upgrade_request, accept_val = self._try_read_upgrade_request()
             except RuntimeError as ex:
                 self.transport._send_bad_request(str(ex))
                 self.transport.disconnect()
@@ -804,7 +804,7 @@ cdef class WSProtocol:
         self._invoke_on_ws_connected()
         return True
 
-    cdef tuple _read_upgrade_request(self):
+    cdef tuple _try_read_upgrade_request(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
         request = data.split(b"\r\n\r\n", 1)
         if len(request) < 2:
@@ -812,12 +812,12 @@ cdef class WSProtocol:
                 self.transport.disconnect()
                 self._logger.info("Disconnect because upgrade request violated max_size threshold: %d", 16*1024)
 
-            return None
+            return None, None
 
         if len(request[0]) >= self._upgrade_request_max_size:
             self.transport.disconnect()
             self._logger.info("Disconnect because upgrade request violated max_size threshold: %d", 16*1024)
-            return None
+            return None, None
 
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "New data: %s", data)
@@ -867,7 +867,7 @@ cdef class WSProtocol:
 
         return upgrade_request, accept_val
 
-    cdef _handle_upgrade_response(self):
+    cdef _try_read_and_process_upgrade_response(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
         response = data.split(b"\r\n\r\n", 1)
         if len(response) < 2:
