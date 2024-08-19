@@ -64,7 +64,7 @@ async def picows_main(endpoint: str, msg: bytes, duration: int, ssl_context):
                 self._transport.send(WSMsgType.BINARY, msg)
 
     (_, client) = await ws_connect(endpoint, PicowsClientListener, ssl=ssl_context)
-    await client._transport.wait_until_closed()
+    await client._transport.wait_disconnected()
 
 
 async def websockets_main(endpoint: str, msg: bytes, duration: int, ssl_context):

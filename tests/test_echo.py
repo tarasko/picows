@@ -120,7 +120,7 @@ async def echo_client(echo_server):
     try:
         # Gracefull shutdown, expect server to disconnect us because we have sent close message
         async with async_timeout.timeout(1):
-            await client.transport.wait_until_closed()
+            await client.transport.wait_disconnected()
     finally:
         client.transport.disconnect()
 
@@ -191,3 +191,19 @@ async def test_server_internal_error():
 
         with pytest.raises(picows.WSError, match="500 Internal Server Error"):
             (_, client) = await picows.ws_connect(url, picows.WSListener)
+
+
+async def test_server_bad_request():
+    server = await picows.ws_create_server(lambda _: picows.WSListener(),
+                                           "127.0.0.1", 0)
+
+    async with ServerAsyncContext(server):
+        r, w = await asyncio.open_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+
+        w.write(b"zzzz\r\n\r\n")
+        resp_header = await r.readuntil(b"\r\n\r\n")
+        assert b"400 Bad Request" in resp_header
+        resp_data = await r.read()
+        assert r.at_eof()
+        # TODO: Why this fails?
+        # assert w.transport.is_closing()

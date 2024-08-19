@@ -24,6 +24,10 @@ from libc.stdlib cimport rand
 
 PICOWS_DEBUG_LL = 9
 
+cdef:
+    set _ALLOWED_CLOSE_CODES = {int(i) for i in WSCloseCode}
+    bytes _WS_KEY = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
 
 cdef extern from * nogil:
     """
@@ -207,12 +211,6 @@ cdef class WSFrame:
                 f"lib={True if self.last_in_buffer else False}, psz={self.payload_size}, tsz={self.tail_size})")
 
 
-cdef:
-    set ALLOWED_CLOSE_CODES = {int(i) for i in WSCloseCode}
-    bytes _WS_DEFLATE_TRAILING = bytes([0x00, 0x00, 0xFF, 0xFF])
-    bytes _WS_KEY = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-
-
 cdef class MemoryBuffer:
     def __init__(self, Py_ssize_t default_capacity=2048):
         self.size = 0
@@ -367,17 +365,22 @@ cdef class WSTransport:
 
     cpdef disconnect(self):
         """
-        Immediately disconnect the underlying transport. 
-        It is ok to call this method multiple times. It does nothing if the transport is already disconnected.         
+        Close the underlying transport.
+        
+        If there is unsent outgoing data in the buffer, it will be flushed 
+        asynchronously. No more data will be received.         
+        It is ok to call this method multiple times. 
+        It does nothing if the transport is already closed.         
         """
         if self.underlying_transport.is_closing():
             return
         self.underlying_transport.close()
 
-    async def wait_until_closed(self):
+    async def wait_disconnected(self):
         """
-        Coroutine that conveniently allows to wait until websocket is completely closed
-        (underlying transport is disconnected)
+        Coroutine that conveniently allows to wait until websocket is
+        completely disconnected.
+        (underlying transport is closed, on_ws_disconnected has been called)
         """
         if not self._disconnected_future.done():
             await asyncio.shield(self._disconnected_future)
@@ -661,7 +664,7 @@ cdef class WSProtocol:
 
         if self._handshake_complete_future.done():
             if self._handshake_complete_future.exception() is None:
-                self.listener.on_ws_disconnected(self.transport)
+                self._invoke_on_ws_disconnected()
         else:
             self._handshake_complete_future.set_result(None)
 
@@ -1029,7 +1032,7 @@ cdef class WSProtocol:
             self._state = WSParserState.READ_HEADER
 
             if frame.msg_type == WSMsgType.CLOSE:
-                if frame.get_close_code() < 3000 and frame.get_close_code() not in ALLOWED_CLOSE_CODES:
+                if frame.get_close_code() < 3000 and frame.get_close_code() not in _ALLOWED_CLOSE_CODES:
                     raise _WSParserError(WSCloseCode.PROTOCOL_ERROR,
                                          f"Invalid close code: {frame.get_close_code()}")
 
@@ -1063,6 +1066,12 @@ cdef class WSProtocol:
             else:
                 self._logger.exception("Unhandled exception in on_ws_frame")
 
+    cdef _invoke_on_ws_disconnected(self):
+        try:
+            self.listener.on_ws_disconnected(self.transport)
+        except:
+            self._logger.exception("Unhandled exception in on_ws_disconnected")
+
     cdef _shrink_buffer(self):
         if self._f_curr_frame_start_pos > 0:
             memmove(self._buffer.data,
@@ -1092,6 +1101,8 @@ async def ws_connect(str url: str,
                      logger_name: str="client"
                      ) -> Tuple[WSTransport, WSListener]:
     """
+    Open a websocket connection to a given URL.
+
     :param url: Destination URL
     :param ws_listener_factory:
         A parameterless factory function that returns a user handler. User handler has to derive from :any:`WSListener`.
@@ -1111,8 +1122,6 @@ async def ws_connect(str url: str,
     :param logger_name:
         picows will use `picows.<logger_name>` logger to do all the logging.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()'
-
-    Open a websocket connection to a given URL.
     """
 
     url_parts = urllib.parse.urlparse(url, allow_fragments=False)

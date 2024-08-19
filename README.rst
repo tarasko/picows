@@ -75,7 +75,7 @@ Connects to an echo server, sends a message and disconnect upon reply.
 
   async def main(endpoint):
     (_, client) = await ws_connect(endpoint, ClientListener)
-    await client.transport.wait_until_closed()
+    await client.transport.wait_disconnected()
 
 
   if __name__ == '__main__':
