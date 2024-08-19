@@ -50,6 +50,14 @@ cdef class MemoryBuffer:
     cdef resize(self, Py_ssize_t new_size)
 
 
+cdef class WSUpgradeRequest:
+    cdef:
+        readonly bytes method
+        readonly bytes path
+        readonly bytes version
+        readonly dict headers
+
+
 cdef class WSFrame:
     cdef:
         char* payload_ptr
@@ -57,6 +65,7 @@ cdef class WSFrame:
         readonly size_t tail_size
         readonly WSMsgType msg_type
         readonly uint8_t fin
+        readonly uint8_t rsv1
         readonly uint8_t last_in_buffer
 
     cpdef bytes get_payload_as_bytes(self)
@@ -73,6 +82,7 @@ cdef class WSTransport:
         readonly object underlying_transport    #: asyncio.Transport
 
         object _logger                          #: Logger
+        bint _log_debug_enabled
         object _disconnected_future             #: asyncio.Future
         MemoryBuffer _write_buf
         bint _is_client_side
@@ -84,9 +94,12 @@ cdef class WSTransport:
     cpdef send_close(self, WSCloseCode close_code=*, close_message=*)
     cpdef disconnect(self)
 
-    cdef send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64)
-    cdef send_http_handshake_response(self, bytes accept_val)
-    cdef mark_disconnected(self)
+    cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64)
+    cdef _send_http_handshake_response(self, bytes accept_val)
+    cdef _send_bad_request(self, str error)
+    cdef _send_not_found(self, WSUpgradeRequest r)
+    cdef _send_internal_error(self, WSUpgradeRequest r, str error)
+    cdef _mark_disconnected(self)
 
     cdef bytes _prepare_frame_in_external_buffer(self, WSMsgType msg_type, uint8_t* msg_ptr, size_t msg_length)
     cdef bytes _prepare_frame(self, WSMsgType msg_type, message)

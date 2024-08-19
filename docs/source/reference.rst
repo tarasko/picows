@@ -63,6 +63,29 @@ Classes
 
         Size of the payload.
 
+.. autoclass:: WSUpgradeRequest
+    :members:
+
+    .. py:attribute:: method
+        :type: bytes
+
+        Request method. b"GET", b"POST", etc
+
+    .. py:attribute:: path
+        :type: bytes
+
+        Request path. For example b"/ws"
+
+    .. py:attribute:: version
+        :type: bytes
+
+        HTTP version. For example b"HTTP/1.1"
+
+    .. py:attribute:: headers
+        :type: Dict[str, str]
+
+        Request headers. header names are always in lowercase
+
 .. autoclass:: WSListener
     :members:
 

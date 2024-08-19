@@ -5,7 +5,6 @@ import hashlib
 import logging
 import os
 import socket
-import ssl
 import struct
 import urllib.parse
 from ssl import SSLContext
@@ -70,6 +69,10 @@ cdef extern from * nogil:
 
     uint64_t be64toh(uint64_t)
     uint64_t htobe64(uint64_t)
+
+
+cdef class WSUpgradeRequest:
+    pass
 
 
 class WSError(Exception):
@@ -299,6 +302,7 @@ cdef class WSTransport:
     def __init__(self, bint is_client_side, underlying_transport, logger, loop):
         self.underlying_transport = underlying_transport
         self._logger = logger
+        self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
         self._disconnected_future = loop.create_future()
         self._write_buf = MemoryBuffer(1024)
         self._is_client_side = is_client_side
@@ -368,7 +372,7 @@ cdef class WSTransport:
         if not self._disconnected_future.done():
             await asyncio.shield(self._disconnected_future)
 
-    cdef send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64):
+    cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64):
         initial_handshake = (b"GET %b HTTP/1.1\r\n"
                              b"Host: %b\r\n"
                              b"Upgrade: websocket\r\n"
@@ -376,19 +380,53 @@ cdef class WSTransport:
                              b"Sec-WebSocket-Version: 13\r\n"
                              b"Sec-WebSocket-Key: %b\r\n"
                              b"\r\n" % (ws_path, host_port, websocket_key_b64))
+        if self._log_debug_enabled:
+            self._logger.log(PICOWS_DEBUG_LL, "Send upgrade request: %s", initial_handshake)
         self.underlying_transport.write(initial_handshake)
 
-    cdef send_http_handshake_response(self, bytes accept_val):
+    cdef _send_http_handshake_response(self, bytes accept_val):
         cdef bytes handshake_response = (b"HTTP/1.1 101 Switching Protocols\r\n"
                                          b"Connection: upgrade\r\n"
                                          b"Upgrade: websocket\r\n"
                                          b"Sec-WebSocket-Accept: %b\r\n"
                                          b"\r\n" % (accept_val,))
-
-        self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", handshake_response)
+        if self._log_debug_enabled:
+            self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", handshake_response)
         self.underlying_transport.write(handshake_response)
 
-    cdef mark_disconnected(self):
+    cdef _send_bad_request(self, str error):
+        cdef bytes error_bytes = error.encode()
+        cdef bytes reply = (b"HTTP/1.1 400 Bad Request\r\n"
+                            b"Content-Type: text/plain\r\n"
+                            b"Content-Length: %d\r\n"
+                            b"\r\n"
+                            b"%b" % (len(error_bytes), error_bytes))
+        if self._log_debug_enabled:
+            self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", reply)
+        self.underlying_transport.write(reply)
+
+    cdef _send_not_found(self, WSUpgradeRequest r):
+        cdef bytes reply = (b"%b 404 Not Found\r\n"
+                            b"Content-Type: text/plain\r\n"
+                            b"Content-Length: 13\r\n"
+                            b"\r\n"
+                            b"404 Not Found" % (r.version,))
+        if self._log_debug_enabled:
+            self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", reply)
+        self.underlying_transport.write(reply)
+
+    cdef _send_internal_error(self, WSUpgradeRequest r, str error):
+        cdef bytes error_bytes = error.encode()
+        cdef bytes reply = (b"%b 500 Internal Server Error\r\n"
+                            b"Content-Type: text/plain\r\n"
+                            b"Content-Length: %d\r\n"
+                            b"\r\n"
+                            b"%b" % (r.version, len(error_bytes), error_bytes))
+        if self._log_debug_enabled:
+            self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", reply)
+        self.underlying_transport.write(reply)
+
+    cdef _mark_disconnected(self):
         if not self._disconnected_future.done():
             self._disconnected_future.set_result(None)
 
@@ -499,6 +537,7 @@ cdef class WSProtocol:
         WSTransport transport
         WSListener listener
 
+        object _listener_factory
         bytes _host_port
         bytes _ws_path
         object _logger                          #: Logger
@@ -528,15 +567,17 @@ cdef class WSProtocol:
         WSMsgType _f_msg_type
         uint32_t _f_mask
         uint8_t _f_fin
+        uint8_t _f_rsv1
         uint8_t _f_has_mask
         uint8_t _f_payload_length_flag
 
     def __init__(self, str host_port, str ws_path, bint is_client_side, ws_listener_factory, str logger_name,
                  bint disconnect_on_exception, websocket_handshake_timeout):
         self.transport = None
-        self.listener = ws_listener_factory()
+        self.listener = None
 
-        self._host_port = host_port.encode()
+        self._listener_factory = ws_listener_factory
+        self._host_port = host_port.encode() if host_port is not None else None
         self._ws_path = ws_path.encode() if ws_path else b"/"
         self._logger = logging.getLogger(f"picows.{logger_name}")
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
@@ -598,7 +639,7 @@ cdef class WSProtocol:
         self.transport = WSTransport(self._is_client_side, transport, self._logger, self._loop)
 
         if self._is_client_side:
-            self.transport.send_http_handshake(self._ws_path, self._host_port, self._websocket_key_b64)
+            self.transport._send_http_handshake(self._ws_path, self._host_port, self._websocket_key_b64)
             self._handshake_timeout_handle = self._loop.call_later(
                 self._handshake_timeout, self._handshake_timeout_callback)
         else:
@@ -617,7 +658,7 @@ cdef class WSProtocol:
         if self._handshake_timeout_handle is not None:
             self._handshake_timeout_handle.cancel()
 
-        self.transport.mark_disconnected()
+        self.transport._mark_disconnected()
 
     def eof_received(self) -> bool:
         if self._log_debug_enabled:
@@ -627,11 +668,13 @@ cdef class WSProtocol:
 
     def pause_writing(self):
         self._logger.warning("Protocol writing pause requested, crossed writing buffer high-watermark")
-        self.listener.pause_writing()
+        if self.listener is not None:
+            self.listener.pause_writing()
 
     def resume_writing(self):
         self._logger.warning("Protocol writing resume requested, crossed writing buffer low-watermark,")
-        self.listener.resume_writing()
+        if self.listener is not None:
+            self.listener.resume_writing()
 
     def data_received(self, bytes data):
         cdef:
@@ -676,25 +719,11 @@ cdef class WSProtocol:
         await asyncio.shield(self._handshake_complete_future)
 
     cdef _handle_new_data(self):
+        cdef WSUpgradeRequest upgrade_request
+        cdef bytes accept_val
         if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
-            if self._is_client_side:
-                self._handle_upgrade_response()
-                if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
-                    # Upgrade response hasn't fully arrived yet
-                    return
-
-            else:
-                accept_val = self._read_upgrade_request()
-                if accept_val is None:
-                    # Upgrade request hasn't fully arrived yet
-                    return
-
-                self.transport.send_http_handshake_response(accept_val)
-
-            self._handshake_complete_future.set_result(None)
-            self._handshake_timeout_handle.cancel()
-            self._handshake_timeout_handle = None
-            self._invoke_on_ws_connected()
+            if not self._negotiate():
+                return
 
         cdef WSFrame frame = self._get_next_frame()
         if frame is None:
@@ -718,7 +747,50 @@ cdef class WSProtocol:
 
         self._shrink_buffer()
 
-    cdef bytes _read_upgrade_request(self):
+    cdef _negotiate(self):
+        if self._is_client_side:
+            self._handle_upgrade_response()
+            if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
+                # Upgrade response hasn't fully arrived yet
+                return False
+            self.listener = self._listener_factory()
+            self._listener_factory = None
+        else:
+            try:
+                upgrade_request, accept_val = self._read_upgrade_request()
+            except RuntimeError as ex:
+                self.transport._send_bad_request(str(ex))
+                self.transport.disconnect()
+                return False
+
+            if accept_val is None:
+                # Upgrade request hasn't fully arrived yet
+                return False
+
+            listener_factory = self._listener_factory
+            self._listener_factory = None
+            try:
+                self.listener = listener_factory(upgrade_request)
+            except Exception as ex:
+                self.transport._send_internal_server_error(upgrade_request,
+                                                           str(ex))
+                self.transport.disconnect()
+                return False
+
+            if self.listener is None:
+                self.transport._send_not_found(upgrade_request)
+                self.transport.disconnect()
+                return False
+
+            self.transport._send_http_handshake_response(accept_val)
+
+        self._handshake_complete_future.set_result(None)
+        self._handshake_timeout_handle.cancel()
+        self._handshake_timeout_handle = None
+        self._invoke_on_ws_connected()
+        return True
+
+    cdef tuple _read_upgrade_request(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
         request = data.split(b"\r\n\r\n", 1)
         if len(request) < 2:
@@ -762,18 +834,24 @@ cdef class WSProtocol:
         key = headers.get("sec-websocket-key")
         try:
             if not key or len(base64.b64decode(key)) != 16:
-                raise RuntimeError(f"Handshake error: {key!r}")
+                raise RuntimeError(f"Handshake error, invalid key: {key!r}")
         except binascii.Error:
-            raise RuntimeError(f"Handshake error: {key!r}") from None
+            raise WSError(f"Handshake error, invalid key: {key!r}") from None
 
         cdef bytes accept_val = base64.b64encode(hashlib.sha1(key.encode() + _WS_KEY).digest())
+
+        cdef list status_line_parts = response_status_line.split(b" ")
+        cdef WSUpgradeRequest upgrade_request = <WSUpgradeRequest>WSUpgradeRequest.__new__(WSUpgradeRequest)
+        upgrade_request.method = <bytes>status_line_parts[0]
+        upgrade_request.path = <bytes>status_line_parts[1]
+        upgrade_request.headers = headers
 
         memmove(self._buffer.data, self._buffer.data + len(raw_headers) + 4, self._buffer.size - len(raw_headers) - 4)
 
         self._f_new_data_start_pos = len(tail)
         self._state = WSParserState.READ_HEADER
 
-        return accept_val
+        return upgrade_request, accept_val
 
     cdef _handle_upgrade_response(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
@@ -829,7 +907,7 @@ cdef class WSProtocol:
         cdef:
             uint8_t first_byte
             uint8_t second_byte
-            uint8_t rsv1, rsv2, rsv3
+            uint8_t rsv2, rsv3
             WSFrame frame
 
         if self._state == WSParserState.READ_HEADER:
@@ -840,29 +918,23 @@ cdef class WSProtocol:
             second_byte = <uint8_t>self._buffer.data[self._f_curr_state_start_pos + 1]
 
             self._f_fin = (first_byte >> 7) & 1
-            rsv1 = (first_byte >> 6) & 1
+            self._f_rsv1 = (first_byte >> 6) & 1
             rsv2 = (first_byte >> 5) & 1
             rsv3 = (first_byte >> 4) & 1
             self._f_msg_type = <WSMsgType>(first_byte & 0xF)
 
             # frame-fin = %x0 ; more frames of this message follow
             #           / %x1 ; final frame of this message
-            # frame-rsv1 = %x0 ;
-            #    1 bit, MUST be 0 unless negotiated otherwise
-            # frame-rsv2 = %x0 ;
-            #    1 bit, MUST be 0 unless negotiated otherwise
-            # frame-rsv3 = %x0 ;
-            #    1 bit, MUST be 0 unless negotiated otherwise
-            #
-            # Remove rsv1 from this test for deflate development
-            if rsv1 or rsv2 or rsv3:
+            # rsv1 is used by some extensions to indicate compressed frame
+            # rsv2, rsv3 are not used, check and throw if they are set
+            if rsv2 or rsv3:
                 mem_dump = PyBytes_FromStringAndSize(
                     self._buffer.data + self._f_curr_state_start_pos,
                     max(self._f_new_data_start_pos - self._f_curr_state_start_pos, <size_t>64)
                 )
                 raise WSError(
                     WSCloseCode.PROTOCOL_ERROR,
-                    f"Received frame with non-zero reserved bits, rsv1={rsv1}, rsv2={rsv2}, rsv3={rsv3}, msg_type={self._f_msg_type}: {mem_dump}",
+                    f"Received frame with non-zero reserved bits, rsv2={rsv2}, rsv3={rsv3}, msg_type={self._f_msg_type}: {mem_dump}",
                 )
 
             if self._f_msg_type > 0x7 and not self._f_fin:
@@ -935,6 +1007,7 @@ cdef class WSProtocol:
             frame.tail_size = self._f_new_data_start_pos - (self._f_curr_state_start_pos + self._f_payload_length)
             frame.msg_type = self._f_msg_type
             frame.fin = self._f_fin
+            frame.rsv1 = self._f_rsv1
             frame.last_in_buffer = 0
 
             self._f_curr_state_start_pos += self._f_payload_length
@@ -989,7 +1062,7 @@ cdef class WSProtocol:
 
     def _handshake_timeout_callback(self):
         self._logger.info("Handshake timeout, the client hasn't requested upgrade within required time, close connection")
-        if self._handshake_complete_future is not None and not self._handshake_complete_future.done():
+        if not self._handshake_complete_future.done():
             self._handshake_complete_future.set_exception(TimeoutError("websocket handshake timeout"))
         self.transport.disconnect()
 
@@ -1059,71 +1132,60 @@ async def ws_connect(str url: str,
     return ws_protocol.transport, ws_protocol.listener
 
 
-async def ws_create_server(str url,
-                           ws_listener_factory: Callable[[], WSListener],
-                           ssl_context: Optional[SSLContext]=None,
+async def ws_create_server(ws_listener_factory: Callable[[WSUpgradeRequest], Optional[WSListener]],
+                           host=None,
+                           port=None,
+                           *,
                            bint disconnect_on_exception: bool=True,
-                           ssl_handshake_timeout=5,
-                           ssl_shutdown_timeout=5,
                            websocket_handshake_timeout=5,
-                           reuse_port: bool=None,
                            str logger_name: str="server",
-                           start_serving: bool=False,
+                           **kwargs
                            ) -> asyncio.Server:
     """
-    :param url:
-        Defines which interface and port to bind on and what scheme ('ws' or 'wss') to use.
-        Currently, the path part of the URL is completely ignored.
+    Create a websocket server listening on TCP port of the host address.
+    This function forwards its `kwargs` directly to
+    `asyncio.loop.create_server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.create_server>`_
+
+    It has a few extra parameters to control the behaviour of websocket
+
     :param ws_listener_factory:
-        A parameterless factory function that returns a user handler for a newly accepted connection.
-        User handler has to derive from :any:`WSListener`.
-    :param ssl: optional SSLContext to override default one when wss scheme is used
+        A factory function that accepts a WSUpgradeRequest object and returns
+        a user handler or None.
+
+        The user handler must derive from WSListener and is responsible for
+        processing incoming data.
+
+        If None is returned, then a 404 Not Found page will be sent as a
+        response to the upgrade request, and the client will be disconnected.
+
+        The factory function works as a router. :any:`WSUpgradeRequest` contains the
+        requested path and headers. Different user listeners may be returned
+        depending on the path and other conditions.
+    :param host:
+        The host parameter can be set to several types which determine where the server would be listening:
+        * If host is a string, the TCP server is bound to a single network interface specified by host.
+        * If host is a sequence of strings, the TCP server is bound to all network interfaces specified by the sequence.
+        * If host is an empty string or None, all interfaces are assumed and a list of multiple sockets will be returned (most likely one for IPv4 and another one for IPv6).
+    :param port: specify which port the server should listen on.
+        If 0 or None (the default), a random unused port will be selected
+        (note that if host resolves to multiple network interfaces,
+        a different random port will be selected for each interface).
     :param disconnect_on_exception:
         Indicates whether the client should initiate disconnect on any exception
-        thrown from WSListener.on_ws* callbacks
-    :param ssl_handshake_timeout:
-        is (for a TLS connection) the time in seconds to wait for the TLS handshake to complete before aborting the connection.
-    :param ssl_shutdown_timeout:
-        is the time in seconds to wait for the SSL shutdown to complete before aborting the connection.
+        thrown by WSListener.on_ws* callbacks
     :param websocket_handshake_timeout:
-        is the time in seconds to wait for the websocket server to receive to websocket handshake request before aborting the connection.
-    :param reuse_port:
-        tells the kernel to allow this endpoint to be bound to the same port as other existing endpoints are bound to,
-        so long as they all set this flag when being created. This option is not supported on Windows
+        is the time in seconds to wait for the websocket server to receive websocket handshake request before aborting the connection.
     :param logger_name:
         picows will use `picows.<logger_name>` logger to do all the logging.
-    :param start_serving:
-        causes the created server to start accepting connections immediately. When set to False,
-        the user should await on `Server.start_serving()` or `Server.serve_forever()` to make the server to start
-        accepting connections.
-    :return: asyncio.Server object
-
-    Create a websocket server listening on interface and port specified by `url`.
+    :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
-    url_parts = urllib.parse.urlparse(url, allow_fragments=False)
-
-    if url_parts.scheme == "wss":
-        if ssl_context is None:
-            ssl_context = SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        port = url_parts.port or 443
-    elif url_parts.scheme == "ws":
-        ssl_context = None
-        ssl_handshake_timeout = None
-        ssl_shutdown_timeout = None
-        port = url_parts.port or 80
-    else:
-        raise ValueError(f"invalid url scheme: {url}")
-
-    ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, url_parts.path, False, ws_listener_factory, logger_name,
+    ws_protocol_factory = lambda: WSProtocol(None, None, False, ws_listener_factory, logger_name,
                                              disconnect_on_exception, websocket_handshake_timeout)
 
     cdef WSProtocol ws_protocol
 
     return await asyncio.get_running_loop().create_server(
         ws_protocol_factory,
-        host=url_parts.hostname, port=port,
-        ssl=ssl_context,
-        ssl_handshake_timeout=ssl_handshake_timeout,
-        ssl_shutdown_timeout=ssl_shutdown_timeout,
-        reuse_port=reuse_port,
-        start_serving=start_serving)
+        host=host,
+        port=port,
+        **kwargs)

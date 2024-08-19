@@ -4,6 +4,7 @@ from .picows import (
     WSFrame,
     WSTransport,
     WSListener,
+    WSUpgradeRequest,
     ws_connect,
     ws_create_server,
     PICOWS_DEBUG_LL
@@ -16,6 +17,7 @@ __all__ = [
     'WSFrame',
     'WSTransport',
     'WSListener',
+    'WSUpgradeRequest',
     'ws_connect',
     'ws_create_server',
     'PICOWS_DEBUG_LL'

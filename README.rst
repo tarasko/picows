@@ -107,9 +107,14 @@ Echo server
               transport.disconnect()
 
   async def main():
-      url = "ws://127.0.0.1:9001"
-      server = await ws_create_server(url, ServerClientListener)
-      print(f"Server started on {url}")
+      def listener_factory(r: WSUpgradeRequest):
+          # Routing can be implemented here by analyzing request content
+          return ServerClientListener()
+
+      server: asyncio.Server = await ws_create_server(listener_factory, "127.0.0.1", 9001)
+      for s in server.sockets:
+          print(f"Server started on {s.getsockname()}")
+
       await server.serve_forever()
 
   if __name__ == '__main__':

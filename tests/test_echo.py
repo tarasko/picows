@@ -8,9 +8,6 @@ import picows
 import pytest
 import async_timeout
 
-URL = "ws://127.0.0.1:9001"
-URL_SSL = "wss://127.0.0.1:9002"
-
 
 def create_server_ssl_context():
     ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
@@ -55,7 +52,7 @@ class CloseFrame:
         self.fin = frame.fin
 
 
-@pytest.fixture(params=[URL, URL_SSL])
+@pytest.fixture(params=[False, True])
 async def echo_server(request):
     class PicowsServerListener(picows.WSListener):
         def on_ws_connected(self, transport: picows.WSTransport):
@@ -67,11 +64,15 @@ async def echo_server(request):
                 self._transport.send_close(frame.get_close_code(), frame.get_close_message())
                 self._transport.disconnect()
 
-    server = await picows.ws_create_server(request.param, PicowsServerListener,
-                                           ssl_context=create_server_ssl_context(),
+    use_ssl = request.param
+    server = await picows.ws_create_server(lambda _: PicowsServerListener(),
+                                           "127.0.0.1",
+                                           0,
+                                           ssl=create_server_ssl_context() if use_ssl else None,
                                            websocket_handshake_timeout=0.5)
     task = asyncio.create_task(server.serve_forever())
-    yield request.param
+    url = f"{'wss' if use_ssl else 'ws'}://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+    yield url
 
     # Teardown server
     task.cancel()
@@ -152,14 +153,15 @@ async def test_client_handshake_timeout(echo_server):
 
 
 async def test_server_handshake_timeout():
-    server = await picows.ws_create_server(URL, picows.WSListener, websocket_handshake_timeout=0.1)
+    server = await picows.ws_create_server(lambda _: picows.WSListener(),
+                                           "127.0.0.1", 0, websocket_handshake_timeout=0.1)
     server_task = asyncio.create_task(server.serve_forever())
 
     try:
         # Give some time for server to start
         await asyncio.sleep(0.1)
 
-        client_reader, client_writer = await asyncio.open_connection("127.0.0.1", 9001)
+        client_reader, client_writer = await asyncio.open_connection("127.0.0.1", server.sockets[0].getsockname()[1])
         assert not client_reader.at_eof()
         await asyncio.sleep(0.2)
         assert client_reader.at_eof()
