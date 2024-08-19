@@ -97,8 +97,8 @@ cdef class WSTransport:
     cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64)
     cdef _send_http_handshake_response(self, bytes accept_val)
     cdef _send_bad_request(self, str error)
-    cdef _send_not_found(self, WSUpgradeRequest r)
-    cdef _send_internal_error(self, WSUpgradeRequest r, str error)
+    cdef _send_not_found(self)
+    cdef _send_internal_server_error(self, str error)
     cdef _mark_disconnected(self)
 
     cdef bytes _prepare_frame_in_external_buffer(self, WSMsgType msg_type, uint8_t* msg_ptr, size_t msg_length)

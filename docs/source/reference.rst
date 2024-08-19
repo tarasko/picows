@@ -12,6 +12,9 @@ Functions
 Classes
 -------
 
+.. autoclass:: WSError
+    :members:
+
 .. autoclass:: WSFrame
     :members:
 

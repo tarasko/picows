@@ -71,12 +71,18 @@ cdef extern from * nogil:
     uint64_t htobe64(uint64_t)
 
 
-cdef class WSUpgradeRequest:
+class WSError(RuntimeError):
+    """Exception type for picows library"""
     pass
 
 
-class WSError(Exception):
-    """WebSocket protocol parser error."""
+class _WSParserError(RuntimeError):
+    """
+    WebSocket protocol parser error.
+
+    Used internally by the parser to notify what kind of close code we should
+    send before disconnect.
+    """
 
     def __init__(self, WSCloseCode code, str message) -> None:
         self.code = code
@@ -84,6 +90,10 @@ class WSError(Exception):
 
     def __str__(self) -> str:
         return cast(str, self.args[1])
+
+
+cdef class WSUpgradeRequest:
+    pass
 
 
 cdef _mask_payload(uint8_t* input, size_t input_len, uint32_t mask):
@@ -405,23 +415,23 @@ cdef class WSTransport:
             self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", reply)
         self.underlying_transport.write(reply)
 
-    cdef _send_not_found(self, WSUpgradeRequest r):
-        cdef bytes reply = (b"%b 404 Not Found\r\n"
+    cdef _send_not_found(self):
+        cdef bytes reply = (b"HTTP/1.1 404 Not Found\r\n"
                             b"Content-Type: text/plain\r\n"
                             b"Content-Length: 13\r\n"
                             b"\r\n"
-                            b"404 Not Found" % (r.version,))
+                            b"404 Not Found")
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", reply)
         self.underlying_transport.write(reply)
 
-    cdef _send_internal_error(self, WSUpgradeRequest r, str error):
+    cdef _send_internal_server_error(self, str error):
         cdef bytes error_bytes = error.encode()
-        cdef bytes reply = (b"%b 500 Internal Server Error\r\n"
+        cdef bytes reply = (b"HTTP/1.1 500 Internal Server Error\r\n"
                             b"Content-Type: text/plain\r\n"
                             b"Content-Length: %d\r\n"
                             b"\r\n"
-                            b"%b" % (r.version, len(error_bytes), error_bytes))
+                            b"%b" % (len(error_bytes), error_bytes))
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", reply)
         self.underlying_transport.write(reply)
@@ -749,12 +759,17 @@ cdef class WSProtocol:
 
     cdef _negotiate(self):
         if self._is_client_side:
-            self._handle_upgrade_response()
-            if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
-                # Upgrade response hasn't fully arrived yet
+            try:
+                self._handle_upgrade_response()
+                if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
+                    # Upgrade response hasn't fully arrived yet
+                    return False
+                self.listener = self._listener_factory()
+                self._listener_factory = None
+            except Exception as ex:
+                self.transport.disconnect()
+                self._handshake_complete_future.set_exception(ex)
                 return False
-            self.listener = self._listener_factory()
-            self._listener_factory = None
         else:
             try:
                 upgrade_request, accept_val = self._read_upgrade_request()
@@ -772,21 +787,20 @@ cdef class WSProtocol:
             try:
                 self.listener = listener_factory(upgrade_request)
             except Exception as ex:
-                self.transport._send_internal_server_error(upgrade_request,
-                                                           str(ex))
+                self.transport._send_internal_server_error(str(ex))
                 self.transport.disconnect()
                 return False
 
             if self.listener is None:
-                self.transport._send_not_found(upgrade_request)
+                self.transport._send_not_found()
                 self.transport.disconnect()
                 return False
 
             self.transport._send_http_handshake_response(accept_val)
 
-        self._handshake_complete_future.set_result(None)
         self._handshake_timeout_handle.cancel()
         self._handshake_timeout_handle = None
+        self._handshake_complete_future.set_result(None)
         self._invoke_on_ws_connected()
         return True
 
@@ -836,7 +850,7 @@ cdef class WSProtocol:
             if not key or len(base64.b64decode(key)) != 16:
                 raise RuntimeError(f"Handshake error, invalid key: {key!r}")
         except binascii.Error:
-            raise WSError(f"Handshake error, invalid key: {key!r}") from None
+            raise RuntimeError(f"Handshake error, invalid key: {key!r}") from None
 
         cdef bytes accept_val = base64.b64encode(hashlib.sha1(key.encode() + _WS_KEY).digest())
 
@@ -871,17 +885,17 @@ cdef class WSProtocol:
 
         # check handshake
         if response_status_line.decode().lower() != "http/1.1 101 switching protocols":
-            raise RuntimeError(f"invalid status in upgrade response: {response_status_line}")
+            raise WSError(f"cannot upgrade, invalid status in upgrade response: {response_status_line}")
 
         connection_value = response_headers.get("connection")
         connection_value = connection_value if connection_value is None else connection_value.lower()
         if connection_value != "upgrade":
-            raise RuntimeError(f"invalid connection header: {response_headers['connection']}")
+            raise WSError(f"cannot upgrade, invalid connection header: {response_headers['connection']}")
 
         r_key = response_headers.get("sec-websocket-accept")
         match = base64.b64encode(hashlib.sha1(self._websocket_key_b64 + _WS_KEY).digest()).decode()
         if r_key != match:
-            raise RuntimeError(f"invalid sec-websocket-accept response")
+            raise WSError(f"cannot upgrade, invalid sec-websocket-accept response")
 
         memmove(self._buffer.data, self._buffer.data + len(raw_headers) + 4, self._buffer.size - len(raw_headers) - 4)
         self._f_new_data_start_pos = len(tail)
@@ -893,7 +907,7 @@ cdef class WSProtocol:
         cdef WSFrame frame
         try:
             return self._get_next_frame_impl()
-        except WSError as ex:
+        except _WSParserError as ex:
             self._logger.error("WS parser error: %s, initiate disconnect", ex.args)
             self.transport.send_close(ex.args[0], ex.args[1].encode())
             self.transport.disconnect()
@@ -932,13 +946,13 @@ cdef class WSProtocol:
                     self._buffer.data + self._f_curr_state_start_pos,
                     max(self._f_new_data_start_pos - self._f_curr_state_start_pos, <size_t>64)
                 )
-                raise WSError(
+                raise _WSParserError(
                     WSCloseCode.PROTOCOL_ERROR,
                     f"Received frame with non-zero reserved bits, rsv2={rsv2}, rsv3={rsv3}, msg_type={self._f_msg_type}: {mem_dump}",
                 )
 
             if self._f_msg_type > 0x7 and not self._f_fin:
-                raise WSError(
+                raise _WSParserError(
                     WSCloseCode.PROTOCOL_ERROR,
                     "Received fragmented control frame",
                 )
@@ -949,7 +963,7 @@ cdef class WSProtocol:
             # Control frames MUST have a payload
             # length of 125 bytes or less
             if self._f_msg_type > 0x7 and self._f_payload_length_flag > 125:
-                raise WSError(
+                raise _WSParserError(
                     WSCloseCode.PROTOCOL_ERROR,
                     "Control frame payload cannot be " "larger than 125 bytes",
                 )
@@ -979,7 +993,7 @@ cdef class WSProtocol:
                 self._state = WSParserState.READ_PAYLOAD
 
             if self._f_payload_length > self._max_frame_size:
-                raise WSError(WSCloseCode.PROTOCOL_ERROR, f"Frame payload size violates max allowed size {self._f_payload_length} > {self._max_frame_size}")
+                raise _WSParserError(WSCloseCode.PROTOCOL_ERROR, f"Frame payload size violates max allowed size {self._f_payload_length} > {self._max_frame_size}")
 
         # read payload mask
         if self._state == WSParserState.READ_PAYLOAD_MASK:
@@ -1016,11 +1030,11 @@ cdef class WSProtocol:
 
             if frame.msg_type == WSMsgType.CLOSE:
                 if frame.get_close_code() < 3000 and frame.get_close_code() not in ALLOWED_CLOSE_CODES:
-                    raise WSError(WSCloseCode.PROTOCOL_ERROR,
+                    raise _WSParserError(WSCloseCode.PROTOCOL_ERROR,
                                          f"Invalid close code: {frame.get_close_code()}")
 
                 if frame.payload_size > 0 and frame.payload_size < 2:
-                    raise WSError(WSCloseCode.PROTOCOL_ERROR,
+                    raise _WSParserError(WSCloseCode.PROTOCOL_ERROR,
                                          f"Invalid close frame: {frame.fin} {frame.msg_type} {frame.get_payload_as_bytes()}")
 
             return frame

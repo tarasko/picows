@@ -1,4 +1,5 @@
 from .picows import (
+    WSError,
     WSMsgType,
     WSCloseCode,
     WSFrame,
@@ -12,6 +13,7 @@ from .picows import (
 
 
 __all__ = [
+    'WSError',
     'WSMsgType',
     'WSCloseCode',
     'WSFrame',

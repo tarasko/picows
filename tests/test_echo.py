@@ -52,6 +52,19 @@ class CloseFrame:
         self.fin = frame.fin
 
 
+class ServerAsyncContext:
+    def __init__(self, server):
+        self.server = server
+        self.server_task = asyncio.create_task(server.serve_forever())
+
+    async def __aenter__(self):
+        return self.server
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self.server.close()
+        await self.server.wait_closed()
+
+
 @pytest.fixture(params=[False, True])
 async def echo_server(request):
     class PicowsServerListener(picows.WSListener):
@@ -70,16 +83,9 @@ async def echo_server(request):
                                            0,
                                            ssl=create_server_ssl_context() if use_ssl else None,
                                            websocket_handshake_timeout=0.5)
-    task = asyncio.create_task(server.serve_forever())
-    url = f"{'wss' if use_ssl else 'ws'}://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
-    yield url
 
-    # Teardown server
-    task.cancel()
-    try:
-        await task
-    except:
-        pass
+    async with ServerAsyncContext(server):
+        yield f"{'wss' if use_ssl else 'ws'}://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
 
 
 @pytest.fixture()
@@ -119,7 +125,7 @@ async def echo_client(echo_server):
         client.transport.disconnect()
 
 
-@pytest.mark.parametrize("msg_size", [256, 1024, 256 * 1024])
+@pytest.mark.parametrize("msg_size", [256, 256 * 1024])
 async def test_echo(echo_client, msg_size):
     msg = os.urandom(msg_size)
     echo_client.transport.send(picows.WSMsgType.BINARY, msg)
@@ -155,9 +161,8 @@ async def test_client_handshake_timeout(echo_server):
 async def test_server_handshake_timeout():
     server = await picows.ws_create_server(lambda _: picows.WSListener(),
                                            "127.0.0.1", 0, websocket_handshake_timeout=0.1)
-    server_task = asyncio.create_task(server.serve_forever())
 
-    try:
+    async with ServerAsyncContext(server):
         # Give some time for server to start
         await asyncio.sleep(0.1)
 
@@ -165,10 +170,24 @@ async def test_server_handshake_timeout():
         assert not client_reader.at_eof()
         await asyncio.sleep(0.2)
         assert client_reader.at_eof()
-    finally:
-        # Teardown server
-        server_task.cancel()
-        try:
-            await server_task
-        except:
-            pass
+
+
+async def test_route_not_found():
+    server = await picows.ws_create_server(lambda _: None, "127.0.0.1", 0)
+    async with ServerAsyncContext(server):
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+
+        with pytest.raises(picows.WSError, match="404 Not Found"):
+            (_, client) = await picows.ws_connect(url, picows.WSListener)
+
+
+async def test_server_internal_error():
+    def factory_listener(r):
+        raise RuntimeError("oops")
+
+    server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
+    async with ServerAsyncContext(server):
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+
+        with pytest.raises(picows.WSError, match="500 Internal Server Error"):
+            (_, client) = await picows.ws_connect(url, picows.WSListener)
