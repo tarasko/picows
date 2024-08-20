@@ -88,7 +88,7 @@ cdef class WSTransport:
         bint _is_client_side
 
     cdef send_reuse_external_buffer(self, WSMsgType msg_type, char* message, size_t message_size)
-    cpdef send(self, WSMsgType msg_type, message)
+    cpdef send(self, WSMsgType msg_type, message, bint rsv1=*)
     cpdef send_ping(self, message=*)
     cpdef send_pong(self, message=*)
     cpdef send_close(self, WSCloseCode close_code=*, close_message=*)
@@ -102,7 +102,7 @@ cdef class WSTransport:
     cdef _mark_disconnected(self)
 
     cdef bytes _prepare_frame_in_external_buffer(self, WSMsgType msg_type, uint8_t* msg_ptr, size_t msg_length)
-    cdef bytes _prepare_frame(self, WSMsgType msg_type, message)
+    cdef bytes _prepare_frame(self, WSMsgType msg_type, message, bint rsv1)
 
 
 cdef class WSListener:

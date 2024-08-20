@@ -319,14 +319,17 @@ cdef class WSTransport:
         frame = self._prepare_frame_in_external_buffer(msg_type, <uint8_t*>message, message_size)
         self.underlying_transport.write(frame)
 
-    cpdef send(self, WSMsgType msg_type, message):
+    cpdef send(self, WSMsgType msg_type, message, bint rsv1=False):
         """        
         :param msg_type: :any:`WSMsgType` enum value\n 
         :param message: an optional bytes-like object
+        :param rsv1: first reserved bit in websocket frame. 
+        Some protocol extensions use it to indicate that the payload is 
+        compressed.
         
         Send a frame over websocket with a message as its payload.        
         """
-        frame = self._prepare_frame(msg_type, message)
+        frame = self._prepare_frame(msg_type, message, rsv1)
         self.underlying_transport.write(frame)
 
     cpdef send_ping(self, message=None):
@@ -478,7 +481,7 @@ cdef class WSTransport:
 
         return PyBytes_FromStringAndSize(<char*>header_ptr, total_length)
 
-    cdef bytes _prepare_frame(self, WSMsgType msg_type, message):
+    cdef bytes _prepare_frame(self, WSMsgType msg_type, message, bint rsv1):
         """Send a frame over the websocket with message as its payload."""
         cdef:
             Py_buffer msg_buffer
