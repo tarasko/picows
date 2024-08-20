@@ -835,7 +835,10 @@ cdef class WSProtocol:
 
         headers = {}
         for line in lines[1:]:
-            name, value = line.split(b":", maxsplit=1)
+            parts = line.split(b":", maxsplit=1)
+            if len(parts) != 2:
+                raise RuntimeError(f"Mailformed header in upgrade request: {raw_headers}")
+            name, value = parts
             headers[name.strip().decode().lower()] = value.strip().decode()
 
         if "websocket" != headers.get("upgrade"):

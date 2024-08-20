@@ -200,10 +200,20 @@ async def test_server_bad_request():
     async with ServerAsyncContext(server):
         r, w = await asyncio.open_connection("127.0.0.1", server.sockets[0].getsockname()[1])
 
-        w.write(b"zzzz\r\n\r\n")
+        w.write(b"zzzz\r\nasdfasdf\r\n\r\n")
         resp_header = await r.readuntil(b"\r\n\r\n")
         assert b"400 Bad Request" in resp_header
-        resp_data = await r.read()
+        await r.read()
         assert r.at_eof()
-        # TODO: Why this fails?
-        # assert w.transport.is_closing()
+
+        # From ChatGPT:
+        # Common Misconception
+        # It's a common misconception that w.wait_closed() should detect the server's disconnection and automatically close the connection. In reality:
+        #
+        # w.wait_closed() only waits for the client-side closure process to finish.
+        # You must explicitly call w.close() to initiate the closing process after detecting that the server has closed its side of the connection.
+        #
+        # I didn't know that? Isn't that stupid and defies the whole purpose of
+        # wait_closed?
+        w.close()
+        await w.wait_closed()
