@@ -1098,6 +1098,7 @@ cdef class WSProtocol:
 
 async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                      str url: str,
+                     *,
                      ssl_context: Optional[Union[bool, SSLContext]]=None,
                      bint disconnect_on_exception: bool=True,
                      logger_name: str="client",
@@ -1106,6 +1107,9 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                      ) -> Tuple[WSTransport, WSListener]:
     """
     Open a websocket connection to a given URL.
+
+    This function forwards its `kwargs` directly to
+    `asyncio.loop.create_connection <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.create_connection>`_
 
     :param ws_listener_factory:
         A parameterless factory function that returns a user handler. User handler has to derive from :any:`WSListener`.
