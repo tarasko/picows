@@ -331,8 +331,8 @@ cdef class WSTransport:
         :param msg_type: :any:`WSMsgType` enum value\n 
         :param message: an optional bytes-like object
         :param rsv1: first reserved bit in websocket frame. 
-        Some protocol extensions use it to indicate that the payload is 
-        compressed.        
+            Some protocol extensions use it to indicate that payload 
+            is compressed.        
         """
         frame = self._prepare_frame(msg_type, message, rsv1)
         self.underlying_transport.write(frame)
