@@ -104,16 +104,16 @@ Classes
 
     .. py:method:: send_reuse_external_buffer(WSMsgType msg_type, char* message, size_t message_size)
 
-        :param msg_type: Message type
-        :param message: Pointer to a message payload
-        :param message_size: Size of the message payload
-
         **Available only from Cython.**
 
         Send a frame over websocket with a message as its payload.
         Don't copy message, reuse its memory and append websocket header in front of the message
 
         **Message's buffer should have at least 10 bytes in front of the message pointer available for writing.**
+
+        :param msg_type: Message type
+        :param message: Pointer to a message payload
+        :param message_size: Size of the message payload
 
 Enums
 -----
