@@ -17,8 +17,8 @@ Introduction
    :target: https://picows.readthedocs.io/en/latest/
    :alt: Latest Read The Docs
 
-**picows** is a high-performance library designed for building asyncio WebSocket clients and servers.
-Implemented in Cython, it offers exceptional speed and efficiency, surpassing other popular WebSocket libraries.
+**picows** is a high-performance python library designed for building asyncio WebSocket clients and servers.
+Implemented in Cython, it offers exceptional speed and efficiency, surpassing other popular WebSocket python libraries.
 
 .. image:: https://raw.githubusercontent.com/tarasko/picows/master/docs/source/_static/picows_benchmark.png
   :target: https://github.com/tarasko/picows/blob/master/docs/source/_static/picows_benchmark.png?raw=true
