@@ -88,6 +88,24 @@ async def echo_server(request):
         yield f"{'wss' if use_ssl else 'ws'}://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
 
 
+@pytest.fixture(params=[False, True])
+async def echo_server_on_frame_throw(request):
+    class PicowsServerListener(picows.WSListener):
+        def on_ws_connected(self, transport: picows.WSTransport):
+            self._transport = transport
+
+        def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
+            raise RuntimeError("exception from on_ws_frame")
+
+    server = await picows.ws_create_server(lambda _: PicowsServerListener(),
+                                           "127.0.0.1",
+                                           0,
+                                           disconnect_on_exception=request.param)
+
+    async with ServerAsyncContext(server):
+        yield request.param, f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+
+
 @pytest.fixture()
 async def echo_client(echo_server):
     class PicowsClientListener(picows.WSListener):
@@ -129,14 +147,16 @@ async def echo_client(echo_server):
 async def test_echo(echo_client, msg_size):
     msg = os.urandom(msg_size)
     echo_client.transport.send(picows.WSMsgType.BINARY, msg)
-    frame = await echo_client.get_message()
+    async with async_timeout.timeout(1):
+        frame = await echo_client.get_message()
     assert frame.msg_type == picows.WSMsgType.BINARY
     assert frame.payload_as_bytes == msg
     assert frame.payload_as_bytes_from_mv == msg
 
     msg = base64.b64encode(msg)
     echo_client.transport.send(picows.WSMsgType.TEXT, msg)
-    frame = await echo_client.get_message()
+    async with async_timeout.timeout(1):
+        frame = await echo_client.get_message()
     assert frame.msg_type == picows.WSMsgType.TEXT
     assert frame.payload_as_ascii_text == msg.decode("ascii")
     assert frame.payload_as_utf8_text == msg.decode("utf8")
@@ -144,7 +164,8 @@ async def test_echo(echo_client, msg_size):
 
 async def test_close(echo_client):
     echo_client.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"goodbye")
-    frame = await echo_client.get_message()
+    async with async_timeout.timeout(1):
+        frame = await echo_client.get_message()
     assert frame.msg_type == picows.WSMsgType.CLOSE
     assert frame.close_code == picows.WSCloseCode.GOING_AWAY
     assert frame.close_message == b"goodbye"
@@ -203,5 +224,33 @@ async def test_server_bad_request():
         w.write(b"zzzz\r\nasdfasdf\r\n\r\n")
         resp_header = await r.readuntil(b"\r\n\r\n")
         assert b"400 Bad Request" in resp_header
-        await r.read()
+        async with async_timeout.timeout(1):
+            await r.read()
         assert r.at_eof()
+
+
+async def test_ws_on_connected_throw():
+    class ServerClientListener(picows.WSListener):
+        def on_ws_connected(self, transport: picows.WSTransport):
+            raise RuntimeError("exception from on_ws_connected")
+
+
+    server = await picows.ws_create_server(lambda _: ServerClientListener(),
+                                           "127.0.0.1", 0)
+    async with ServerAsyncContext(server):
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
+        (transport, _) = await picows.ws_connect(picows.WSListener, url)
+        async with async_timeout.timeout(1):
+            await transport.wait_disconnected()
+
+
+async def test_ws_on_frame_throw(echo_server_on_frame_throw):
+    (transport, _) = await picows.ws_connect(picows.WSListener, echo_server_on_frame_throw[1])
+    transport.send(picows.WSMsgType.BINARY, b"halo")
+    if echo_server_on_frame_throw[0]:
+        async with async_timeout.timeout(1):
+            await transport.wait_disconnected()
+    else:
+        with pytest.raises(TimeoutError):
+            async with async_timeout.timeout(1):
+                await transport.wait_disconnected()
