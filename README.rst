@@ -79,7 +79,8 @@ Connects to an echo server, sends a message and disconnect upon reply.
 
 
     if __name__ == '__main__':
-        asyncio.set_event_loop_policy(uvloop.EventLoopPoli
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        asyncio.run(main("ws://127.0.0.1:9001"))
 
 This prints:
 
@@ -92,31 +93,31 @@ Echo server
 
 .. code-block:: python
 
-  import asyncio
-  import uvloop
-  from picows import WSFrame, WSTransport, WSListener, ws_create_server, WSMsgType
+    import asyncio
+    import uvloop
+    from picows import WSFrame, WSTransport, WSListener, ws_create_server, WSMsgType, WSUpgradeRequest
 
-  class ServerClientListener(WSListener):
-      def on_ws_connected(self, transport: WSTransport):
-          print("New client connected")
-  
-      def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
-          transport.send(frame.msg_type, frame.get_payload_as_bytes())
-          if frame.msg_type == WSMsgType.CLOSE:
-              transport.disconnect()
+    class ServerClientListener(WSListener):
+        def on_ws_connected(self, transport: WSTransport):
+            print("New client connected")
 
-  async def main():
-      def listener_factory(r: WSUpgradeRequest):
-          # Routing can be implemented here by analyzing request content
-          return ServerClientListener()
+        def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
+            transport.send(frame.msg_type, frame.get_payload_as_bytes())
+            if frame.msg_type == WSMsgType.CLOSE:
+                transport.disconnect()
 
-      server: asyncio.Server = await ws_create_server(listener_factory, "127.0.0.1", 9001)
-      for s in server.sockets:
-          print(f"Server started on {s.getsockname()}")
+    async def main():
+        def listener_factory(r: WSUpgradeRequest):
+            # Routing can be implemented here by analyzing request content
+            return ServerClientListener()
 
-      await server.serve_forever()
+        server: asyncio.Server = await ws_create_server(listener_factory, "127.0.0.1", 9001)
+        for s in server.sockets:
+            print(f"Server started on {s.getsockname()}")
 
-  if __name__ == '__main__':
+        await server.serve_forever()
+
+    if __name__ == '__main__':
       asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
       asyncio.run(main())
 

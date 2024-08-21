@@ -1,6 +1,7 @@
 import asyncio
 import uvloop
-from picows import WSFrame, WSTransport, WSListener, ws_create_server, WSMsgType, WSUpgradeRequest
+from picows import WSFrame, WSTransport, WSListener, ws_create_server, \
+    WSMsgType, WSUpgradeRequest
 
 
 class ServerClientListener(WSListener):
@@ -18,11 +19,13 @@ async def main():
         # Routing can be implemented here by analyzing request content
         return ServerClientListener()
 
-    server: asyncio.Server = await ws_create_server(listener_factory, "127.0.0.1", 9001)
+    server: asyncio.Server = await ws_create_server(listener_factory,
+                                                    "127.0.0.1", 9001)
     for s in server.sockets:
         print(f"Server started on {s.getsockname()}")
 
     await server.serve_forever()
+
 
 if __name__ == '__main__':
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
