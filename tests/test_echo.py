@@ -110,8 +110,8 @@ async def echo_client(echo_server):
             async with async_timeout.timeout(1):
                 return await self.msg_queue.get()
 
-    (_, client) = await picows.ws_connect(echo_server, PicowsClientListener,
-                                          ssl=create_client_ssl_context(),
+    (_, client) = await picows.ws_connect(PicowsClientListener, echo_server,
+                                          ssl_context=create_client_ssl_context(),
                                           websocket_handshake_timeout=0.5)
     yield client
 
@@ -153,8 +153,8 @@ async def test_close(echo_client):
 async def test_client_handshake_timeout(echo_server):
     # Set unreasonably small timeout
     with pytest.raises(TimeoutError):
-        (_, client) = await picows.ws_connect(echo_server, picows.WSListener,
-                                              ssl=create_client_ssl_context(),
+        (_, client) = await picows.ws_connect(picows.WSListener, echo_server,
+                                              ssl_context=create_client_ssl_context(),
                                               websocket_handshake_timeout=0.00001)
 
 
@@ -178,7 +178,7 @@ async def test_route_not_found():
         url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
 
         with pytest.raises(picows.WSError, match="404 Not Found"):
-            (_, client) = await picows.ws_connect(url, picows.WSListener)
+            (_, client) = await picows.ws_connect(picows.WSListener, url)
 
 
 async def test_server_internal_error():
@@ -190,7 +190,7 @@ async def test_server_internal_error():
         url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
 
         with pytest.raises(picows.WSError, match="500 Internal Server Error"):
-            (_, client) = await picows.ws_connect(url, picows.WSListener)
+            (_, client) = await picows.ws_connect(picows.WSListener, url)
 
 
 async def test_server_bad_request():
@@ -205,15 +205,3 @@ async def test_server_bad_request():
         assert b"400 Bad Request" in resp_header
         await r.read()
         assert r.at_eof()
-
-        # From ChatGPT:
-        # Common Misconception
-        # It's a common misconception that w.wait_closed() should detect the server's disconnection and automatically close the connection. In reality:
-        #
-        # w.wait_closed() only waits for the client-side closure process to finish.
-        # You must explicitly call w.close() to initiate the closing process after detecting that the server has closed its side of the connection.
-        #
-        # I didn't know that? Isn't that stupid and defies the whole purpose of
-        # wait_closed?
-        w.close()
-        await w.wait_closed()

@@ -1096,50 +1096,40 @@ cdef class WSProtocol:
         self.transport.disconnect()
 
 
-async def ws_connect(str url: str,
-                     ws_listener_factory: Callable[[], WSListener],
-                     ssl: Optional[Union[bool, SSLContext]]=None,
+async def ws_connect(ws_listener_factory: Callable[[], WSListener],
+                     str url: str,
+                     ssl_context: Optional[Union[bool, SSLContext]]=None,
                      bint disconnect_on_exception: bool=True,
-                     ssl_handshake_timeout=5,
-                     ssl_shutdown_timeout=5,
+                     logger_name: str="client",
                      websocket_handshake_timeout=5,
-                     local_addr: Optional[Tuple[str, int]]=None,
-                     logger_name: str="client"
+                     **kwargs
                      ) -> Tuple[WSTransport, WSListener]:
     """
     Open a websocket connection to a given URL.
 
-    :param url: Destination URL
     :param ws_listener_factory:
         A parameterless factory function that returns a user handler. User handler has to derive from :any:`WSListener`.
-    :param ssl: optional SSLContext to override default one when wss scheme is used
+    :param url: Destination URL
+    :param ssl_context: optional SSLContext to override default one when wss scheme is used
     :param disconnect_on_exception:
         Indicates whether the client should initiate disconnect on any exception
         thrown from WSListener.on_ws* callbacks
-    :param ssl_handshake_timeout:
-        is (for a TLS connection) the time in seconds to wait for the TLS handshake to complete before aborting the connection.
-    :param ssl_shutdown_timeout:
-        is the time in seconds to wait for the SSL shutdown to complete before aborting the connection.
-    :param websocket_handshake_timeout:
-        is the time in seconds to wait for the websocket server to reply to websocket handshake request
-    :param local_addr:
-        if given, is a (local_host, local_port) tuple used to bind the socket locally. The local_host and local_port
-        are looked up using getaddrinfo(), similarly to host and port from url.
     :param logger_name:
         picows will use `picows.<logger_name>` logger to do all the logging.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()'
     """
 
+    assert "ssl" not in kwargs, "explicit 'ssl' argument for loop.create_connection is not supported"
+    assert "sock" not in kwargs, "explicit 'sock' argument for loop.create_connection is not supported"
+    assert "all_errors" not in kwargs, "explicit 'all_errors' argument for loop.create_connection is not supported"
+
     url_parts = urllib.parse.urlparse(url, allow_fragments=False)
 
     if url_parts.scheme == "wss":
-        if ssl is None:
-            ssl = True
+        ssl = ssl_context if ssl_context is not None else True
         port = url_parts.port or 443
     elif url_parts.scheme == "ws":
         ssl = None
-        ssl_handshake_timeout = None
-        ssl_shutdown_timeout = None
         port = url_parts.port or 80
     else:
         raise ValueError(f"invalid url scheme: {url}")
@@ -1150,11 +1140,7 @@ async def ws_connect(str url: str,
     cdef WSProtocol ws_protocol
 
     (_, ws_protocol) = await asyncio.get_running_loop().create_connection(
-        ws_protocol_factory, url_parts.hostname, port,
-        local_addr=local_addr,
-        ssl=ssl,
-        ssl_handshake_timeout=ssl_handshake_timeout,
-        ssl_shutdown_timeout=ssl_shutdown_timeout)
+        ws_protocol_factory, url_parts.hostname, port, ssl=ssl, **kwargs)
 
     await ws_protocol.wait_until_handshake_complete()
 

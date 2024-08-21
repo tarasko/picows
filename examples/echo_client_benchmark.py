@@ -63,7 +63,7 @@ async def picows_main(endpoint: str, msg: bytes, duration: int, ssl_context):
             else:
                 self._transport.send(WSMsgType.BINARY, msg)
 
-    (_, client) = await ws_connect(endpoint, PicowsClientListener, ssl=ssl_context)
+    (_, client) = await ws_connect(PicowsClientListener, endpoint, ssl_context=ssl_context)
     await client._transport.wait_disconnected()
 
 

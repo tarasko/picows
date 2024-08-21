@@ -74,6 +74,8 @@ cdef class EchoClientListener(WSListener):
 
 async def picows_main_cython(url: str, data: bytes, duration: int, ssl_context):
     cdef EchoClientListener client
-    (_, client) = await ws_connect(url, lambda: EchoClientListener(data, duration), ssl=ssl_context)
+    (_, client) = await ws_connect(lambda: EchoClientListener(data, duration),
+                                   url,
+                                   ssl_context=ssl_context)
     await client._transport.wait_disconnected()
     return client.rps

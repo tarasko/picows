@@ -73,8 +73,8 @@ Connects to an echo server, sends a message and disconnect upon reply.
           transport.disconnect()
 
 
-  async def main(endpoint):
-    (_, client) = await ws_connect(endpoint, ClientListener)
+  async def main(url):
+    (_, client) = await ws_connect(ClientListener, url)
     await client.transport.wait_disconnected()
 
 
