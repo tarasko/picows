@@ -58,4 +58,4 @@ jobs:
         python setup.py build_ext --inplace
     - name: Run tests
       run: |
-        pytest
+        pytest -v
