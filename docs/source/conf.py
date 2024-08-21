@@ -31,3 +31,8 @@ html_theme = 'alabaster'
 # html_theme = "agogo"
 
 html_static_path = ['_static']
+
+html_theme_options = {
+    'page_width': '1200px',  # Set this to your desired width
+    'sidebar_width': '400px',  # Adjust the sidebar width as well
+}
