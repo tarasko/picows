@@ -264,32 +264,37 @@ cdef class WSListener:
 
     cpdef on_ws_connected(self, WSTransport transport):
         """        
-        :param transport: :any:`WSTransport` object      
-
         Called after websocket handshake is complete and websocket is ready to send and receive frames.
+        Initiate disconnect if exception is thrown by user handler.
+
+        :param transport: :any:`WSTransport` object      
         """
         pass
 
     cpdef on_ws_frame(self, WSTransport transport, WSFrame frame):
         """
-        :param transport: :any:`WSTransport` object
-        :param frame: :any:`WSFrame` object            
-
         Called when a new frame is received.
+        
+        Initiate disconnect if exception is thrown by user handler and
+        `disconnect_on_exception` was set to True in :any:`ws_connect` 
+        or :any:`ws_create_server` 
         
         .. DANGER::
             WSFrame is essentially just a pointer to a chunk of memory in the receiving buffer. It does not own 
             the memory. Do NOT cache or store WSFrame object for later processing because the data may be invalidated
             after :any:`WSListener.on_ws_frame` is complete.
             Process the payload immediatelly or just copy it with one of `WSFrame.get_*` methods.            
+
+        :param transport: :any:`WSTransport` object
+        :param frame: :any:`WSFrame` object            
         """
         pass
 
     cpdef on_ws_disconnected(self, WSTransport transport):
         """
-        :param transport: :any:`WSTransport`
-        
         Called when websocket has been disconnected.
+
+        :param transport: :any:`WSTransport`        
         """
         pass
 
@@ -321,41 +326,41 @@ cdef class WSTransport:
 
     cpdef send(self, WSMsgType msg_type, message, bint rsv1=False):
         """        
+        Send a frame over websocket with a message as its payload.        
+
         :param msg_type: :any:`WSMsgType` enum value\n 
         :param message: an optional bytes-like object
         :param rsv1: first reserved bit in websocket frame. 
         Some protocol extensions use it to indicate that the payload is 
-        compressed.
-        
-        Send a frame over websocket with a message as its payload.        
+        compressed.        
         """
         frame = self._prepare_frame(msg_type, message, rsv1)
         self.underlying_transport.write(frame)
 
     cpdef send_ping(self, message=None):
         """
-        :param message: an optional bytes-like object
-
         Send a PING control frame with an optional message.
+        
+        :param message: an optional bytes-like object
         """
         self.send(WSMsgType.PING, message)
 
     cpdef send_pong(self, message=None):
         """
-        :param message: an optional bytes-like object
-
         Send a PONG control frame with an optional message.
+
+        :param message: an optional bytes-like object
         """
         self.send(WSMsgType.PONG, message)
 
     cpdef send_close(self, WSCloseCode close_code=WSCloseCode.NO_INFO, close_message=None):
         """
-        :param close_code: :any:`WSCloseCode` value                
-        :param close_message: an optional bytes-like object        
-
         Send a CLOSE control frame with an optional message.
         This method doesn't disconnect the underlying transport.
         Does nothing if the underlying transport is already disconnected.        
+        
+        :param close_code: :any:`WSCloseCode` value                
+        :param close_message: an optional bytes-like object        
         """
         if self.underlying_transport.is_closing():
             return
@@ -1054,12 +1059,9 @@ cdef class WSProtocol:
         try:
             self.listener.on_ws_connected(self.transport)
         except Exception as e:
-            if self._disconnect_on_exception:
-                self._logger.exception("Unhandled exception in on_ws_connected, initiate disconnect")
-                self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
-                self.transport.disconnect()
-            else:
-                self._logger.exception("Unhandled exception in on_ws_connected")
+            self._logger.exception("Unhandled exception in on_ws_connected, initiate disconnect")
+            self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
+            self.transport.disconnect()
 
     cdef _invoke_on_ws_frame(self, WSFrame frame):
         try:
@@ -1117,7 +1119,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
     :param ssl_context: optional SSLContext to override default one when wss scheme is used
     :param disconnect_on_exception:
         Indicates whether the client should initiate disconnect on any exception
-        thrown from WSListener.on_ws* callbacks
+        thrown from WSListener.on_ws_frame callbacks
     :param logger_name:
         picows will use `picows.<logger_name>` logger to do all the logging.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()'
@@ -1191,7 +1193,7 @@ async def ws_create_server(ws_listener_factory: Callable[[WSUpgradeRequest], Opt
         a different random port will be selected for each interface).
     :param disconnect_on_exception:
         Indicates whether the client should initiate disconnect on any exception
-        thrown by WSListener.on_ws* callbacks
+        thrown by WSListener.on_ws_frame callback
     :param websocket_handshake_timeout:
         is the time in seconds to wait for the websocket server to receive websocket handshake request before aborting the connection.
     :param logger_name:
