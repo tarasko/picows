@@ -91,24 +91,6 @@ async def echo_server(request):
         yield f"{'wss' if use_ssl else 'ws'}://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
 
 
-@pytest.fixture(params=[False, True])
-async def echo_server_on_frame_throw(request):
-    class PicowsServerListener(picows.WSListener):
-        def on_ws_connected(self, transport: picows.WSTransport):
-            self._transport = transport
-
-        def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-            raise RuntimeError("exception from on_ws_frame")
-
-    server = await picows.ws_create_server(lambda _: PicowsServerListener(),
-                                           "127.0.0.1",
-                                           0,
-                                           disconnect_on_exception=request.param)
-
-    async with ServerAsyncContext(server):
-        yield request.param, f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
-
-
 @pytest.fixture()
 async def echo_client(echo_server):
     class PicowsClientListener(picows.WSListener):
@@ -247,14 +229,29 @@ async def test_ws_on_connected_throw():
             await transport.wait_disconnected()
 
 
-@pytest.mark.skip(reason="github behaves differently, not like my machine")
-async def test_ws_on_frame_throw(echo_server_on_frame_throw):
-    (transport, _) = await picows.ws_connect(picows.WSListener, echo_server_on_frame_throw[1])
-    transport.send(picows.WSMsgType.BINARY, b"halo")
-    if echo_server_on_frame_throw[0]:
-        async with async_timeout.timeout(TIMEOUT):
-            await transport.wait_disconnected()
-    else:
-        with pytest.raises(TimeoutError):
-            async with async_timeout.timeout(TIMEOUT):
-                await transport.wait_disconnected()
+@pytest.mark.parametrize("disconnect_on_exception", [True, False])
+async def test_ws_on_frame_throw(disconnect_on_exception):
+    class ServerClientListener(picows.WSListener):
+        def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
+            raise RuntimeError("exception from on_ws_frame")
+
+    server = await picows.ws_create_server(lambda _: ServerClientListener(),
+                                           "127.0.0.1",
+                                           0,
+                                           disconnect_on_exception=disconnect_on_exception)
+
+    async with ServerAsyncContext(server):
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+
+        (transport, _) = await picows.ws_connect(picows.WSListener, url)
+        transport.send(picows.WSMsgType.BINARY, b"halo")
+        try:
+            if disconnect_on_exception:
+                async with async_timeout.timeout(TIMEOUT):
+                    await transport.wait_disconnected()
+            else:
+                with pytest.raises(TimeoutError):
+                    async with async_timeout.timeout(TIMEOUT):
+                        await transport.wait_disconnected()
+        finally:
+            transport.disconnect()
