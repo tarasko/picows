@@ -1,6 +1,6 @@
 import asyncio
 import uvloop
-from picows import WSFrame, WSTransport, WSListener, ws_connect, WSMsgType
+from picows import ws_connect, WSFrame, WSTransport, WSListener, WSMsgType, WSCloseCode
 
 
 class ClientListener(WSListener):
@@ -10,6 +10,7 @@ class ClientListener(WSListener):
 
     def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
         print(f"Echo reply: {frame.get_payload_as_ascii_text()}")
+        transport.send_close(WSCloseCode.OK)
         transport.disconnect()
 
 

@@ -1,6 +1,6 @@
 import asyncio
 import uvloop
-from picows import WSFrame, WSTransport, WSListener, ws_create_server, \
+from picows import ws_create_server, WSFrame, WSTransport, WSListener, \
     WSMsgType, WSUpgradeRequest
 
 
@@ -9,9 +9,13 @@ class ServerClientListener(WSListener):
         print("New client connected")
 
     def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
-        transport.send(frame.msg_type, frame.get_payload_as_bytes())
-        if frame.msg_type == WSMsgType.CLOSE:
+        if frame.msg_type == WSMsgType.PING:
+            transport.send_pong(frame.get_payload_as_bytes())
+        elif frame.msg_type == WSMsgType.CLOSE:
+            transport.send_close(frame.get_close_code(), frame.get_close_message())
             transport.disconnect()
+        else:
+            transport.send(frame.msg_type, frame.get_payload_as_bytes())
 
 
 async def main():

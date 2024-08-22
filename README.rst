@@ -39,7 +39,11 @@ Use pip to install it::
 Rationale
 =========
 Popular WebSocket libraries attempt to provide high-level interfaces. They take care of timeouts, flow control, optional compression/decompression, assembling WebSocket messages from frames, as well as implementing async iteration interfaces.
-These features come with a significant cost even when messages are small, unfragmented (every WebSocket frame is final), and uncompressed. The async iteration interface is done using Futures, which adds extra work for the event loop and introduces delays. Furthermore, it is not always possible to check if more messages have already arrived; sometimes, only the last message matters.
+These features are often implemented in pure Python and come with a significant cost even when messages are small, unfragmented (every WebSocket frame is final), and uncompressed. The async iteration interface is done using Futures, which adds extra work for the event loop and introduces delays. Furthermore, it is not always possible to check if more messages have already arrived; sometimes, only the last message matters.
+
+picows provides sort of a low-level interface. It lets user to control how to merge frames,
+when and how to setup timeouts.
+
 
 API Design
 ==========
@@ -60,7 +64,7 @@ Connects to an echo server, sends a message and disconnect upon reply.
 
     import asyncio
     import uvloop
-    from picows import WSFrame, WSTransport, WSListener, ws_connect, WSMsgType
+    from picows import ws_connect, WSFrame, WSTransport, WSListener, WSMsgType, WSCloseCode
 
     class ClientListener(WSListener):
         def on_ws_connected(self, transport: WSTransport):
@@ -69,6 +73,7 @@ Connects to an echo server, sends a message and disconnect upon reply.
 
         def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
             print(f"Echo reply: {frame.get_payload_as_ascii_text()}")
+            transport.send_close(WSCloseCode.OK)
             transport.disconnect()
 
 
@@ -94,16 +99,20 @@ Echo server
 
     import asyncio
     import uvloop
-    from picows import WSFrame, WSTransport, WSListener, ws_create_server, WSMsgType, WSUpgradeRequest
+    from picows import ws_create_server, WSFrame, WSTransport, WSListener, WSMsgType, WSUpgradeRequest
 
     class ServerClientListener(WSListener):
         def on_ws_connected(self, transport: WSTransport):
             print("New client connected")
 
         def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
-            transport.send(frame.msg_type, frame.get_payload_as_bytes())
-            if frame.msg_type == WSMsgType.CLOSE:
+            if frame.msg_type == WSMsgType.PING:
+                transport.send_pong(frame.get_payload_as_bytes())
+            elif frame.msg_type == WSMsgType.CLOSE:
+                transport.send_close(frame.get_close_code(), frame.get_close_message())
                 transport.disconnect()
+            else:
+                transport.send(frame.msg_type, frame.get_payload_as_bytes())
 
     async def main():
         def listener_factory(r: WSUpgradeRequest):
