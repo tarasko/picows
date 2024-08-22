@@ -41,9 +41,6 @@ Rationale
 Popular WebSocket libraries attempt to provide high-level interfaces. They take care of timeouts, flow control, optional compression/decompression, assembling WebSocket messages from frames, as well as implementing async iteration interfaces.
 These features are often implemented in pure Python and come with a significant cost even when messages are small, unfragmented (every WebSocket frame is final), and uncompressed. The async iteration interface is done using Futures, which adds extra work for the event loop and introduces delays. Furthermore, it is not always possible to check if more messages have already arrived; sometimes, only the last message matters.
 
-picows provides sort of a low-level interface. It lets user to control how to merge frames,
-when and how to setup timeouts.
-
 
 API Design
 ==========
