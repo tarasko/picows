@@ -16,9 +16,7 @@ from time import time
 _logger = getLogger(__name__)
 
 
-RPS = {
-    "c++ boost.beast(sync)": 42489
-}
+RPS = {}
 
 
 def create_client_ssl_context():
@@ -137,6 +135,10 @@ if __name__ == '__main__':
 
     ssl_context = create_client_ssl_context() if args.url.startswith("wss://") else None
 
+    asyncio.run(websockets_main(args.url, msg, duration, ssl_context))
+    asyncio.run(aiohttp_main(args.url, msg, duration, ssl_context))
+    asyncio.run(picows_main(args.url, msg, duration, ssl_context))
+
     try:
         from examples.echo_client_cython import picows_main_cython
         picows_cython_rps = asyncio.run(picows_main_cython(args.url, msg, duration, ssl_context))
@@ -144,9 +146,7 @@ if __name__ == '__main__':
     except ImportError:
         pass
 
-    asyncio.run(picows_main(args.url, msg, duration, ssl_context))
-    asyncio.run(aiohttp_main(args.url, msg, duration, ssl_context))
-    asyncio.run(websockets_main(args.url, msg, duration, ssl_context))
+    RPS["c++ boost.beast(sync)"] = 42489
 
     for k, v in RPS.items():
         print(k, v)
@@ -158,12 +158,12 @@ if __name__ == '__main__':
 
         libraries = list(RPS.keys())
         counts = list(RPS.values())
-        bar_colors = ['tab:blue', 'tab:green', 'tab:green', 'tab:orange', 'tab:red']
+        bar_colors = ['tab:red', 'tab:orange', 'tab:green', 'tab:green', 'tab:blue']
 
         ax.bar(libraries, counts, label=libraries, color=bar_colors)
 
-        ax.set_ylabel('Roundtrips per second')
-        ax.set_title(f'Echo roundtrip performance ({loop_name}, msg_size={msg_size})')
+        ax.set_ylabel('request/second')
+        ax.set_title(f'Echo round-trip performance ({loop_name}, msg_size={msg_size})')
 
         # ax.legend(title="Libraries")
 
