@@ -132,7 +132,7 @@ async def echo_client(echo_server):
         client.transport.disconnect()
 
 
-@pytest.mark.parametrize("msg_size", [256, 256 * 1024])
+@pytest.mark.parametrize("msg_size", [64, 256 * 1024])
 async def test_echo(echo_client, msg_size):
     msg = os.urandom(msg_size)
     echo_client.transport.send(picows.WSMsgType.BINARY, msg, False, False)
@@ -160,6 +160,20 @@ async def test_echo(echo_client, msg_size):
         frame = await echo_client.get_message()
     assert frame.fin
     assert not frame.rsv1
+
+    # Check ping
+    echo_client.transport.send_ping(b"hi")
+    async with async_timeout.timeout(TIMEOUT):
+        frame = await echo_client.get_message()
+    assert frame.msg_type == picows.WSMsgType.PING
+    assert frame.payload_as_bytes == b"hi"
+
+    # Check pong
+    echo_client.transport.send_pong(b"hi")
+    async with async_timeout.timeout(TIMEOUT):
+        frame = await echo_client.get_message()
+    assert frame.msg_type == picows.WSMsgType.PONG
+    assert frame.payload_as_bytes == b"hi"
 
 
 async def test_close(echo_client):
