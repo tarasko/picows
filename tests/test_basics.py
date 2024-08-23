@@ -175,6 +175,10 @@ async def test_echo(echo_client, msg_size):
     assert frame.msg_type == picows.WSMsgType.PONG
     assert frame.payload_as_bytes == b"hi"
 
+    # Test non-bytes like send
+    with pytest.raises(TypeError):
+        echo_client.transport.send(picows.WSMsgType.BINARY, "hi")
+
 
 async def test_close(echo_client):
     echo_client.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"goodbye")
