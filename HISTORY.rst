@@ -9,7 +9,7 @@ picows Release History
 1.1.0 (2024-08-23)
 ------------------
 
-* Add fin and rsv1 parameters to send and send_reuse_external_buffer method
+* Add fin and rsv1 parameters to send and send_reuse_external_buffer methods
 * Cleanup API reference
 
 
