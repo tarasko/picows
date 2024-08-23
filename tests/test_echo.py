@@ -154,6 +154,13 @@ async def test_echo(echo_client, msg_size):
     assert frame.fin
     assert frame.rsv1
 
+    # Check send defaults
+    echo_client.transport.send(picows.WSMsgType.BINARY, msg)
+    async with async_timeout.timeout(TIMEOUT):
+        frame = await echo_client.get_message()
+    assert frame.fin
+    assert not frame.rsv1
+
 
 async def test_close(echo_client):
     echo_client.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"goodbye")

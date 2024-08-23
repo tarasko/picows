@@ -337,7 +337,7 @@ cdef class WSTransport:
 
         :param msg_type: :any:`WSMsgType` enum value\n 
         :param message: an optional bytes-like object
-        :param fin: fin bit in websocket frame
+        :param fin: fin bit in websocket frame.
             Indicate that the frame is the last one in the message.
         :param rsv1: first reserved bit in websocket frame. 
             Some protocol extensions use it to indicate that payload 
@@ -1146,7 +1146,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
         is the time in seconds to wait for the websocket client to receive websocket handshake response before aborting the connection.
     :param logger_name:
         picows will use `picows.<logger_name>` logger to do all the logging.
-    :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()'
+    :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
 
     assert "ssl" not in kwargs, "explicit 'ssl' argument for loop.create_connection is not supported"

@@ -113,20 +113,30 @@ Classes
 
         Underlying TCP or SSL transport. Can be used to set buffer limits, check connection state, etc.
 
-        **Please don't use it to send data. Use only WSTransport.send_* methods to send frames.**
+        .. note::
 
-    .. py:method:: send_reuse_external_buffer(WSMsgType msg_type, char* message, size_t message_size)
+            Please don't use it to send data. Use only WSTransport.send_* methods to send frames.
+
+    .. py:method:: send_reuse_external_buffer(WSMsgType msg_type, char* message, size_t message_size, bint fin=True, bint rsv1=False)
 
         **Available only from Cython.**
 
         Send a frame over websocket with a message as its payload.
-        Don't copy message, reuse its memory and append websocket header in front of the message
+        This function does not copy message to prepare websocket frames.
+        It reuses message's memory and append websocket header at the front.
 
-        **Message's buffer should have at least 10 bytes in front of the message pointer available for writing.**
+        .. attention::
+
+            Message's buffer should have at least 10 bytes in front of the message pointer available for writing.
 
         :param msg_type: Message type
         :param message: Pointer to a message payload
         :param message_size: Size of the message payload
+        :param fin: fin bit in websocket frame.
+            Indicate that the frame is the last one in the message.
+        :param rsv1: first reserved bit in websocket frame.
+            Some protocol extensions use it to indicate that payload
+            is compressed.
 
 Enums
 -----
