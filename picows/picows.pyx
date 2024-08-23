@@ -101,13 +101,17 @@ cdef class WSUpgradeRequest:
 
 
 cdef _mask_payload(uint8_t* input, size_t input_len, uint32_t mask):
+    # According to perf, _mask_payload is very fast and is not worth spending
+    # any time optimizing it further.
+    # But we could use here SIMD or AVX2 instruction to speed this up.
+    # Also apply vector instructions only on aligned pointer
+
     cdef:
         size_t i
         # bit operations on signed integers are implementation-specific
+        # cast everything to uint
         uint64_t mask64 = (<uint64_t>mask << 32) | <uint64_t>mask
         uint8_t* mask_buf = <uint8_t*> &mask64
-
-    # TODO: Does input alignment impact performance here?
 
     if sizeof(size_t) >= 8:
         while input_len >= 8:
@@ -208,6 +212,7 @@ cdef class WSFrame:
 
     def __str__(self):
         return (f"WSFrame({WSMsgType(self.msg_type).name}, fin={True if self.fin else False}, "
+                f"rsv1={True if self.rsv1 else False}, "
                 f"lib={True if self.last_in_buffer else False}, psz={self.payload_size}, tsz={self.tail_size})")
 
 
@@ -320,21 +325,25 @@ cdef class WSTransport:
         self._write_buf = MemoryBuffer(1024)
         self._is_client_side = is_client_side
 
-    cdef send_reuse_external_buffer(self, WSMsgType msg_type, char* message, size_t message_size):
-        frame = self._prepare_frame_in_external_buffer(msg_type, <uint8_t*>message, message_size)
+    cdef send_reuse_external_buffer(self, WSMsgType msg_type,
+                                    char* message, size_t message_size,
+                                    bint fin=True, bint rsv1=False):
+        frame = self._prepare_frame_in_external_buffer(msg_type, <uint8_t*>message, message_size, fin, rsv1)
         self.underlying_transport.write(frame)
 
-    cpdef send(self, WSMsgType msg_type, message, bint rsv1=False):
+    cpdef send(self, WSMsgType msg_type, message, bint fin=True, bint rsv1=False):
         """        
         Send a frame over websocket with a message as its payload.        
 
         :param msg_type: :any:`WSMsgType` enum value\n 
         :param message: an optional bytes-like object
+        :param fin: fin bit in websocket frame
+            Indicate that the frame is the last one in the message.
         :param rsv1: first reserved bit in websocket frame. 
             Some protocol extensions use it to indicate that payload 
             is compressed.        
         """
-        frame = self._prepare_frame(msg_type, message, rsv1)
+        frame = self._prepare_frame(msg_type, message, fin, rsv1)
         self.underlying_transport.write(frame)
 
     cpdef send_ping(self, message=None):
@@ -451,7 +460,7 @@ cdef class WSTransport:
         if not self._disconnected_future.done():
             self._disconnected_future.set_result(None)
 
-    cdef bytes _prepare_frame_in_external_buffer(self, WSMsgType msg_type, uint8_t* msg_ptr, size_t msg_length):
+    cdef bytes _prepare_frame_in_external_buffer(self, WSMsgType msg_type, uint8_t* msg_ptr, size_t msg_length, bint fin, bint rsv1):
         cdef:
             # Just fin byte and msg_type
             # No support for rsv/compression
@@ -459,8 +468,14 @@ cdef class WSTransport:
             uint64_t extended_payload_length_64
             uint32_t mask = <uint32_t> rand() if self._is_client_side else 0
             uint16_t extended_payload_length_16
-            uint8_t first_byte = 0x80 | <uint8_t> msg_type
+            uint8_t first_byte = <uint8_t> msg_type
             uint8_t second_byte = 0x80 if self._is_client_side else 0
+
+        if fin:
+            first_byte |= 0x80
+
+        if rsv1:
+            first_byte |= 0x40
 
         if msg_length < 126:
             header_ptr -= 2
@@ -486,7 +501,7 @@ cdef class WSTransport:
 
         return PyBytes_FromStringAndSize(<char*>header_ptr, total_length)
 
-    cdef bytes _prepare_frame(self, WSMsgType msg_type, message, bint rsv1):
+    cdef bytes _prepare_frame(self, WSMsgType msg_type, message, bint fin, bint rsv1):
         """Send a frame over the websocket with message as its payload."""
         cdef:
             Py_buffer msg_buffer
@@ -514,12 +529,18 @@ cdef class WSTransport:
         cdef:
             # Just fin byte and msg_type
             # No support for rsv/compression
-            uint8_t first_byte = 0x80 | <uint8_t>msg_type
+            uint8_t first_byte = <uint8_t>msg_type
             uint8_t second_byte = 0x80 if self._is_client_side else 0
             uint32_t mask = <uint32_t>rand() if self._is_client_side else 0
             uint16_t extended_payload_length_16
             uint64_t extended_payload_length_64
             Py_ssize_t payload_start_idx
+
+        if fin:
+            first_byte |= 0x80
+
+        if rsv1:
+            first_byte |= 0x40
 
         self._write_buf.clear()
         self._write_buf.push_back(first_byte)
@@ -625,6 +646,7 @@ cdef class WSProtocol:
         self._f_msg_type = WSMsgType.CLOSE
         self._f_mask = 0
         self._f_fin = 0
+        self._f_rsv1 = 0
         self._f_has_mask = 0
         self._f_payload_length_flag = 0
 
@@ -1101,10 +1123,10 @@ cdef class WSProtocol:
 async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                      str url: str,
                      *,
-                     ssl_context: Optional[Union[bool, SSLContext]]=None,
+                     ssl_context: Optional[SSLContext]=None,
                      bint disconnect_on_exception: bool=True,
-                     logger_name: str="client",
                      websocket_handshake_timeout=5,
+                     logger_name: str="client",
                      **kwargs
                      ) -> Tuple[WSTransport, WSListener]:
     """
@@ -1120,6 +1142,8 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
     :param disconnect_on_exception:
         Indicates whether the client should initiate disconnect on any exception
         thrown from WSListener.on_ws_frame callbacks
+    :param websocket_handshake_timeout:
+        is the time in seconds to wait for the websocket client to receive websocket handshake response before aborting the connection.
     :param logger_name:
         picows will use `picows.<logger_name>` logger to do all the logging.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()'

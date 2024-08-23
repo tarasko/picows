@@ -29,17 +29,30 @@ Classes
         Indicates whether this is the last frame of the message.
         Websocket messages MAY consist of multiple frames.
 
-        Unfragmented message:
-        ::
+        Unfragmented message::
+
             WSFrame(msg_type=WSMsgType.<actual message type>, fin=True)
 
-        Fragmented message:
-        ::
+        Fragmented message::
+
             WSFrame(msg_type=WSMsgType.<actual message type>, fin=False)
             WSFrame(msg_type=WSMsgType.CONTINUATION, fin=False)
             ...
             # the last frame of the message
             WSFrame(msg_type=WSMsgType.CONTINUATION, fin=True)
+
+    .. py:attribute:: rsv1
+        :type: bool
+
+        Indicates whether rsv1 flag is set in the frame.
+        Some protocol extensions use this flag to indicated that the frame data
+        is compressed.
+        For example in `permessage_deflate extension <https://www.rfc-editor.org/rfc/rfc7692#section-7>`_
+
+        .. note::
+            Currently, picows forbids any protocol extensions during upgrade phase.
+            You may still check that it is set to False to verify behaviour of the
+            remote side.
 
     .. py:attribute:: last_in_buffer
         :type: bool

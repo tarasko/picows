@@ -37,6 +37,7 @@ class BinaryFrame:
         self.payload_as_bytes = frame.get_payload_as_bytes()
         self.payload_as_bytes_from_mv = bytes(frame.get_payload_as_memoryview())
         self.fin = frame.fin
+        self.rsv1 = frame.rsv1
 
 
 class TextFrame:
@@ -45,6 +46,7 @@ class TextFrame:
         self.payload_as_ascii_text = frame.get_payload_as_ascii_text()
         self.payload_as_utf8_text = frame.get_payload_as_utf8_text()
         self.fin = frame.fin
+        self.rsv1 = frame.rsv1
 
 
 class CloseFrame:
@@ -53,6 +55,7 @@ class CloseFrame:
         self.close_code = frame.get_close_code()
         self.close_message = frame.get_close_message()
         self.fin = frame.fin
+        self.rsv1 = frame.rsv1
 
 
 class ServerAsyncContext:
@@ -75,10 +78,11 @@ async def echo_server(request):
             self._transport = transport
 
         def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-            self._transport.send(frame.msg_type, frame.get_payload_as_bytes())
             if frame.msg_type == picows.WSMsgType.CLOSE:
                 self._transport.send_close(frame.get_close_code(), frame.get_close_message())
                 self._transport.disconnect()
+            else:
+                self._transport.send(frame.msg_type, frame.get_payload_as_bytes(), frame.fin, frame.rsv1)
 
     use_ssl = request.param
     server = await picows.ws_create_server(lambda _: PicowsServerListener(),
@@ -131,20 +135,24 @@ async def echo_client(echo_server):
 @pytest.mark.parametrize("msg_size", [256, 256 * 1024])
 async def test_echo(echo_client, msg_size):
     msg = os.urandom(msg_size)
-    echo_client.transport.send(picows.WSMsgType.BINARY, msg)
+    echo_client.transport.send(picows.WSMsgType.BINARY, msg, False, False)
     async with async_timeout.timeout(TIMEOUT):
         frame = await echo_client.get_message()
     assert frame.msg_type == picows.WSMsgType.BINARY
     assert frame.payload_as_bytes == msg
     assert frame.payload_as_bytes_from_mv == msg
+    assert not frame.fin
+    assert not frame.rsv1
 
     msg = base64.b64encode(msg)
-    echo_client.transport.send(picows.WSMsgType.TEXT, msg)
+    echo_client.transport.send(picows.WSMsgType.TEXT, msg, True, True)
     async with async_timeout.timeout(TIMEOUT):
         frame = await echo_client.get_message()
     assert frame.msg_type == picows.WSMsgType.TEXT
     assert frame.payload_as_ascii_text == msg.decode("ascii")
     assert frame.payload_as_utf8_text == msg.decode("utf8")
+    assert frame.fin
+    assert frame.rsv1
 
 
 async def test_close(echo_client):
