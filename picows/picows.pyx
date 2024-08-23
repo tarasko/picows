@@ -462,8 +462,6 @@ cdef class WSTransport:
 
     cdef bytes _prepare_frame_in_external_buffer(self, WSMsgType msg_type, uint8_t* msg_ptr, size_t msg_length, bint fin, bint rsv1):
         cdef:
-            # Just fin byte and msg_type
-            # No support for rsv/compression
             uint8_t* header_ptr = msg_ptr
             uint64_t extended_payload_length_64
             uint32_t mask = <uint32_t> rand() if self._is_client_side else 0
@@ -512,11 +510,9 @@ cdef class WSTransport:
             msg_ptr = b""
             msg_length = 0
         elif PyBytes_CheckExact(message):
-            # Just a small optimization for bytes type as the most used type for sending data
             msg_ptr = PyBytes_AS_STRING(message)
             msg_length = PyBytes_GET_SIZE(message)
         elif PyByteArray_CheckExact(message):
-            # Just a small optimization for bytes type as the most used type for sending data
             msg_ptr = PyByteArray_AS_STRING(message)
             msg_length = PyByteArray_GET_SIZE(message)
         else:
@@ -527,8 +523,6 @@ cdef class WSTransport:
             PyBuffer_Release(&msg_buffer)
 
         cdef:
-            # Just fin byte and msg_type
-            # No support for rsv/compression
             uint8_t first_byte = <uint8_t>msg_type
             uint8_t second_byte = 0x80 if self._is_client_side else 0
             uint32_t mask = <uint32_t>rand() if self._is_client_side else 0
@@ -724,8 +718,9 @@ cdef class WSProtocol:
             const char * ptr = PyBytes_AS_STRING(data)
             size_t sz = PyBytes_GET_SIZE(data)
 
-        # Leave some space for simd parsers like simdjson, they required extra space beyond normal data to make sure
-        # that vector reads don't cause access violation
+        # Leave some space for simd parsers like simdjson, they require extra
+        # space beyond normal data to make sure that vector reads
+        # don't cause access violation
         if self._buffer.size - self._f_new_data_start_pos < (sz + 64):
             self._buffer.resize(self._f_new_data_start_pos + sz + 64)
 
@@ -996,12 +991,10 @@ cdef class WSProtocol:
             self._f_has_mask = (second_byte >> 7) & 1
             self._f_payload_length_flag = second_byte & 0x7F
 
-            # Control frames MUST have a payload
-            # length of 125 bytes or less
             if self._f_msg_type > 0x7 and self._f_payload_length_flag > 125:
                 raise _WSParserError(
                     WSCloseCode.PROTOCOL_ERROR,
-                    "Control frame payload cannot be " "larger than 125 bytes",
+                    "Control frame payload cannot be larger than 125 bytes",
                 )
 
             self._f_curr_state_start_pos += 2

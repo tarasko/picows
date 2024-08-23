@@ -56,7 +56,7 @@ async def picows_main(endpoint: str, msg: bytes, duration: int, ssl_context):
             self._cnt += 1
 
             if time() - self._start_time >= duration:
-                RPS["picows(python)"] = int(self._cnt / duration)
+                RPS["picows\npython client"] = int(self._cnt / duration)
                 self._transport.disconnect()
             else:
                 self._transport.send(WSMsgType.BINARY, msg)
@@ -79,7 +79,7 @@ async def websockets_main(endpoint: str, msg: bytes, duration: int, ssl_context)
             else:
                 await websocket.send(msg)
 
-        RPS[f"websockets({websockets.__version__})"] = int(cnt / duration)
+        RPS[f"websockets\n{websockets.__version__}"] = int(cnt / duration)
 
 
 async def aiohttp_main(url: str, data: bytes, duration: int, ssl_context) -> None:
@@ -96,7 +96,7 @@ async def aiohttp_main(url: str, data: bytes, duration: int, ssl_context) -> Non
                 if msg.type == aiohttp_WSMsgType.BINARY:
                     cnt += 1
                     if time() - start_time >= duration:
-                        RPS[f"aiohttp({aiohttp.__version__})"] = int(cnt/duration)
+                        RPS[f"aiohttp\n{aiohttp.__version__}"] = int(cnt/duration)
                         await ws.close()
                     else:
                         await ws.send_bytes(data)
@@ -131,7 +131,7 @@ if __name__ == '__main__':
         if os.name != 'nt':
             import uvloop
             asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-            loop_name = f"uvloop({uvloop.__version__})"
+            loop_name = f"uvloop\n{uvloop.__version__}"
 
     ssl_context = create_client_ssl_context() if args.url.startswith("wss://") else None
 
@@ -142,11 +142,11 @@ if __name__ == '__main__':
     try:
         from examples.echo_client_cython import picows_main_cython
         picows_cython_rps = asyncio.run(picows_main_cython(args.url, msg, duration, ssl_context))
-        RPS["picows(cython)"] = picows_cython_rps
+        RPS["picows\ncython client"] = picows_cython_rps
     except ImportError:
         pass
 
-    RPS["c++ boost.beast(sync)"] = 42489
+    RPS["c++ boost.beast\nsync client"] = 56878
 
     for k, v in RPS.items():
         print(k, v)
