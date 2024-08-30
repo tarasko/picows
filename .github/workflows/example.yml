@@ -71,7 +71,11 @@ jobs:
         run: |
           brew install gnu-sed libtool autoconf automake
 
-      - uses: pypa/cibuildwheel@v2
+      - name: Install cibuildwheel
+        run: python -m pip install cibuildwheel==2.20.0
+
+      - name: Build wheels
+        run: python -m cibuildwheel --output-dir wheelhouse
         env:
           CIBW_BUILD_VERBOSITY: 1
           CIBW_BUILD: ${{ matrix.cibw_python }}
