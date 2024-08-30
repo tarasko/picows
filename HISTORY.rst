@@ -6,6 +6,12 @@ picows Release History
    :local:
 
 
+1.1.1 (2024-08-30)
+------------------
+
+* Release binary wheels along with source dist
+
+
 1.1.0 (2024-08-23)
 ------------------
 
