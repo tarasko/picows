@@ -38,13 +38,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, macos-latest ]
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
         cibw_python: [ "cp38-*", "cp39-*", "cp310-*", "cp311-*", "cp312-*" ]
         cibw_arch: [ "x86_64", "aarch64", "universal2" ]
         exclude:
           - os: ubuntu-latest
             cibw_arch: universal2
+          - os: windows-latest
+            cibw_arch: universal2
           - os: macos-latest
+            cibw_arch: aarch64
+          - os: windows-latest
             cibw_arch: aarch64
 
     defaults:
@@ -87,20 +91,20 @@ jobs:
           name: dist
           path: wheelhouse/*.whl
 
-#  publish:
-#    needs: [build-sdist, build-wheels]
-#    runs-on: ubuntu-latest
-#
-#    steps:
-#    - uses: actions/checkout@v4  # v4.1.0
-#      with:
-#        fetch-depth: 5
-#        submodules: false
-#
-#    - uses: actions/download-artifact@v4  # v3.0.2
-#      with:
-#        name: dist
-#        path: dist/
+  publish:
+    needs: [build-sdist, build-wheels]
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 5
+        submodules: false
+
+    - uses: actions/download-artifact@v3
+      with:
+        name: dist
+        path: dist/
 #
 #    - name: Extract Release Version
 #      id: relver
@@ -120,9 +124,9 @@ jobs:
 #        body: ${{ github.event.pull_request.body }}
 #        draft: false
 #
-#    - run: |
-#        ls -al dist/
-#
+    - run: |
+        ls -al dist/
+
 #    - name: Upload to PyPI
 #      uses: pypa/gh-action-pypi-publish@release/v1
 #      with:
