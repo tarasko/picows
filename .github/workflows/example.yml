@@ -89,7 +89,7 @@ jobs:
 #          brew install gnu-sed libtool autoconf automake
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2
+        uses: pypa/cibuildwheel@v2.20.0
         with:
           only: ${{ matrix.only }}
         env:
