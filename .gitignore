@@ -6,4 +6,5 @@ picows.egg-info
 __pycache__
 *.html
 dist
+wheelhouse
 build

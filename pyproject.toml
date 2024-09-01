@@ -1,6 +1,6 @@
 [project]
 name = "picows"
-description = "Fast websocket client and server for asyncio"
+description = "Ultra-fast websocket client and server for asyncio"
 authors = [{name = "Taras Kozlov", email = "tarasko.projects@gmail.com"}]
 requires-python = '>=3.8'
 readme = "README.rst"
@@ -32,7 +32,8 @@ requires = ["setuptools >= 61.0", "wheel", "Cython >= 3.0"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio", "websockets", "aiohttp", "async_timeout"]
+test = ["pytest", "pytest-asyncio", "async_timeout"]
+benchmark = ["uvloop", "websockets", "aiohttp"]
 
 [project.urls]
 Homepage = "https://github.com/tarasko/picows"
@@ -45,3 +46,6 @@ packages = ["picows"]
 
 [tool.setuptools.dynamic]
 version = {attr = "picows.__version__"}
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
