@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import os
 import ssl
+import subprocess
 
 from logging import getLogger
 from ssl import SSLContext
@@ -29,6 +30,7 @@ def create_client_ssl_context():
 
 
 async def picows_main(endpoint: str, msg: bytes, duration: int, ssl_context):
+    print(f"Run picows python client")
     class PicowsClientListener(WSListener):
         def __init__(self):
             super().__init__()
@@ -44,10 +46,8 @@ async def picows_main(endpoint: str, msg: bytes, duration: int, ssl_context):
             if frame.fin:
                 if self._full_msg:
                     self._full_msg += frame.get_payload_as_memoryview()
-                    # assert self._full_msg == msg
                     self._full_msg.clear()
                 else:
-                    # assert frame.get_payload_as_bytes() == msg
                     pass
             else:
                 self._full_msg += frame.get_payload_as_memoryview()
@@ -66,6 +66,7 @@ async def picows_main(endpoint: str, msg: bytes, duration: int, ssl_context):
 
 
 async def websockets_main(endpoint: str, msg: bytes, duration: int, ssl_context):
+    print(f"Run websockets ({websockets.__version__}) client")
     async with websockets.connect(endpoint, ssl=ssl_context) as websocket:
         await websocket.send(msg)
         start_time = time()
@@ -83,6 +84,8 @@ async def websockets_main(endpoint: str, msg: bytes, duration: int, ssl_context)
 
 
 async def aiohttp_main(url: str, data: bytes, duration: int, ssl_context) -> None:
+    print(f"Run aiohttp ({aiohttp.__version__}) client")
+
     async with ClientSession() as session:
         async with session.ws_connect(url, ssl_context=ssl_context) as ws:
             # send request
@@ -119,7 +122,9 @@ if __name__ == '__main__':
     parser.add_argument("--level", default="INFO", help="python logger level")
     parser.add_argument("--duration", default="5", help="duration of test in seconds")
     parser.add_argument("--disable-uvloop", action="store_true", help="Disable uvloop")
+    parser.add_argument("--boost-client", help="Path to boost client binary")
     parser.add_argument("--log-file", help="tee log to file")
+    parser.add_argument("--log-scale", action="store_true", help="Plot RPS on log scale")
     args = parser.parse_args()
 
     msg_size = int(args.msg_size)
@@ -131,7 +136,7 @@ if __name__ == '__main__':
         if os.name != 'nt':
             import uvloop
             asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-            loop_name = f"uvloop\n{uvloop.__version__}"
+            loop_name = f"uvloop {uvloop.__version__}"
 
     ssl_context = create_client_ssl_context() if args.url.startswith("wss://") else None
 
@@ -141,15 +146,21 @@ if __name__ == '__main__':
 
     try:
         from examples.echo_client_cython import picows_main_cython
+        print(f"Run picows cython client")
         picows_cython_rps = asyncio.run(picows_main_cython(args.url, msg, duration, ssl_context))
         RPS["picows\ncython client"] = picows_cython_rps
     except ImportError:
         pass
 
-    RPS["c++ boost.beast\nsync client"] = 56878
+    if args.boost_client is not None:
+        print(f"Run boost.beast client")
+        pr = subprocess.run([args.boost_client, b"127.0.0.1", b"9001", args.msg_size, args.duration],
+                            shell=False, check=True, capture_output=True)
+        name, rps = pr.stdout.split(b":", 2)
+        RPS[f"c++ boost.beast\n{name.decode()}"] = int(rps.decode())
 
     for k, v in RPS.items():
-        print(k, v)
+        print(k.replace("\n", " "), v)
 
     try:
         import matplotlib.pyplot as plt
@@ -163,7 +174,10 @@ if __name__ == '__main__':
         ax.bar(libraries, counts, label=libraries, color=bar_colors)
 
         ax.set_ylabel('request/second')
-        ax.set_title(f'Echo round-trip performance ({loop_name}, msg_size={msg_size})')
+        if args.log_scale:
+            ax.set_yscale('log')
+            ax.set_yticks([counts[0]/2, 10000, 20000, 30000, 40000])
+        ax.set_title(f'Echo round-trip performance \n({loop_name}, msg_size={msg_size})')
 
         # ax.legend(title="Libraries")
 
