@@ -1,7 +1,7 @@
 import asyncio
-import base64
+from base64 import b64encode, b64decode
 import binascii
-import hashlib
+from hashlib import sha1
 import logging
 import os
 import socket
@@ -631,7 +631,7 @@ cdef class WSProtocol:
         self._handshake_complete_future = self._loop.create_future()
         self._upgrade_request_max_size = 16 * 1024
 
-        self._websocket_key_b64 = base64.b64encode(os.urandom(16))
+        self._websocket_key_b64 = b64encode(os.urandom(16))
         self._max_frame_size = 1024 * 1024
 
         self._state = WSParserState.WAIT_UPGRADE_RESPONSE
@@ -838,7 +838,7 @@ cdef class WSProtocol:
 
     cdef inline tuple _try_read_upgrade_request(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
-        cdef list request = data.split(b"\r\n\r\n", 1)
+        cdef list request = <list>data.split(b"\r\n\r\n", 1)
         if len(request) < 2:
             if len(data) >= self._upgrade_request_max_size:
                 self.transport.disconnect()
@@ -846,7 +846,8 @@ cdef class WSProtocol:
 
             return None, None
 
-        if len(request[0]) >= self._upgrade_request_max_size:
+        cdef bytes raw_headers = <bytes>request[0]
+        if len(raw_headers) >= self._upgrade_request_max_size:
             self.transport.disconnect()
             self._logger.info("Disconnect because upgrade request violated max_size threshold: %d", 16*1024)
             return None, None
@@ -854,21 +855,22 @@ cdef class WSProtocol:
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "New data: %s", data)
 
-        cdef bytes raw_headers = request[0]
-        cdef bytes tail = request[1]
-
-        cdef list lines = raw_headers.split(b"\r\n")
-        cdef bytes response_status_line = lines[0]
+        cdef list lines = <list>raw_headers.split(b"\r\n")
+        cdef bytes response_status_line = <bytes>lines[0]
 
         cdef dict headers = {}
-        cdef bytes line, name, value
         cdef list parts
-        for line in lines[1:]:
-            parts = line.split(b":", maxsplit=1)
+        cdef bytes line, name, value
+        cdef str name_str
+        cdef Py_ssize_t idx
+        for idx in range(1, len(lines)):
+            line = <bytes>lines[idx]
+            parts = <list>line.split(b":", 1)
             if len(parts) != 2:
                 raise RuntimeError(f"Mailformed header in upgrade request: {raw_headers}")
-            name, value = parts
-            headers[name.strip().decode().lower()] = value.strip().decode()
+            name, value = <bytes>parts[0], <bytes>parts[1]
+            name_str = <str>(<bytes>name.strip()).decode()
+            headers[name_str.lower()] = (<bytes>value.strip()).decode()
 
         if "websocket" != headers.get("upgrade"):
             raise RuntimeError(f"No WebSocket UPGRADE header: {raw_headers}\n Can 'Upgrade' only to 'websocket'")
@@ -883,14 +885,14 @@ cdef class WSProtocol:
         if headers.get("sec-websocket-version") not in ("13", "8", "7"):
             raise RuntimeError(f"Upgrade requested to unsupported websocket version: {version}")
 
-        key = headers.get("sec-websocket-key")
+        cdef str key = <str>headers.get("sec-websocket-key")
         try:
-            if not key or len(base64.b64decode(key)) != 16:
+            if not key or len(b64decode(key)) != 16:
                 raise RuntimeError(f"Handshake error, invalid key: {key!r}")
         except binascii.Error:
             raise RuntimeError(f"Handshake error, invalid key: {key!r}") from None
 
-        cdef bytes accept_val = base64.b64encode(hashlib.sha1(key.encode() + _WS_KEY).digest())
+        cdef bytes accept_val = b64encode(sha1(<bytes>key.encode() + _WS_KEY).digest())
 
         cdef list status_line_parts = response_status_line.split(b" ")
         cdef WSUpgradeRequest upgrade_request = <WSUpgradeRequest>WSUpgradeRequest.__new__(WSUpgradeRequest)
@@ -900,6 +902,7 @@ cdef class WSProtocol:
 
         memmove(self._buffer.data, self._buffer.data + len(raw_headers) + 4, self._buffer.size - len(raw_headers) - 4)
 
+        cdef bytes tail = request[1]
         self._f_new_data_start_pos = len(tail)
         self._state = WSParserState.READ_HEADER
 
@@ -931,7 +934,7 @@ cdef class WSProtocol:
             raise WSError(f"cannot upgrade, invalid connection header: {response_headers['connection']}")
 
         r_key = response_headers.get("sec-websocket-accept")
-        match = base64.b64encode(hashlib.sha1(self._websocket_key_b64 + _WS_KEY).digest()).decode()
+        match = b64encode(sha1(self._websocket_key_b64 + _WS_KEY).digest()).decode()
         if r_key != match:
             raise WSError(f"cannot upgrade, invalid sec-websocket-accept response")
 
