@@ -132,7 +132,7 @@ async def echo_client(echo_server):
         client.transport.disconnect()
 
 
-@pytest.mark.parametrize("msg_size", [64, 256 * 1024])
+@pytest.mark.parametrize("msg_size", [0, 1, 2, 3, 4, 5, 6, 7, 8, 64, 256 * 1024])
 async def test_echo(echo_client, msg_size):
     msg = os.urandom(msg_size)
     echo_client.transport.send(picows.WSMsgType.BINARY, msg, False, False)

@@ -228,35 +228,42 @@ cdef class MemoryBuffer:
         if self.data != NULL:
             PyMem_Free(self.data)
 
-    cdef _reserve_if_necessary(self, Py_ssize_t bytes_to_append):
-        if self.size + bytes_to_append > self.capacity:
-            self.reserve(256 * ((self.size + bytes_to_append) / 256 + 1))
-
-    cdef clear(self):
-        self.size = 0
-
-    cdef push_back(self, uint8_t byte):
-        self._reserve_if_necessary(1)
-        self.data[self.size] = <char>byte
-        self.size += 1
-
-    cdef append(self, const char* ptr, Py_ssize_t sz):
-        self._reserve_if_necessary(sz)
-        memcpy(self.data + self.size, ptr, sz)
-        self.size += sz
-
-    cdef reserve(self, Py_ssize_t new_capacity):
-        if new_capacity <= self.capacity:
-            return
+    cdef _reserve(self, Py_ssize_t target_size):
+        cdef Py_ssize_t new_capacity = 256 * (target_size / 256 + 1)
         cdef char* data = <char*>PyMem_Realloc(self.data, new_capacity)
         if data == NULL:
             raise MemoryError("cannot allocate memory for picows")
         self.data = data
 
+    cdef clear(self):
+        self.size = 0
+
+    cdef push_back(self, uint8_t byte):
+        cdef Py_ssize_t target_size = self.size + 1
+        if target_size > self.capacity:
+            self._reserve(target_size)
+
+        self.data[self.size] = <char>byte
+        self.size = target_size
+
+    cdef append(self, const char* ptr, Py_ssize_t sz):
+        cdef Py_ssize_t target_size = self.size + sz
+        if target_size > self.capacity:
+            self._reserve(target_size)
+
+        memcpy(self.data + self.size, ptr, sz)
+        self.size = target_size
+
     cdef resize(self, Py_ssize_t new_size):
         if new_size > self.capacity:
-            self.reserve(new_size)
+            self._reserve(new_size)
         self.size = new_size
+
+    cdef add_padding(self, Py_ssize_t alignment):
+        cdef Py_ssize_t target_size = self.size + (alignment - self.size % alignment)
+        if target_size > self.capacity:
+            self._reserve(target_size)
+        self.size = target_size
 
 
 cdef class WSListener:
@@ -432,19 +439,23 @@ cdef class WSTransport:
             self._write_buf.push_back(second_byte)
             self._write_buf.append(<const char*>&extended_payload_length_64, 8)
 
+        cdef Py_ssize_t frame_size
+
         if self._is_client_side:
             self._write_buf.append(<const char*>&mask, 4)
             payload_start_idx = self._write_buf.size
             self._write_buf.append(msg_ptr, msg_length)
+            frame_size = self._write_buf.size
             _mask_payload(<uint8_t*>self._write_buf.data + payload_start_idx, msg_length, mask)
         else:
             self._write_buf.append(msg_ptr, msg_length)
+            frame_size = self._write_buf.size
 
         # Unfortunately we have to make a new bytes object here.
         # PyMemoryView_FromMemory can't be used because uvloop.Transport.write
         # may delay sending and it doesn't copy the content of the buffer
 
-        self.underlying_transport.write(PyBytes_FromStringAndSize(self._write_buf.data, self._write_buf.size))
+        self.underlying_transport.write(PyBytes_FromStringAndSize(self._write_buf.data, frame_size))
 
     cpdef send_ping(self, message=None):
         """
@@ -749,7 +760,7 @@ cdef class WSProtocol:
     async def wait_until_handshake_complete(self):
         await asyncio.shield(self._handshake_complete_future)
 
-    cdef _process_new_data(self):
+    cdef inline _process_new_data(self):
         cdef WSUpgradeRequest upgrade_request
         cdef bytes accept_val
         if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
@@ -778,7 +789,7 @@ cdef class WSProtocol:
 
         self._shrink_buffer()
 
-    cdef _negotiate(self):
+    cdef inline _negotiate(self):
         if self._is_client_side:
             try:
                 self._try_read_and_process_upgrade_response()
@@ -825,9 +836,9 @@ cdef class WSProtocol:
         self._invoke_on_ws_connected()
         return True
 
-    cdef tuple _try_read_upgrade_request(self):
+    cdef inline tuple _try_read_upgrade_request(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
-        request = data.split(b"\r\n\r\n", 1)
+        cdef list request = data.split(b"\r\n\r\n", 1)
         if len(request) < 2:
             if len(data) >= self._upgrade_request_max_size:
                 self.transport.disconnect()
@@ -843,12 +854,15 @@ cdef class WSProtocol:
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "New data: %s", data)
 
-        raw_headers, tail = request
+        cdef bytes raw_headers = request[0]
+        cdef bytes tail = request[1]
 
-        lines = raw_headers.split(b"\r\n")
-        response_status_line = lines[0]
+        cdef list lines = raw_headers.split(b"\r\n")
+        cdef bytes response_status_line = lines[0]
 
-        headers = {}
+        cdef dict headers = {}
+        cdef bytes line, name, value
+        cdef list parts
         for line in lines[1:]:
             parts = line.split(b":", maxsplit=1)
             if len(parts) != 2:
@@ -891,7 +905,7 @@ cdef class WSProtocol:
 
         return upgrade_request, accept_val
 
-    cdef _try_read_and_process_upgrade_response(self):
+    cdef inline _try_read_and_process_upgrade_response(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
         response = data.split(b"\r\n\r\n", 1)
         if len(response) < 2:
@@ -927,7 +941,7 @@ cdef class WSProtocol:
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "WS handshake done, switch to upgraded state")
 
-    cdef WSFrame _get_next_frame(self):
+    cdef inline WSFrame _get_next_frame(self):
         cdef WSFrame frame
         try:
             return self._get_next_frame_impl()
@@ -940,7 +954,7 @@ cdef class WSProtocol:
             self.transport.send_close(WSCloseCode.PROTOCOL_ERROR)
             self.transport.disconnect()
 
-    cdef WSFrame _get_next_frame_impl(self): #  -> Optional[WSFrame]
+    cdef inline WSFrame _get_next_frame_impl(self): #  -> Optional[WSFrame]
         """Return the next frame from the socket."""
         cdef:
             uint8_t first_byte
@@ -1063,7 +1077,7 @@ cdef class WSProtocol:
 
         assert False, "we should never reach this state"
 
-    cdef _invoke_on_ws_connected(self):
+    cdef inline _invoke_on_ws_connected(self):
         try:
             self.listener.on_ws_connected(self.transport)
         except Exception as e:
@@ -1071,7 +1085,7 @@ cdef class WSProtocol:
             self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
             self.transport.disconnect()
 
-    cdef _invoke_on_ws_frame(self, WSFrame frame):
+    cdef inline _invoke_on_ws_frame(self, WSFrame frame):
         try:
             self.listener.on_ws_frame(self.transport, frame)
         except Exception as e:
@@ -1082,13 +1096,13 @@ cdef class WSProtocol:
             else:
                 self._logger.exception("Unhandled exception in on_ws_frame")
 
-    cdef _invoke_on_ws_disconnected(self):
+    cdef inline _invoke_on_ws_disconnected(self):
         try:
             self.listener.on_ws_disconnected(self.transport)
         except:
             self._logger.exception("Unhandled exception in on_ws_disconnected")
 
-    cdef _shrink_buffer(self):
+    cdef inline _shrink_buffer(self):
         if self._f_curr_frame_start_pos > 0:
             memmove(self._buffer.data,
                     self._buffer.data + self._f_curr_frame_start_pos,

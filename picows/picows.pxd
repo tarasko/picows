@@ -42,12 +42,12 @@ cdef class MemoryBuffer:
         Py_ssize_t capacity
         char* data
 
-    cdef _reserve_if_necessary(self, Py_ssize_t bytes_to_append)
-    cdef clear(self)
-    cdef push_back(self, uint8_t byte)
-    cdef append(self, const char* ptr, Py_ssize_t sz)
-    cdef reserve(self, Py_ssize_t new_capacity)
-    cdef resize(self, Py_ssize_t new_size)
+    cdef inline _reserve(self, Py_ssize_t target_size)
+    cdef inline clear(self)
+    cdef inline push_back(self, uint8_t byte)
+    cdef inline append(self, const char* ptr, Py_ssize_t sz)
+    cdef inline resize(self, Py_ssize_t new_size)
+    cdef inline add_padding(self, Py_ssize_t alignment)
 
 
 cdef class WSUpgradeRequest:
@@ -94,12 +94,12 @@ cdef class WSTransport:
     cpdef send_close(self, WSCloseCode close_code=*, close_message=*)
     cpdef disconnect(self)
 
-    cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64)
-    cdef _send_http_handshake_response(self, bytes accept_val)
-    cdef _send_bad_request(self, str error)
-    cdef _send_not_found(self)
-    cdef _send_internal_server_error(self, str error)
-    cdef _mark_disconnected(self)
+    cdef inline _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64)
+    cdef inline _send_http_handshake_response(self, bytes accept_val)
+    cdef inline _send_bad_request(self, str error)
+    cdef inline _send_not_found(self)
+    cdef inline _send_internal_server_error(self, str error)
+    cdef inline _mark_disconnected(self)
 
 
 cdef class WSListener:
