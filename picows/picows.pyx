@@ -100,7 +100,7 @@ cdef class WSUpgradeRequest:
     pass
 
 
-cdef _mask_payload(uint8_t* input, size_t input_len, uint32_t mask):
+cdef void _mask_payload(uint8_t* input, size_t input_len, uint32_t mask) noexcept:
     # According to perf, _mask_payload is very fast and is not worth spending
     # any time optimizing it further.
     # But we could use here SIMD or AVX2 instruction to speed this up.
@@ -235,7 +235,7 @@ cdef class MemoryBuffer:
             raise MemoryError("cannot allocate memory for picows")
         self.data = data
 
-    cdef clear(self):
+    cdef void clear(self) noexcept:
         self.size = 0
 
     cdef push_back(self, uint8_t byte):

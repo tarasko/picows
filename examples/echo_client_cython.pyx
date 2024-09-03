@@ -49,6 +49,7 @@ cdef class EchoClientListener(WSListener):
         self.rps = 0
 
     cpdef on_ws_connected(self, WSTransport transport):
+        transport.underlying_transport.set_write_buffer_limits(8, 16)
         self._transport = transport
         self._begin_time = get_now_timestamp()
         self._transport.send(WSMsgType.BINARY, self._data)

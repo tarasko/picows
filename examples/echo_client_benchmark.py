@@ -122,6 +122,7 @@ if __name__ == '__main__':
     parser.add_argument("--level", default="INFO", help="python logger level")
     parser.add_argument("--duration", default="5", help="duration of test in seconds")
     parser.add_argument("--disable-uvloop", action="store_true", help="Disable uvloop")
+    parser.add_argument("--picows-only", action="store_true", help="Run only picows cython client")
     parser.add_argument("--boost-client", help="Path to boost client binary")
     parser.add_argument("--log-file", help="tee log to file")
     parser.add_argument("--log-scale", action="store_true", help="Plot RPS on log scale")
@@ -140,9 +141,10 @@ if __name__ == '__main__':
 
     ssl_context = create_client_ssl_context() if args.url.startswith("wss://") else None
 
-    asyncio.run(websockets_main(args.url, msg, duration, ssl_context))
-    asyncio.run(aiohttp_main(args.url, msg, duration, ssl_context))
-    asyncio.run(picows_main(args.url, msg, duration, ssl_context))
+    if not args.picows_only:
+        asyncio.run(websockets_main(args.url, msg, duration, ssl_context))
+        asyncio.run(aiohttp_main(args.url, msg, duration, ssl_context))
+        asyncio.run(picows_main(args.url, msg, duration, ssl_context))
 
     try:
         from examples.echo_client_cython import picows_main_cython
@@ -152,12 +154,15 @@ if __name__ == '__main__':
     except ImportError:
         pass
 
-    if args.boost_client is not None:
+    if not args.picows_only and args.boost_client is not None:
         print(f"Run boost.beast client")
         pr = subprocess.run([args.boost_client, b"127.0.0.1", b"9001", args.msg_size, args.duration],
                             shell=False, check=True, capture_output=True)
         name, rps = pr.stdout.split(b":", 2)
         RPS[f"c++ boost.beast\n{name.decode()}"] = int(rps.decode())
+
+    if args.picows_only:
+        exit()
 
     for k, v in RPS.items():
         print(k.replace("\n", " "), v)
