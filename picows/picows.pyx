@@ -18,6 +18,8 @@ from cpython.memoryview cimport PyMemoryView_FromMemory
 from cpython.mem cimport PyMem_Malloc, PyMem_Realloc, PyMem_Free
 from cpython.buffer cimport PyBUF_WRITE, PyBUF_READ, PyBUF_SIMPLE, PyObject_GetBuffer, PyBuffer_Release
 from cpython.unicode cimport PyUnicode_FromStringAndSize, PyUnicode_DecodeASCII
+from libc.errno cimport errno, EINTR, EPROTOTYPE, EAGAIN
+from posix.unistd cimport write
 
 from libc.string cimport memmove, memcpy
 from libc.stdlib cimport rand
@@ -29,43 +31,7 @@ cdef:
     bytes _WS_KEY = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
-cdef extern from * nogil:
-    """
-    #if (defined(_WIN16) || defined(_WIN32) || defined(_WIN64)) && !defined(__WINDOWS__)
-    #	define __WINDOWS__
-    #endif
-
-    #if defined(__linux__)
-      #include <arpa/inet.h>
-      #include <endian.h>
-    #elif defined(__APPLE__)
-      #include <arpa/inet.h>
-      #include <libkern/OSByteOrder.h>
-      #define be64toh(x) OSSwapBigToHostInt64(x)
-      #define htobe64(x) OSSwapHostToBigInt64(x)
-    #elif defined(__OpenBSD__)
-      #include <arpa/inet.h>
-      #include <sys/endian.h>
-    #elif defined(__NetBSD__) || defined(__FreeBSD__) || defined(__DragonFly__)
-      #include <arpa/inet.h>
-      #include <sys/endian.h>
-      #define be64toh(x) betoh64(x)
-    #elif defined(__WINDOWS__)
-      #include <winsock2.h>
-      #if BYTE_ORDER == LITTLE_ENDIAN
-        #define be64toh(x) ntohll(x)
-        #define htobe64(x) htonll(x)
-      #elif BYTE_ORDER == BIG_ENDIAN
-        #define be64toh(x) (x)
-        #define htobe64(x) (x)
-      #endif
-    #else
-      error byte order not supported
-    #endif
-    """
-
-    # Network order is big-endian
-
+cdef extern from "picows_compat.h" nogil:
     uint32_t ntohl(uint32_t)
     uint32_t htonl(uint32_t)
     uint16_t ntohs(uint16_t)
@@ -330,7 +296,9 @@ cdef class WSTransport:
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
         self._disconnected_future = loop.create_future()
         self._write_buf = MemoryBuffer(1024)
+        self._socket = underlying_transport.get_extra_info('socket').fileno()
         self._is_client_side = is_client_side
+        self._is_ssl = underlying_transport.get_extra_info('ssl_object') is not None
 
     cdef send_reuse_external_buffer(self, WSMsgType msg_type,
                                     char* msg_ptr, size_t msg_size,
@@ -451,11 +419,10 @@ cdef class WSTransport:
             self._write_buf.append(msg_ptr, msg_length)
             frame_size = self._write_buf.size
 
-        # Unfortunately we have to make a new bytes object here.
-        # PyMemoryView_FromMemory can't be used because uvloop.Transport.write
-        # may delay sending and it doesn't copy the content of the buffer
-
-        self.underlying_transport.write(PyBytes_FromStringAndSize(self._write_buf.data, frame_size))
+        if not self._is_ssl and self.underlying_transport.get_write_buffer_size() == 0:
+            self._try_c_write_then_transport_write(self._write_buf.data, frame_size)
+        else:
+            self.underlying_transport.write(PyBytes_FromStringAndSize(self._write_buf.data, frame_size))
 
     cpdef send_ping(self, message=None):
         """
@@ -570,6 +537,30 @@ cdef class WSTransport:
     cdef _mark_disconnected(self):
         if not self._disconnected_future.done():
             self._disconnected_future.set_result(None)
+
+    cdef _try_c_write_then_transport_write(self, char* ptr, Py_ssize_t sz):
+        cdef Py_ssize_t bytes_written = write(self._socket, ptr, <size_t>sz)
+
+        # From libuv code (unix/stream.c):
+        #   Due to a possible kernel bug at least in OS X 10.10 "Yosemite",
+        #   EPROTOTYPE can be returned while trying to write to a socket
+        #   that is shutting down. If we retry the write, we should get
+        #   the expected EPIPE instead.
+
+        # TODO: Add compat
+        # while bytes_written == -1 and (errno == EINTR or (system.PLATFORM_IS_APPLE and errno == EPROTOTYPE)):
+        #     bytes_written = write(self._socket, self._write_buf.data, sz)
+
+        # TODO: add EWOULDBLOCK check
+        if bytes_written < 0:
+            if errno == EAGAIN: # TODO add EWOULDBLOCK
+                self.underlying_transport.write(
+                    PyBytes_FromStringAndSize(<char*>ptr, sz))
+            else:
+                raise RuntimeError("unknown error")
+        elif bytes_written != sz:
+            self.underlying_transport.write(
+                PyBytes_FromStringAndSize(<char*> ptr + bytes_written, sz - bytes_written))
 
 
 cdef class WSProtocol:
@@ -1229,8 +1220,6 @@ async def ws_create_server(ws_listener_factory: Callable[[WSUpgradeRequest], Opt
     """
     ws_protocol_factory = lambda: WSProtocol(None, None, False, ws_listener_factory, logger_name,
                                              disconnect_on_exception, websocket_handshake_timeout)
-
-    cdef WSProtocol ws_protocol
 
     return await asyncio.get_running_loop().create_server(
         ws_protocol_factory,

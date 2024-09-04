@@ -7,9 +7,37 @@ import ssl
 import picows
 import pytest
 import async_timeout
+import os
 
 
 TIMEOUT = 0.5
+
+
+if os.name == 'nt':
+    @pytest.fixture(
+        params=(
+            "asyncio"
+        ),
+    )
+    def event_loop_policy(request):
+        return asyncio.DefaultEventLoopPolicy()
+
+else:
+    import uvloop
+
+    @pytest.fixture(
+        params=(
+            "asyncio",
+            "uvloop"
+        ),
+    )
+    def event_loop_policy(request):
+        if request.param == 'asyncio':
+            return asyncio.DefaultEventLoopPolicy()
+        elif request.param == 'uvloop':
+            return uvloop.EventLoopPolicy()
+        else:
+            assert False, "unknown loop"
 
 
 def create_server_ssl_context():
@@ -69,9 +97,13 @@ class ServerAsyncContext:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         self.server.close()
         await self.server.wait_closed()
+        self.server_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            async with async_timeout.timeout(TIMEOUT):
+                await self.server_task
 
 
-@pytest.fixture(params=[False, True])
+@pytest.fixture(params=["plain", "ssl"])
 async def echo_server(request):
     class PicowsServerListener(picows.WSListener):
         def on_ws_connected(self, transport: picows.WSTransport):
@@ -84,7 +116,7 @@ async def echo_server(request):
             else:
                 self._transport.send(frame.msg_type, frame.get_payload_as_bytes(), frame.fin, frame.rsv1)
 
-    use_ssl = request.param
+    use_ssl = request.param == "ssl"
     server = await picows.ws_create_server(lambda _: PicowsServerListener(),
                                            "127.0.0.1",
                                            0,
@@ -100,10 +132,12 @@ async def echo_client(echo_server):
     class PicowsClientListener(picows.WSListener):
         transport: picows.WSTransport
         msg_queue: asyncio.Queue
+        is_paused: bool
 
         def on_ws_connected(self, transport: picows.WSTransport):
             self.transport = transport
             self.msg_queue = asyncio.Queue()
+            self.is_paused = False
 
         def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
             if frame.msg_type == picows.WSMsgType.TEXT:
@@ -113,9 +147,17 @@ async def echo_client(echo_server):
             else:
                 self.msg_queue.put_nowait(BinaryFrame(frame))
 
+        def pause_writing(self):
+            self.is_paused = True
+
+        def resume_writing(self):
+            self.is_paused = False
+
         async def get_message(self):
             async with async_timeout.timeout(TIMEOUT):
-                return await self.msg_queue.get()
+                item = await self.msg_queue.get()
+                self.msg_queue.task_done()
+                return item
 
     (_, client) = await picows.ws_connect(PicowsClientListener, echo_server,
                                           ssl_context=create_client_ssl_context(),
@@ -288,3 +330,45 @@ async def test_ws_on_frame_throw(disconnect_on_exception):
                         await transport.wait_disconnected()
         finally:
             transport.disconnect()
+
+
+async def test_stress(echo_client):
+    # Heuristic check if picows direct write works smoothly together with
+    # loop transport write. We have to fill socket system buffers first
+    # and then loop Transport.write kicks in. Only after that we get pause_writing
+
+    echo_client.transport.underlying_transport.set_write_buffer_limits(256, 128)
+
+    msg1 = os.urandom(256)
+    msg2 = os.urandom(256)
+    msg3 = os.urandom(256)
+
+    total_batches = 0
+    while not echo_client.is_paused:
+        echo_client.transport.send(picows.WSMsgType.BINARY, msg1)
+        echo_client.transport.send(picows.WSMsgType.BINARY, msg2)
+        echo_client.transport.send(picows.WSMsgType.BINARY, msg3)
+        total_batches += 1
+
+    # Add extra batch to make sure we utilize loop buffers above high watermark
+    echo_client.transport.send(picows.WSMsgType.BINARY, msg1)
+    echo_client.transport.send(picows.WSMsgType.BINARY, msg2)
+    echo_client.transport.send(picows.WSMsgType.BINARY, msg3)
+    total_batches += 1
+
+    for i in range(total_batches * 3):
+        async with async_timeout.timeout(TIMEOUT):
+            frame = await echo_client.get_message()
+
+        if i % 3 == 0:
+            assert frame.payload_as_bytes == msg1
+        elif i % 3 == 1:
+            assert frame.payload_as_bytes == msg2
+        else:
+            assert frame.payload_as_bytes == msg3
+
+    with pytest.raises(TimeoutError):
+        async with async_timeout.timeout(TIMEOUT):
+            frame = await echo_client.get_message()
+
+    assert not echo_client.is_paused

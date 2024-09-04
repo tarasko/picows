@@ -32,7 +32,7 @@ setup(
             'optimize.use_switch': False,
             'cdivision': True
         },
-        annotate=False,
+        annotate=True,
         gdb_debug=False
     )
 )
