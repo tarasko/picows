@@ -1,7 +1,28 @@
 #pragma once
 
+#include <errno.h>
+
+#ifndef EWOULDBLOCK
+#define EWOULDBLOCK EAGAIN
+#endif
+
 #if (defined(_WIN16) || defined(_WIN32) || defined(_WIN64)) && !defined(__WINDOWS__)
-#	define __WINDOWS__
+    #define __WINDOWS__
+    #define PLATFORM_IS_WINDOWS 1
+#else
+    #define PLATFORM_IS_WINDOWS 0
+#endif
+
+#ifdef __APPLE__
+    #define PLATFORM_IS_APPLE 1
+#else
+    #define PLATFORM_IS_APPLE 0
+#endif
+
+#ifdef __linux__
+    #define PLATFORM_IS_LINUX 1
+#else
+    #define PLATFORM_IS_LINUX 0
 #endif
 
 #if defined(__linux__)
@@ -30,4 +51,13 @@
   #endif
 #else
   error byte order not supported
+#endif
+
+#ifndef __WINDOWS__
+#include <sys/types.h>
+#include <sys/socket.h>
+#define PICOWS_SOCKET_ERROR -1
+#else
+#include <winsock2.h>
+#define PICOWS_SOCKET_ERROR SOCKET_ERROR
 #endif

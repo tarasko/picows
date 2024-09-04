@@ -19,7 +19,6 @@ from cpython.mem cimport PyMem_Malloc, PyMem_Realloc, PyMem_Free
 from cpython.buffer cimport PyBUF_WRITE, PyBUF_READ, PyBUF_SIMPLE, PyObject_GetBuffer, PyBuffer_Release
 from cpython.unicode cimport PyUnicode_FromStringAndSize, PyUnicode_DecodeASCII
 from libc.errno cimport errno, EINTR, EPROTOTYPE, EAGAIN
-from posix.unistd cimport write
 
 from libc.string cimport memmove, memcpy
 from libc.stdlib cimport rand
@@ -32,6 +31,12 @@ cdef:
 
 
 cdef extern from "picows_compat.h" nogil:
+    cdef int EWOULDBLOCK
+
+    cdef int PLATFORM_IS_APPLE
+    cdef int PLATFORM_IS_LINUX
+    cdef int PLATFORM_IS_WINDOWS
+
     uint32_t ntohl(uint32_t)
     uint32_t htonl(uint32_t)
     uint16_t ntohs(uint16_t)
@@ -39,6 +44,9 @@ cdef extern from "picows_compat.h" nogil:
 
     uint64_t be64toh(uint64_t)
     uint64_t htobe64(uint64_t)
+
+    cdef ssize_t PICOWS_SOCKET_ERROR
+    ssize_t send(int sockfd, const void* buf, size_t len, int flags);
 
 
 class WSError(RuntimeError):
@@ -539,7 +547,7 @@ cdef class WSTransport:
             self._disconnected_future.set_result(None)
 
     cdef _try_c_write_then_transport_write(self, char* ptr, Py_ssize_t sz):
-        cdef Py_ssize_t bytes_written = write(self._socket, ptr, <size_t>sz)
+        cdef Py_ssize_t bytes_written = send(self._socket, ptr, <size_t>sz, 0)
 
         # From libuv code (unix/stream.c):
         #   Due to a possible kernel bug at least in OS X 10.10 "Yosemite",
@@ -547,13 +555,11 @@ cdef class WSTransport:
         #   that is shutting down. If we retry the write, we should get
         #   the expected EPIPE instead.
 
-        # TODO: Add compat
-        # while bytes_written == -1 and (errno == EINTR or (system.PLATFORM_IS_APPLE and errno == EPROTOTYPE)):
-        #     bytes_written = write(self._socket, self._write_buf.data, sz)
+        while bytes_written == PICOWS_SOCKET_ERROR and (errno == EINTR or (PLATFORM_IS_APPLE and errno == EPROTOTYPE)):
+            bytes_written = send(self._socket, self._write_buf.data, sz, 0)
 
-        # TODO: add EWOULDBLOCK check
         if bytes_written < 0:
-            if errno == EAGAIN: # TODO add EWOULDBLOCK
+            if errno == EAGAIN or errno == EWOULDBLOCK:
                 self.underlying_transport.write(
                     PyBytes_FromStringAndSize(<char*>ptr, sz))
             else:
