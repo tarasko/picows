@@ -558,15 +558,22 @@ cdef class WSTransport:
         while bytes_written == PICOWS_SOCKET_ERROR and (errno == EINTR or (PLATFORM_IS_APPLE and errno == EPROTOTYPE)):
             bytes_written = send(self._socket, self._write_buf.data, sz, 0)
 
-        if bytes_written < 0:
+        if bytes_written == sz:
+            return
+        elif bytes_written >= 0:
+            self.underlying_transport.write(
+                PyBytes_FromStringAndSize(<char*> ptr + bytes_written, sz - bytes_written))
+            return
+
+        # TODO: handle errors
+        if PLATFORM_IS_WINDOWS:
+            raise RuntimeError("not implemented")
+        else:
             if errno == EAGAIN or errno == EWOULDBLOCK:
                 self.underlying_transport.write(
                     PyBytes_FromStringAndSize(<char*>ptr, sz))
             else:
-                raise RuntimeError("unknown error")
-        elif bytes_written != sz:
-            self.underlying_transport.write(
-                PyBytes_FromStringAndSize(<char*> ptr + bytes_written, sz - bytes_written))
+                raise RuntimeError("not implemented")
 
 
 cdef class WSProtocol:
