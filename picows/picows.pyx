@@ -585,7 +585,7 @@ cdef class WSTransport:
             self._disconnected_future.set_result(None)
 
     cdef _try_native_write_then_transport_write(self, char* ptr, Py_ssize_t sz):
-        if self.is_secure or self.underlying_transport.get_write_buffer_size() > 0:
+        if self.is_secure or <size_t>self.underlying_transport.get_write_buffer_size() > 0:
             self.underlying_transport.write(PyBytes_FromStringAndSize(ptr, sz))
             return
 
@@ -777,30 +777,35 @@ cdef class WSProtocol:
 
         self._process_new_data()
 
-    if _USE_BUFFERED_PROTOCOL:
-        def get_buffer(self, Py_ssize_t size_hint):
-            cdef sz = size_hint + 1024
-            if self._buffer.size - self._f_new_data_start_pos < sz:
-                self._buffer.resize(self._f_new_data_start_pos + sz)
+    # Benchmark and profiler showed that buffered protocol is actually slower
+    # then normal. There are additional costs of 2 python calls
+    # (get_buffer, buffer_updated) comparing to a single data_received.
+    # Also extra costs are related to creating memoryview and getting buffer
+    # out of it
 
-            if self._log_debug_enabled:
-                self._logger.log(PICOWS_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
-                                 size_hint,
-                                 self._buffer.size - self._f_new_data_start_pos,
-                                 self._buffer.size,
-                                 self._buffer.capacity)
-
-            return PyMemoryView_FromMemory(
-                self._buffer.data + self._f_new_data_start_pos,
-                self._buffer.size - self._f_new_data_start_pos,
-                PyBUF_WRITE)
-
-        def buffer_updated(self, Py_ssize_t nbytes):
-            if self._log_debug_enabled:
-                self._logger.log(PICOWS_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
-                                 self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)
-            self._f_new_data_start_pos += nbytes
-            self._process_new_data()
+    # def get_buffer(self, Py_ssize_t size_hint):
+    #     cdef Py_ssize_t sz = size_hint + 1024
+    #     if self._buffer.size - self._f_new_data_start_pos < sz:
+    #         self._buffer.resize(self._f_new_data_start_pos + sz)
+    #
+    #     if self._log_debug_enabled:
+    #         self._logger.log(PICOWS_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
+    #                          size_hint,
+    #                          self._buffer.size - self._f_new_data_start_pos,
+    #                          self._buffer.size,
+    #                          self._buffer.capacity)
+    #
+    #     return PyMemoryView_FromMemory(
+    #         self._buffer.data + self._f_new_data_start_pos,
+    #         self._buffer.size - self._f_new_data_start_pos,
+    #         PyBUF_WRITE)
+    #
+    # def buffer_updated(self, Py_ssize_t nbytes):
+    #     if self._log_debug_enabled:
+    #         self._logger.log(PICOWS_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
+    #                          self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)
+    #     self._f_new_data_start_pos += nbytes
+    #     self._process_new_data()
 
     async def wait_until_handshake_complete(self):
         await asyncio.shield(self._handshake_complete_future)
