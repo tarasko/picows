@@ -339,9 +339,9 @@ async def test_stress(echo_client):
 
     echo_client.transport.underlying_transport.set_write_buffer_limits(256, 128)
 
-    msg1 = os.urandom(256)
-    msg2 = os.urandom(256)
-    msg3 = os.urandom(256)
+    msg1 = os.urandom(307)
+    msg2 = os.urandom(311)
+    msg3 = os.urandom(313)
 
     total_batches = 0
     while not echo_client.is_paused:

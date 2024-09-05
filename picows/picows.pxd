@@ -102,7 +102,7 @@ cdef class WSTransport:
     cdef inline _send_not_found(self)
     cdef inline _send_internal_server_error(self, str error)
     cdef inline _mark_disconnected(self)
-    cdef inline _try_c_write_then_transport_write(self, char * ptr, Py_ssize_t sz)
+    cdef inline _try_native_write_then_transport_write(self, char * ptr, Py_ssize_t sz)
 
 
 cdef class WSListener:
