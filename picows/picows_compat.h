@@ -57,7 +57,15 @@
     #include <sys/types.h>
     #include <sys/socket.h>
     #define PICOWS_SOCKET_ERROR -1
+    #define PICOWS_EAGAIN EAGAIN
+    #define PICOWS_EWOULDBLOCK EWOULDBLOCK
+
+    inline int picows_get_last_error() { return errno; }
 #else
     #include <winsock2.h>
     #define PICOWS_SOCKET_ERROR SOCKET_ERROR
+    #define PICOWS_EAGAIN WSAEWOULDBLOCK
+    #define PICOWS_EWOULDBLOCK WSAEWOULDBLOCK
+
+    inline int picows_get_last_error() { return WSAGetLastError(); }
 #endif

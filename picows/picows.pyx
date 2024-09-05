@@ -46,6 +46,10 @@ cdef extern from "picows_compat.h" nogil:
     uint64_t htobe64(uint64_t)
 
     cdef ssize_t PICOWS_SOCKET_ERROR
+    cdef int PICOWS_EAGAIN
+    cdef int PICOWS_EWOULDBLOCK
+
+    int picows_get_last_error()
     ssize_t send(int sockfd, const void* buf, size_t len, int flags);
 
 
@@ -561,19 +565,21 @@ cdef class WSTransport:
         if bytes_written == sz:
             return
         elif bytes_written >= 0:
-            self.underlying_transport.write(
-                PyBytes_FromStringAndSize(<char*> ptr + bytes_written, sz - bytes_written))
+            self.underlying_transport.write(PyBytes_FromStringAndSize(<char*> ptr + bytes_written, sz - bytes_written))
             return
 
-        # TODO: handle errors
+        cdef int ec = picows_get_last_error()
+        if ec == PICOWS_EAGAIN or ec == PICOWS_EWOULDBLOCK:
+            self.underlying_transport.write(PyBytes_FromStringAndSize(<char *> ptr, sz))
+            return
+
+        self._handle_platform_specific_error(ec)
+
+    cdef _handle_platform_specific_error(self, int ec):
         if PLATFORM_IS_WINDOWS:
             raise RuntimeError("not implemented")
         else:
-            if errno == EAGAIN or errno == EWOULDBLOCK:
-                self.underlying_transport.write(
-                    PyBytes_FromStringAndSize(<char*>ptr, sz))
-            else:
-                raise RuntimeError("not implemented")
+            raise RuntimeError("not implemented")
 
 
 cdef class WSProtocol:
@@ -737,36 +743,34 @@ cdef class WSProtocol:
 
         self._process_new_data()
 
-    def get_buffer(self, Py_ssize_t size_hint):
-        cdef sz = size_hint + 1024
-        if self._buffer.size - self._f_new_data_start_pos < sz:
-            self._buffer.resize(self._f_new_data_start_pos + sz)
-
-        if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
-                             size_hint,
-                             self._buffer.size - self._f_new_data_start_pos,
-                             self._buffer.size,
-                             self._buffer.capacity)
-
-        return PyMemoryView_FromMemory(
-            self._buffer.data + self._f_new_data_start_pos,
-            self._buffer.size - self._f_new_data_start_pos,
-            PyBUF_WRITE)
-
-    def buffer_updated(self, Py_ssize_t nbytes):
-        if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
-                             self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)
-        self._f_new_data_start_pos += nbytes
-        self._process_new_data()
+    # def get_buffer(self, Py_ssize_t size_hint):
+    #     cdef sz = size_hint + 1024
+    #     if self._buffer.size - self._f_new_data_start_pos < sz:
+    #         self._buffer.resize(self._f_new_data_start_pos + sz)
+    #
+    #     if self._log_debug_enabled:
+    #         self._logger.log(PICOWS_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
+    #                          size_hint,
+    #                          self._buffer.size - self._f_new_data_start_pos,
+    #                          self._buffer.size,
+    #                          self._buffer.capacity)
+    #
+    #     return PyMemoryView_FromMemory(
+    #         self._buffer.data + self._f_new_data_start_pos,
+    #         self._buffer.size - self._f_new_data_start_pos,
+    #         PyBUF_WRITE)
+    #
+    # def buffer_updated(self, Py_ssize_t nbytes):
+    #     if self._log_debug_enabled:
+    #         self._logger.log(PICOWS_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
+    #                          self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)
+    #     self._f_new_data_start_pos += nbytes
+    #     self._process_new_data()
 
     async def wait_until_handshake_complete(self):
         await asyncio.shield(self._handshake_complete_future)
 
     cdef inline _process_new_data(self):
-        cdef WSUpgradeRequest upgrade_request
-        cdef bytes accept_val
         if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
             if not self._negotiate():
                 return
