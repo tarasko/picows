@@ -381,7 +381,9 @@ async def test_native_exc_conversion(echo_client):
     # make server disconnect us
     echo_client.transport.send_close(picows.WSCloseCode.GOING_AWAY)
     await echo_client.get_message()
+    await asyncio.sleep(0.1)
     msg = os.urandom(256)
     with pytest.raises(OSError):
         echo_client.transport.send(picows.WSMsgType.BINARY, msg)
+        await asyncio.sleep(0.1)
         echo_client.transport.send(picows.WSMsgType.BINARY, msg)
