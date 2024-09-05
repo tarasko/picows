@@ -88,7 +88,6 @@
             case WSAENOTCONN: return ENOTCONN;
             case WSAETIMEDOUT: return ETIMEDOUT;
             case WSAECONNREFUSED: return ECONNREFUSED;
-            case WSAEISCONN: return EISCONN;
 
             default: return ENOTSOCK;
         }
