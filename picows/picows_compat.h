@@ -71,8 +71,6 @@
             case WSAEPROTOTYPE: return EPROTOTYPE;
             case WSAENOPROTOOPT: return ENOPROTOOPT;
             case WSAEPROTONOSUPPORT: return EPROTONOSUPPORT;
-            case WSAESOCKTNOSUPPORT: return ESOCKTNOSUPPORT;
-            case WSAEPFNOSUPPORT: return EPFNOSUPPORT;
             case WSAEAFNOSUPPORT: return EAFNOSUPPORT;
             case WSAEADDRINUSE: return EADDRINUSE;
             case WSAEADDRNOTAVAIL: return EADDRNOTAVAIL;
@@ -84,10 +82,8 @@
             case WSAENOBUFS: return ENOBUFS;
             case WSAEISCONN: return EISCONN;
             case WSAENOTCONN: return ENOTCONN;
-            case WSAESHUTDOWN: return ESHUTDOWN;
             case WSAETIMEDOUT: return ETIMEDOUT;
             case WSAECONNREFUSED: return ECONNREFUSED;
-            case WSAEHOSTDOWN: return EHOSTDOWN;
             case WSAEISCONN: return EISCONN;
 
             default: return ENOTSOCK;
