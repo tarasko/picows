@@ -16,7 +16,7 @@ TIMEOUT = 0.5
 if os.name == 'nt':
     @pytest.fixture(
         params=(
-            "asyncio"
+            "asyncio",
         ),
     )
     def event_loop_policy(request):
@@ -28,7 +28,7 @@ else:
     @pytest.fixture(
         params=(
             "asyncio",
-            "uvloop"
+            "uvloop",
         ),
     )
     def event_loop_policy(request):
