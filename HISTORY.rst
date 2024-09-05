@@ -6,6 +6,12 @@ picows Release History
    :local:
 
 
+1.2.0 (2024-09-05)
+------------------
+
+* Optimization: use direct send syscall and forward data to underlying transport only on EWOULDBLOCK.
+* Optimization: disable usage of BufferedProtocol because profiler showed that it is slower than regular data_received
+
 1.1.1 (2024-08-30)
 ------------------
 
