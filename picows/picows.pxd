@@ -80,14 +80,14 @@ cdef class WSFrame:
 cdef class WSTransport:
     cdef:
         readonly object underlying_transport    #: asyncio.Transport
+        readonly bint is_client_side
+        readonly bint is_secure
 
         object _logger                          #: Logger
         bint _log_debug_enabled
         object _disconnected_future             #: asyncio.Future
         MemoryBuffer _write_buf
         int _socket
-        bint _is_client_side
-        bint _is_ssl
 
     cdef send_reuse_external_buffer(self, WSMsgType msg_type, char* msg_ptr, size_t msg_size, bint fin=*, bint rsv1=*)
     cpdef send(self, WSMsgType msg_type, message, bint fin=*, bint rsv1=*)
@@ -103,7 +103,6 @@ cdef class WSTransport:
     cdef inline _send_internal_server_error(self, str error)
     cdef inline _mark_disconnected(self)
     cdef inline _try_c_write_then_transport_write(self, char * ptr, Py_ssize_t sz)
-    cdef inline _handle_platform_specific_error(self, int ec)
 
 
 cdef class WSListener:

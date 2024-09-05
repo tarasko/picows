@@ -3,7 +3,7 @@
 #include <errno.h>
 
 #ifndef EWOULDBLOCK
-#define EWOULDBLOCK EAGAIN
+    #define EWOULDBLOCK EAGAIN
 #endif
 
 #if (defined(_WIN16) || defined(_WIN32) || defined(_WIN64)) && !defined(__WINDOWS__)
@@ -53,19 +53,57 @@
     error byte order not supported
 #endif
 
-#ifndef __WINDOWS__
+#ifdef __WINDOWS__
+
+    #include <winsock2.h>
+    #define PICOWS_SOCKET_ERROR SOCKET_ERROR
+
+    inline int picows_convert_wsa_error_to_errno(int ec)
+    {
+        switch(ec)
+        {
+            case WSAEWOULDBLOCK: return EWOULDBLOCK;
+            case WSAEINPROGRESS: return EINPROGRESS;
+            case WSAEALREADY: return EALREADY;
+            case WSAENOTSOCK: return ENOTSOCK;
+            case WSAEDESTADDRREQ: return EDESTADDRREQ;
+            case WSAEMSGSIZE: return EMSGSIZE;
+            case WSAEPROTOTYPE: return EPROTOTYPE;
+            case WSAENOPROTOOPT: return ENOPROTOOPT;
+            case WSAEPROTONOSUPPORT: return EPROTONOSUPPORT;
+            case WSAESOCKTNOSUPPORT: return ESOCKTNOSUPPORT;
+            case WSAEPFNOSUPPORT: return EPFNOSUPPORT;
+            case WSAEAFNOSUPPORT: return EAFNOSUPPORT;
+            case WSAEADDRINUSE: return EADDRINUSE;
+            case WSAEADDRNOTAVAIL: return EADDRNOTAVAIL;
+            case WSAENETDOWN: return ENETDOWN;
+            case WSAENETUNREACH: return ENETUNREACH;
+            case WSAENETRESET: return ENETRESET;
+            case WSAECONNABORTED: return ECONNABORTED;
+            case WSAECONNRESET: return ECONNRESET;
+            case WSAENOBUFS: return ENOBUFS;
+            case WSAEISCONN: return EISCONN;
+            case WSAENOTCONN: return ENOTCONN;
+            case WSAESHUTDOWN: return ESHUTDOWN;
+            case WSAETIMEDOUT: return ETIMEDOUT;
+            case WSAECONNREFUSED: return ECONNREFUSED;
+            case WSAEHOSTDOWN: return EHOSTDOWN;
+            case WSAEISCONN: return EISCONN;
+
+            default: return ENOTSOCK;
+        }
+    }
+
+    inline int picows_get_errno()
+    {
+        return picows_convert_wsa_error_to_errno(WSAGetLastError());
+    }
+#else
     #include <sys/types.h>
     #include <sys/socket.h>
     #define PICOWS_SOCKET_ERROR -1
     #define PICOWS_EAGAIN EAGAIN
     #define PICOWS_EWOULDBLOCK EWOULDBLOCK
 
-    inline int picows_get_last_error() { return errno; }
-#else
-    #include <winsock2.h>
-    #define PICOWS_SOCKET_ERROR SOCKET_ERROR
-    #define PICOWS_EAGAIN WSAEWOULDBLOCK
-    #define PICOWS_EWOULDBLOCK WSAEWOULDBLOCK
-
-    inline int picows_get_last_error() { return WSAGetLastError(); }
+    inline int picows_get_errno() { return errno; }
 #endif

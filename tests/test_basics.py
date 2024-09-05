@@ -372,3 +372,16 @@ async def test_stress(echo_client):
             frame = await echo_client.get_message()
 
     assert not echo_client.is_paused
+
+
+async def test_native_exc_conversion(echo_client):
+    if echo_client.transport.is_secure:
+        pytest.skip("skipped for secure connections")
+
+    # make server disconnect us
+    echo_client.transport.send_close(picows.WSCloseCode.GOING_AWAY)
+    await echo_client.get_message()
+    msg = os.urandom(256)
+    with pytest.raises(OSError):
+        echo_client.transport.send(picows.WSMsgType.BINARY, msg)
+        echo_client.transport.send(picows.WSMsgType.BINARY, msg)

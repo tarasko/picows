@@ -18,9 +18,9 @@ from cpython.memoryview cimport PyMemoryView_FromMemory
 from cpython.mem cimport PyMem_Malloc, PyMem_Realloc, PyMem_Free
 from cpython.buffer cimport PyBUF_WRITE, PyBUF_READ, PyBUF_SIMPLE, PyObject_GetBuffer, PyBuffer_Release
 from cpython.unicode cimport PyUnicode_FromStringAndSize, PyUnicode_DecodeASCII
-from libc.errno cimport errno, EINTR, EPROTOTYPE, EAGAIN
+from libc cimport errno
 
-from libc.string cimport memmove, memcpy
+from libc.string cimport memmove, memcpy, strerror
 from libc.stdlib cimport rand
 
 PICOWS_DEBUG_LL = 9
@@ -46,10 +46,7 @@ cdef extern from "picows_compat.h" nogil:
     uint64_t htobe64(uint64_t)
 
     cdef ssize_t PICOWS_SOCKET_ERROR
-    cdef int PICOWS_EAGAIN
-    cdef int PICOWS_EWOULDBLOCK
-
-    int picows_get_last_error()
+    int picows_get_errno()
     ssize_t send(int sockfd, const void* buf, size_t len, int flags);
 
 
@@ -76,6 +73,38 @@ class _WSParserError(RuntimeError):
 
 cdef class WSUpgradeRequest:
     pass
+
+
+cdef _raise_from_errno(int ec):
+    cdef str reason = strerror(ec).decode()
+
+    exc = OSError
+
+    if ec in (errno.EACCES, errno.EPERM):
+        exc = PermissionError
+    elif ec in (errno.EAGAIN, errno.EALREADY, EWOULDBLOCK):
+        exc = BlockingIOError
+    elif ec in (errno.EPIPE, errno.ESHUTDOWN):
+        exc = BrokenPipeError
+    elif ec == errno.ECONNABORTED:
+        exc = ConnectionAbortedError
+    elif ec == errno.ECONNREFUSED:
+        exc = ConnectionRefusedError
+    elif ec == errno.ECONNRESET:
+        exc = ConnectionResetError
+    elif ec == errno.EEXIST:
+        exc = FileExistsError
+    elif ec == errno.ENOENT:
+        exc = FileNotFoundError
+    elif ec == errno.EINTR:
+        exc = InterruptedError
+    elif ec == errno.EISDIR:
+        exc = IsADirectoryError
+    elif ec == errno.ESRCH:
+        exc = ProcessLookupError
+    elif ec == errno.ETIMEDOUT:
+        exc = TimeoutError
+    raise exc(ec, reason)
 
 
 cdef void _mask_payload(uint8_t* input, size_t input_len, uint32_t mask) noexcept:
@@ -304,13 +333,13 @@ cdef class WSListener:
 cdef class WSTransport:
     def __init__(self, bint is_client_side, underlying_transport, logger, loop):
         self.underlying_transport = underlying_transport
+        self.is_client_side = is_client_side
+        self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
         self._logger = logger
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
         self._disconnected_future = loop.create_future()
         self._write_buf = MemoryBuffer(1024)
         self._socket = underlying_transport.get_extra_info('socket').fileno()
-        self._is_client_side = is_client_side
-        self._is_ssl = underlying_transport.get_extra_info('ssl_object') is not None
 
     cdef send_reuse_external_buffer(self, WSMsgType msg_type,
                                     char* msg_ptr, size_t msg_size,
@@ -318,10 +347,10 @@ cdef class WSTransport:
         cdef:
             uint8_t* header_ptr = <uint8_t*>msg_ptr
             uint64_t extended_payload_length_64
-            uint32_t mask = <uint32_t> rand() if self._is_client_side else 0
+            uint32_t mask = <uint32_t> rand() if self.is_client_side else 0
             uint16_t extended_payload_length_16
             uint8_t first_byte = <uint8_t>msg_type
-            uint8_t second_byte = 0x80 if self._is_client_side else 0
+            uint8_t second_byte = 0x80 if self.is_client_side else 0
             cdef Py_ssize_t total_size = msg_size
 
         if fin:
@@ -350,7 +379,7 @@ cdef class WSTransport:
             extended_payload_length_64 = htobe64(<uint64_t>msg_size)
             (<uint64_t*> (header_ptr + 2))[0] = extended_payload_length_64
 
-        if self._is_client_side:
+        if self.is_client_side:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask)
 
         self.underlying_transport.write(PyBytes_FromStringAndSize(<char*>header_ptr, total_size))
@@ -390,8 +419,8 @@ cdef class WSTransport:
 
         cdef:
             uint8_t first_byte = <uint8_t>msg_type
-            uint8_t second_byte = 0x80 if self._is_client_side else 0
-            uint32_t mask = <uint32_t>rand() if self._is_client_side else 0
+            uint8_t second_byte = 0x80 if self.is_client_side else 0
+            uint32_t mask = <uint32_t>rand() if self.is_client_side else 0
             uint16_t extended_payload_length_16
             uint64_t extended_payload_length_64
             Py_ssize_t payload_start_idx
@@ -421,7 +450,7 @@ cdef class WSTransport:
 
         cdef Py_ssize_t frame_size
 
-        if self._is_client_side:
+        if self.is_client_side:
             self._write_buf.append(<const char*>&mask, 4)
             payload_start_idx = self._write_buf.size
             self._write_buf.append(msg_ptr, msg_length)
@@ -431,7 +460,7 @@ cdef class WSTransport:
             self._write_buf.append(msg_ptr, msg_length)
             frame_size = self._write_buf.size
 
-        if not self._is_ssl and self.underlying_transport.get_write_buffer_size() == 0:
+        if not self.is_secure and self.underlying_transport.get_write_buffer_size() == 0:
             self._try_c_write_then_transport_write(self._write_buf.data, frame_size)
         else:
             self.underlying_transport.write(PyBytes_FromStringAndSize(self._write_buf.data, frame_size))
@@ -559,7 +588,9 @@ cdef class WSTransport:
         #   that is shutting down. If we retry the write, we should get
         #   the expected EPIPE instead.
 
-        while bytes_written == PICOWS_SOCKET_ERROR and (errno == EINTR or (PLATFORM_IS_APPLE and errno == EPROTOTYPE)):
+        while (bytes_written == PICOWS_SOCKET_ERROR and
+               ((not PLATFORM_IS_WINDOWS and errno.errno == errno.EINTR) or
+                (PLATFORM_IS_APPLE and errno.errno == errno.EPROTOTYPE))):
             bytes_written = send(self._socket, self._write_buf.data, sz, 0)
 
         if bytes_written == sz:
@@ -568,18 +599,12 @@ cdef class WSTransport:
             self.underlying_transport.write(PyBytes_FromStringAndSize(<char*> ptr + bytes_written, sz - bytes_written))
             return
 
-        cdef int ec = picows_get_last_error()
-        if ec == PICOWS_EAGAIN or ec == PICOWS_EWOULDBLOCK:
+        cdef int ec = picows_get_errno()
+        if ec == errno.EAGAIN or ec == EWOULDBLOCK:
             self.underlying_transport.write(PyBytes_FromStringAndSize(<char *> ptr, sz))
             return
 
-        self._handle_platform_specific_error(ec)
-
-    cdef _handle_platform_specific_error(self, int ec):
-        if PLATFORM_IS_WINDOWS:
-            raise RuntimeError("not implemented")
-        else:
-            raise RuntimeError("not implemented")
+        _raise_from_errno(ec)
 
 
 cdef class WSProtocol:
@@ -592,7 +617,7 @@ cdef class WSProtocol:
         bytes _ws_path
         object _logger                          #: Logger
         bint _log_debug_enabled
-        bint _is_client_side
+        bint is_client_side
         bint _disconnect_on_exception
 
         object _loop
@@ -631,7 +656,7 @@ cdef class WSProtocol:
         self._ws_path = ws_path.encode() if ws_path else b"/"
         self._logger = logging.getLogger(f"picows.{logger_name}")
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
-        self._is_client_side = is_client_side
+        self.is_client_side = is_client_side
         self._disconnect_on_exception = disconnect_on_exception
 
         self._loop = asyncio.get_running_loop()
@@ -671,7 +696,7 @@ cdef class WSProtocol:
 
         quickack = sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK) if hasattr(socket, "TCP_QUICKACK") else False
 
-        if self._is_client_side:
+        if self.is_client_side:
             self._logger.info("WS connection established: %s -> %s, recvbuf=%d, sendbuf=%d, quickack=%d, nodelay=%d",
                               peername, sockname,
                               sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF),
@@ -687,9 +712,9 @@ cdef class WSProtocol:
                               sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
 
 
-        self.transport = WSTransport(self._is_client_side, transport, self._logger, self._loop)
+        self.transport = WSTransport(self.is_client_side, transport, self._logger, self._loop)
 
-        if self._is_client_side:
+        if self.is_client_side:
             self.transport._send_http_handshake(self._ws_path, self._host_port, self._websocket_key_b64)
             self._handshake_timeout_handle = self._loop.call_later(
                 self._handshake_timeout, self._handshake_timeout_callback)
@@ -798,7 +823,7 @@ cdef class WSProtocol:
         self._shrink_buffer()
 
     cdef inline _negotiate(self):
-        if self._is_client_side:
+        if self.is_client_side:
             try:
                 self._try_read_and_process_upgrade_response()
                 if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
