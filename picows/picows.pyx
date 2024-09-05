@@ -32,6 +32,7 @@ cdef:
 
 cdef extern from "picows_compat.h" nogil:
     cdef int EWOULDBLOCK
+    cdef int ESHUTDOWN
 
     cdef int PLATFORM_IS_APPLE
     cdef int PLATFORM_IS_LINUX
@@ -84,7 +85,7 @@ cdef _raise_from_errno(int ec):
         exc = PermissionError
     elif ec in (errno.EAGAIN, errno.EALREADY, EWOULDBLOCK):
         exc = BlockingIOError
-    elif ec in (errno.EPIPE, errno.ESHUTDOWN):
+    elif ec in (errno.EPIPE, ESHUTDOWN):
         exc = BrokenPipeError
     elif ec == errno.ECONNABORTED:
         exc = ConnectionAbortedError

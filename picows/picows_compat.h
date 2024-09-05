@@ -6,6 +6,10 @@
     #define EWOULDBLOCK EAGAIN
 #endif
 
+#ifndef EWOULDBLOCK
+    #define ESHUTDOWN EPIPE
+#endif
+
 #if (defined(_WIN16) || defined(_WIN32) || defined(_WIN64)) && !defined(__WINDOWS__)
     #define __WINDOWS__
     #define PLATFORM_IS_WINDOWS 1
