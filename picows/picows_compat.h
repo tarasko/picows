@@ -6,7 +6,7 @@
     #define EWOULDBLOCK EAGAIN
 #endif
 
-#ifndef EWOULDBLOCK
+#ifndef ESHUTDOWN
     #define ESHUTDOWN EPIPE
 #endif
 
