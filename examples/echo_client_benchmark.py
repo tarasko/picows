@@ -6,7 +6,9 @@ import subprocess
 
 from logging import getLogger
 from ssl import SSLContext
+from typing import List, Dict, Tuple
 
+import numpy as np
 import websockets
 import aiohttp
 from aiohttp import ClientSession, WSMsgType as aiohttp_WSMsgType
@@ -17,7 +19,8 @@ from time import time
 _logger = getLogger(__name__)
 
 
-RPS = {}
+RPS: Dict[str, List[float]] = {"ssl": [], "plain": []}
+NAMES: List[str] = []
 
 
 def create_client_ssl_context():
@@ -30,11 +33,11 @@ def create_client_ssl_context():
 
 
 async def picows_main(endpoint: str, msg: bytes, duration: int, ssl_context):
-    print(f"Run picows python client")
+    cl_type = "plain" if ssl_context is None else "ssl"
+    print(f"Run picows python {cl_type} client")
     class PicowsClientListener(WSListener):
         def __init__(self):
             super().__init__()
-            self._full_msg = bytearray()
 
         def on_ws_connected(self, transport: WSTransport):
             self._transport = transport
@@ -43,48 +46,43 @@ async def picows_main(endpoint: str, msg: bytes, duration: int, ssl_context):
             self._transport.send(WSMsgType.BINARY, msg)
 
         def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
-            if frame.fin:
-                if self._full_msg:
-                    self._full_msg += frame.get_payload_as_memoryview()
-                    self._full_msg.clear()
-                else:
-                    pass
-            else:
-                self._full_msg += frame.get_payload_as_memoryview()
-                return
-
+            global result
             self._cnt += 1
 
             if time() - self._start_time >= duration:
-                RPS["picows\npython client"] = int(self._cnt / duration)
+                self.result = "picows\npython client", int(self._cnt / duration)
                 self._transport.disconnect()
             else:
                 self._transport.send(WSMsgType.BINARY, msg)
 
     (_, client) = await ws_connect(PicowsClientListener, endpoint, ssl_context=ssl_context)
     await client._transport.wait_disconnected()
+    return client.result
 
 
 async def websockets_main(endpoint: str, msg: bytes, duration: int, ssl_context):
-    print(f"Run websockets ({websockets.__version__}) client")
+    cl_type = "plain" if ssl_context is None else "ssl"
+
+    print(f"Run websockets ({websockets.__version__}) {cl_type} client")
     async with websockets.connect(endpoint, ssl=ssl_context) as websocket:
         await websocket.send(msg)
         start_time = time()
         cnt = 0
         while True:
             reply = await websocket.recv()
-            assert reply == msg
             cnt += 1
             if time() - start_time >= duration:
                 break
             else:
                 await websocket.send(msg)
 
-        RPS[f"websockets\n{websockets.__version__}"] = int(cnt / duration)
+        return f"websockets\n{websockets.__version__}",  int(cnt / duration)
 
 
-async def aiohttp_main(url: str, data: bytes, duration: int, ssl_context) -> None:
-    print(f"Run aiohttp ({aiohttp.__version__}) client")
+async def aiohttp_main(url: str, data: bytes, duration: int, ssl_context):
+    cl_type = "plain" if ssl_context is None else "ssl"
+
+    print(f"Run aiohttp ({aiohttp.__version__}) {cl_type} client")
 
     async with ClientSession() as session:
         async with session.ws_connect(url, ssl_context=ssl_context) as ws:
@@ -99,8 +97,8 @@ async def aiohttp_main(url: str, data: bytes, duration: int, ssl_context) -> Non
                 if msg.type == aiohttp_WSMsgType.BINARY:
                     cnt += 1
                     if time() - start_time >= duration:
-                        RPS[f"aiohttp\n{aiohttp.__version__}"] = int(cnt/duration)
                         await ws.close()
+                        return f"aiohttp\n{aiohttp.__version__}", int(cnt/duration)
                     else:
                         await ws.send_bytes(data)
                 else:
@@ -117,15 +115,14 @@ async def aiohttp_main(url: str, data: bytes, duration: int, ssl_context) -> Non
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Publish updates to telegram subscribers",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--url", default="ws://127.0.0.1:9001", help="Server url")
+    parser.add_argument("--host", default="127.0.0.1", help="Server host")
+    parser.add_argument("--plain-port", default="9001", help="Server port with plain websockets")
+    parser.add_argument("--ssl-port", default="9002", help="Server port with secure websockets")
     parser.add_argument("--msg-size", default="256", help="Message size")
-    parser.add_argument("--level", default="INFO", help="python logger level")
     parser.add_argument("--duration", default="5", help="duration of test in seconds")
     parser.add_argument("--disable-uvloop", action="store_true", help="Disable uvloop")
     parser.add_argument("--picows-only", action="store_true", help="Run only picows cython client")
     parser.add_argument("--boost-client", help="Path to boost client binary")
-    parser.add_argument("--log-file", help="tee log to file")
-    parser.add_argument("--log-scale", action="store_true", help="Plot RPS on log scale")
     args = parser.parse_args()
 
     msg_size = int(args.msg_size)
@@ -139,27 +136,60 @@ if __name__ == '__main__':
             asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
             loop_name = f"uvloop {uvloop.__version__}"
 
-    ssl_context = create_client_ssl_context() if args.url.startswith("wss://") else None
+    ssl_context = create_client_ssl_context()
+    plain_url = f"ws://{args.host}:{args.plain_port}/"
+    ssl_url = f"wss://{args.host}:{args.ssl_port}/"
 
     if not args.picows_only:
-        asyncio.run(websockets_main(args.url, msg, duration, ssl_context))
-        asyncio.run(aiohttp_main(args.url, msg, duration, ssl_context))
-        asyncio.run(picows_main(args.url, msg, duration, ssl_context))
+        _, rps = asyncio.run(websockets_main(plain_url, msg, duration, None))
+        RPS["plain"].append(rps)
+        name, rps = asyncio.run(websockets_main(ssl_url, msg, duration, ssl_context))
+        RPS["ssl"].append(rps)
+        NAMES.append(name)
+
+        _, rps = asyncio.run(aiohttp_main(plain_url, msg, duration, None))
+        RPS["plain"].append(rps)
+        name, rps = asyncio.run(aiohttp_main(ssl_url, msg, duration, ssl_context))
+        RPS["ssl"].append(rps)
+        NAMES.append(name)
+
+        _, rps = asyncio.run(picows_main(plain_url, msg, duration, None))
+        RPS["plain"].append(rps)
+        name, rps = asyncio.run(picows_main(ssl_url, msg, duration, ssl_context))
+        RPS["ssl"].append(rps)
+        NAMES.append(name)
 
     try:
         from examples.echo_client_cython import picows_main_cython
-        print(f"Run picows cython client")
-        picows_cython_rps = asyncio.run(picows_main_cython(args.url, msg, duration, ssl_context))
-        RPS["picows\ncython client"] = picows_cython_rps
+        print(f"Run picows cython plain client")
+        rps = asyncio.run(picows_main_cython(plain_url, msg, duration, None))
+        RPS["plain"].append(rps)
+        print(f"Run picows cython ssl client")
+        rps = asyncio.run(picows_main_cython(ssl_url, msg, duration, ssl_context))
+        RPS["ssl"].append(rps)
+        NAMES.append("picows\ncython client")
     except ImportError:
         pass
 
     if not args.picows_only and args.boost_client is not None:
-        print(f"Run boost.beast client")
-        pr = subprocess.run([args.boost_client, b"127.0.0.1", b"9001", args.msg_size, args.duration],
+        print(f"Run boost.beast plain client")
+        pr = subprocess.run([args.boost_client, b"0",
+                             args.host.encode(),
+                             args.plain_port.encode(),
+                             args.msg_size, args.duration],
+                            shell=False, check=True, capture_output=True)
+        _, rps = pr.stdout.split(b":", 2)
+        RPS["plain"].append(int(rps.decode()))
+
+        print(f"Run boost.beast ssl client")
+        pr = subprocess.run([args.boost_client, b"1",
+                             args.host.encode(),
+                             args.ssl_port.encode(),
+                             args.msg_size, args.duration],
                             shell=False, check=True, capture_output=True)
         name, rps = pr.stdout.split(b":", 2)
-        RPS[f"c++ boost.beast\n{name.decode()}"] = int(rps.decode())
+        RPS["ssl"].append(int(rps.decode()))
+        NAMES.append(f"c++ boost.beast")
 
     if args.picows_only:
         exit()
@@ -167,24 +197,26 @@ if __name__ == '__main__':
     for k, v in RPS.items():
         print(k.replace("\n", " "), v)
 
+    print("names:", " | ".join(n.replace("\n", " ") for n in NAMES))
+
     try:
         import matplotlib.pyplot as plt
 
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(layout='constrained')
 
-        libraries = list(RPS.keys())
-        counts = list(RPS.values())
-        bar_colors = ['tab:red', 'tab:orange', 'tab:green', 'tab:green', 'tab:blue']
+        x = np.arange(len(NAMES))
+        width = 0.25  # the width of the bars
+        multiplier = 0
 
-        ax.bar(libraries, counts, label=libraries, color=bar_colors)
+        for cl_type, measurement in RPS.items():
+            offset = width * multiplier
+            rects = ax.bar(x + offset, measurement, width, label=cl_type)
+            multiplier += 1
 
         ax.set_ylabel('request/second')
-        if args.log_scale:
-            ax.set_yscale('log')
-            ax.set_yticks([counts[0]/2, 10000, 20000, 30000, 40000])
         ax.set_title(f'Echo round-trip performance \n({loop_name}, msg_size={msg_size})')
-
-        # ax.legend(title="Libraries")
+        ax.set_xticks(x + width, NAMES)
+        ax.legend(loc='upper left', ncols=3)
 
         plt.show()
     except ImportError:

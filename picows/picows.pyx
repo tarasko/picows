@@ -8,7 +8,7 @@ import socket
 import struct
 import urllib.parse
 from ssl import SSLContext
-from typing import cast, Tuple, Optional, Callable, Union
+from typing import cast, Tuple, Optional, Callable
 
 cimport cython
 
@@ -28,13 +28,6 @@ PICOWS_DEBUG_LL = 9
 cdef:
     set _ALLOWED_CLOSE_CODES = {int(i) for i in WSCloseCode}
     bytes _WS_KEY = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-
-    # Benchmark and profiler showed that buffered protocol is actually slower
-    # then normal. There are additional costs of 2 python calls
-    # (get_buffer, buffer_updated) comparing to a single data_received.
-    # Also extra costs are related to creating memoryview and getting buffer
-    # out of it
-    bint _USE_BUFFERED_PROTOCOL = False
 
 
 cdef extern from "picows_compat.h" nogil:
