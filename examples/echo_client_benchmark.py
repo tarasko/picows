@@ -121,7 +121,8 @@ if __name__ == '__main__':
     parser.add_argument("--msg-size", default="256", help="Message size")
     parser.add_argument("--duration", default="5", help="duration of test in seconds")
     parser.add_argument("--disable-uvloop", action="store_true", help="Disable uvloop")
-    parser.add_argument("--picows-only", action="store_true", help="Run only picows cython client")
+    parser.add_argument("--picows-plain-only", action="store_true", help="Run only plain picows cython client")
+    parser.add_argument("--picows-ssl-only", action="store_true", help="Run only ssl picows cython client")
     parser.add_argument("--boost-client", help="Path to boost client binary")
     args = parser.parse_args()
 
@@ -140,7 +141,7 @@ if __name__ == '__main__':
     plain_url = f"ws://{args.host}:{args.plain_port}/"
     ssl_url = f"wss://{args.host}:{args.ssl_port}/"
 
-    if not args.picows_only:
+    if not args.picows_plain_only and not args.picows_ssl_only:
         _, rps = asyncio.run(websockets_main(plain_url, msg, duration, None))
         RPS["plain"].append(rps)
         name, rps = asyncio.run(websockets_main(ssl_url, msg, duration, ssl_context))
@@ -161,17 +162,21 @@ if __name__ == '__main__':
 
     try:
         from examples.echo_client_cython import picows_main_cython
-        print(f"Run picows cython plain client")
-        rps = asyncio.run(picows_main_cython(plain_url, msg, duration, None))
-        RPS["plain"].append(rps)
-        print(f"Run picows cython ssl client")
-        rps = asyncio.run(picows_main_cython(ssl_url, msg, duration, ssl_context))
-        RPS["ssl"].append(rps)
+        if not args.picows_ssl_only:
+            print(f"Run picows cython plain client")
+            rps = asyncio.run(picows_main_cython(plain_url, msg, duration, None))
+            RPS["plain"].append(rps)
+
+        if not args.picows_plain_only:
+            print(f"Run picows cython ssl client")
+            rps = asyncio.run(picows_main_cython(ssl_url, msg, duration, ssl_context))
+            RPS["ssl"].append(rps)
+
         NAMES.append("picows\ncython client")
     except ImportError:
         pass
 
-    if not args.picows_only and args.boost_client is not None:
+    if not args.picows_plain_only and not args.picows_ssl_only and args.boost_client is not None:
         print(f"Run boost.beast plain client")
         pr = subprocess.run([args.boost_client, b"0",
                              args.host.encode(),
@@ -191,7 +196,7 @@ if __name__ == '__main__':
         RPS["ssl"].append(int(rps.decode()))
         NAMES.append(f"c++ boost.beast")
 
-    if args.picows_only:
+    if args.picows_plain_only or args.picows_ssl_only:
         exit()
 
     for k, v in RPS.items():
