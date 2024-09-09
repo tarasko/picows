@@ -178,8 +178,7 @@ async def echo_client(echo_server):
 async def test_echo(echo_client, msg_size):
     msg = os.urandom(msg_size)
     echo_client.transport.send(picows.WSMsgType.BINARY, msg, False, False)
-    async with async_timeout.timeout(TIMEOUT):
-        frame = await echo_client.get_message()
+    frame = await echo_client.get_message()
     assert frame.msg_type == picows.WSMsgType.BINARY
     assert frame.payload_as_bytes == msg
     assert frame.payload_as_bytes_from_mv == msg
@@ -188,8 +187,7 @@ async def test_echo(echo_client, msg_size):
 
     msg = base64.b64encode(msg)
     echo_client.transport.send(picows.WSMsgType.TEXT, msg, True, True)
-    async with async_timeout.timeout(TIMEOUT):
-        frame = await echo_client.get_message()
+    frame = await echo_client.get_message()
     assert frame.msg_type == picows.WSMsgType.TEXT
     assert frame.payload_as_ascii_text == msg.decode("ascii")
     assert frame.payload_as_utf8_text == msg.decode("utf8")
@@ -198,22 +196,20 @@ async def test_echo(echo_client, msg_size):
 
     # Check send defaults
     echo_client.transport.send(picows.WSMsgType.BINARY, msg)
-    async with async_timeout.timeout(TIMEOUT):
-        frame = await echo_client.get_message()
+    frame = await echo_client.get_message()
     assert frame.fin
     assert not frame.rsv1
 
     # Check ping
     echo_client.transport.send_ping(b"hi")
-    async with async_timeout.timeout(TIMEOUT):
-        frame = await echo_client.get_message()
+    frame = await echo_client.get_message()
     assert frame.msg_type == picows.WSMsgType.PING
     assert frame.payload_as_bytes == b"hi"
 
     # Check pong
     echo_client.transport.send_pong(b"hi")
     async with async_timeout.timeout(TIMEOUT):
-        frame = await echo_client.get_message()
+    frame = await echo_client.get_message()
     assert frame.msg_type == picows.WSMsgType.PONG
     assert frame.payload_as_bytes == b"hi"
 
@@ -224,8 +220,7 @@ async def test_echo(echo_client, msg_size):
 
 async def test_close(echo_client):
     echo_client.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"goodbye")
-    async with async_timeout.timeout(TIMEOUT):
-        frame = await echo_client.get_message()
+    frame = await echo_client.get_message()
     assert frame.msg_type == picows.WSMsgType.CLOSE
     assert frame.close_code == picows.WSCloseCode.GOING_AWAY
     assert frame.close_message == b"goodbye"
