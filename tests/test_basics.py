@@ -208,7 +208,6 @@ async def test_echo(echo_client, msg_size):
 
     # Check pong
     echo_client.transport.send_pong(b"hi")
-    async with async_timeout.timeout(TIMEOUT):
     frame = await echo_client.get_message()
     assert frame.msg_type == picows.WSMsgType.PONG
     assert frame.payload_as_bytes == b"hi"
