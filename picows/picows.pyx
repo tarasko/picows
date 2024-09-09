@@ -383,7 +383,10 @@ cdef class WSTransport:
         if self.is_client_side:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask)
 
-        self._try_native_write_then_transport_write(<char*>header_ptr, total_size)
+        if self.is_secure:
+            self.underlying_transport.write(PyBytes_FromStringAndSize(<char*>header_ptr, total_size))
+        else:
+            self._try_native_write_then_transport_write(<char*>header_ptr, total_size)
 
     cpdef send(self, WSMsgType msg_type, message, bint fin=True, bint rsv1=False):
         """        
@@ -461,7 +464,10 @@ cdef class WSTransport:
             self._write_buf.append(msg_ptr, msg_length)
             frame_size = self._write_buf.size
 
-        self._try_native_write_then_transport_write(self._write_buf.data, frame_size)
+        if self.is_secure:
+            self.underlying_transport.write(PyBytes_FromStringAndSize(self._write_buf.data, frame_size))
+        else:
+            self._try_native_write_then_transport_write(self._write_buf.data, frame_size)
 
     cpdef send_ping(self, message=None):
         """
@@ -578,7 +584,7 @@ cdef class WSTransport:
             self._disconnected_future.set_result(None)
 
     cdef _try_native_write_then_transport_write(self, char* ptr, Py_ssize_t sz):
-        if self.is_secure or <size_t>self.underlying_transport.get_write_buffer_size() > 0:
+        if <size_t>self.underlying_transport.get_write_buffer_size() > 0:
             self.underlying_transport.write(PyBytes_FromStringAndSize(ptr, sz))
             return
 
