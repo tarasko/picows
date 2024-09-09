@@ -242,6 +242,7 @@ cdef class MemoryBuffer:
         if data == NULL:
             raise MemoryError("cannot allocate memory for picows")
         self.data = data
+        self.capacity = new_capacity
 
     cdef void clear(self) noexcept:
         self.size = 0
