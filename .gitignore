@@ -8,3 +8,5 @@ __pycache__
 dist
 wheelhouse
 build
+perf.data
+perf.data.old
