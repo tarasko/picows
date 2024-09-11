@@ -5,6 +5,10 @@ picows Release History
    :depth: 1
    :local:
 
+1.2.1 (2024-09-11)
+------------------
+
+* Optimization: Internal memory buffers were calling PyMem_Realloc too often
 
 1.2.0 (2024-09-05)
 ------------------

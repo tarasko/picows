@@ -778,11 +778,15 @@ cdef class WSProtocol:
         self._process_new_data()
 
     # Benchmark and profiler showed that buffered protocol is actually slower
-    # then normal. There are additional costs of 2 python calls
+    # than normal. There are additional costs of 2 python calls
     # (get_buffer, buffer_updated) comparing to a single data_received.
     # Also extra costs are related to creating memoryview and getting buffer
-    # out of it
-
+    # out of it.
+    #
+    # Uncommenting the following code will make uvloop to think that WSProtocol
+    # implements BufferedProtocol. uvloop will use get_buffer/buffer_updated
+    # instead of data_received.
+    #
     # def get_buffer(self, Py_ssize_t size_hint):
     #     cdef Py_ssize_t sz = size_hint + 1024
     #     if self._buffer.size - self._f_new_data_start_pos < sz:
