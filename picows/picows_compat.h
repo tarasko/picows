@@ -93,7 +93,7 @@
         }
     }
 
-    inline int picows_get_errno()
+    inline int picows_get_errno(void)
     {
         return picows_convert_wsa_error_to_errno(WSAGetLastError());
     }
@@ -104,5 +104,5 @@
     #define PICOWS_EAGAIN EAGAIN
     #define PICOWS_EWOULDBLOCK EWOULDBLOCK
 
-    inline int picows_get_errno() { return errno; }
+    inline int picows_get_errno(void) { return errno; }
 #endif

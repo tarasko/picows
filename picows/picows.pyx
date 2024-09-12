@@ -136,7 +136,7 @@ cdef void _mask_payload(uint8_t* input, size_t input_len, uint32_t mask) noexcep
         input[i] ^= mask_buf[i]
 
 
-cdef _unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* msg_size_out):
+cdef _unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, size_t* msg_size_out):
     cdef Py_buffer msg_buffer
 
     if PyBytes_CheckExact(bytes_like_obj):
@@ -420,7 +420,7 @@ cdef class WSTransport:
         """
         cdef:
             char* msg_ptr
-            Py_ssize_t msg_length
+            size_t msg_length
 
         if message is None:
             msg_ptr = b""
@@ -770,7 +770,7 @@ cdef class WSProtocol:
     def data_received(self, data):
         cdef:
             char* ptr
-            Py_ssize_t sz
+            size_t sz
 
         _unpack_bytes_like(data, &ptr, &sz)
 
