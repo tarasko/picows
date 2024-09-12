@@ -31,15 +31,11 @@ classifiers = [
 requires = ["setuptools >= 61.0", "wheel", "Cython >= 3.0"]
 build-backend = "setuptools.build_meta"
 
-[project.optional-dependencies]
-test = ["pytest", "pytest-asyncio", "async_timeout", "uvloop"]
-benchmark = ["uvloop", "websockets", "aiohttp"]
-
 [project.urls]
 Homepage = "https://github.com/tarasko/picows"
 Repository = "https://github.com/tarasko/picows"
 Issues = "https://github.com/tarasko/picows/issues"
-Documentaion = "https://picows.readthedocs.io/en/latest"
+Documentation = "https://picows.readthedocs.io/en/latest"
 
 [tool.setuptools]
 packages = ["picows"]

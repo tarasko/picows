@@ -1,0 +1,4 @@
+pytest
+pytest-asyncio
+async_timeout
+uvloop
