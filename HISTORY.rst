@@ -5,6 +5,12 @@ picows Release History
    :depth: 1
    :local:
 
+1.2.2 (2024-09-13)
+------------------
+
+* Fix: picows wasn't working on windows with asyncio and python<=3.10 because data_received callback gets bytearray object instead of bytes.
+* Fix: ws_connect was throwing TimeoutError on handshake timeouts, changed to asyncio.TimeoutError just to be consistent with the rest asyncio behaviour
+
 1.2.1 (2024-09-11)
 ------------------
 
