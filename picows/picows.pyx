@@ -529,8 +529,7 @@ cdef class WSTransport:
         completely disconnected.
         (underlying transport is closed, on_ws_disconnected has been called)
         """
-        if not self._disconnected_future.done():
-            await asyncio.shield(self._disconnected_future)
+        await asyncio.shield(self._disconnected_future)
 
     cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64):
         initial_handshake = (b"GET %b HTTP/1.1\r\n"
@@ -1179,7 +1178,7 @@ cdef class WSProtocol:
     def _handshake_timeout_callback(self):
         self._logger.info("Handshake timeout, the client hasn't requested upgrade within required time, close connection")
         if not self._handshake_complete_future.done():
-            self._handshake_complete_future.set_exception(TimeoutError("websocket handshake timeout"))
+            self._handshake_complete_future.set_exception(asyncio.TimeoutError("websocket handshake timeout"))
         self.transport.disconnect()
 
 

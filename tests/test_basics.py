@@ -227,7 +227,7 @@ async def test_close(echo_client):
 
 async def test_client_handshake_timeout(echo_server):
     # Set unreasonably small timeout
-    with pytest.raises(TimeoutError):
+    with pytest.raises(asyncio.TimeoutError):
         (_, client) = await picows.ws_connect(picows.WSListener, echo_server,
                                               ssl_context=create_client_ssl_context(),
                                               websocket_handshake_timeout=0.00001)
@@ -314,12 +314,13 @@ async def test_ws_on_frame_throw(disconnect_on_exception):
 
         (transport, _) = await picows.ws_connect(picows.WSListener, url)
         transport.send(picows.WSMsgType.BINARY, b"halo")
+
         try:
             if disconnect_on_exception:
                 async with async_timeout.timeout(TIMEOUT):
                     await transport.wait_disconnected()
             else:
-                with pytest.raises(TimeoutError):
+                with pytest.raises(asyncio.TimeoutError):
                     async with async_timeout.timeout(TIMEOUT):
                         await transport.wait_disconnected()
         finally:
@@ -361,7 +362,7 @@ async def test_stress(echo_client):
         else:
             assert frame.payload_as_bytes == msg3
 
-    with pytest.raises(TimeoutError):
+    with pytest.raises(asyncio.TimeoutError):
         async with async_timeout.timeout(TIMEOUT):
             frame = await echo_client.get_message()
 
