@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import os
+import sys
 import pathlib
 import ssl
 
@@ -20,8 +21,10 @@ if os.name == 'nt':
         ),
     )
     def event_loop_policy(request):
-        return asyncio.DefaultEventLoopPolicy()
-
+        if sys.version_info >= (3, 10):
+            return asyncio.DefaultEventLoopPolicy()
+        else:
+            return asyncio.WindowsSelectorEventLoopPolicy()
 else:
     import uvloop
 
