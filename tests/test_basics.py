@@ -8,7 +8,6 @@ import ssl
 import picows
 import pytest
 import async_timeout
-import os
 
 
 TIMEOUT = 0.5
@@ -290,7 +289,6 @@ async def test_ws_on_connected_throw():
     class ServerClientListener(picows.WSListener):
         def on_ws_connected(self, transport: picows.WSTransport):
             raise RuntimeError("exception from on_ws_connected")
-
 
     server = await picows.ws_create_server(lambda _: ServerClientListener(),
                                            "127.0.0.1", 0)

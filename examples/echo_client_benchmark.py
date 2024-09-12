@@ -5,8 +5,7 @@ import ssl
 import subprocess
 
 from logging import getLogger
-from ssl import SSLContext
-from typing import List, Dict, Tuple
+from typing import List, Dict
 
 import numpy as np
 import websockets
@@ -35,6 +34,7 @@ def create_client_ssl_context():
 async def picows_main(endpoint: str, msg: bytes, duration: int, ssl_context):
     cl_type = "plain" if ssl_context is None else "ssl"
     print(f"Run picows python {cl_type} client")
+
     class PicowsClientListener(WSListener):
         def __init__(self):
             super().__init__()
@@ -69,7 +69,7 @@ async def websockets_main(endpoint: str, msg: bytes, duration: int, ssl_context)
         start_time = time()
         cnt = 0
         while True:
-            reply = await websocket.recv()
+            await websocket.recv()
             cnt += 1
             if time() - start_time >= duration:
                 break
@@ -163,12 +163,12 @@ if __name__ == '__main__':
     try:
         from examples.echo_client_cython import picows_main_cython
         if not args.picows_ssl_only:
-            print(f"Run picows cython plain client")
+            print("Run picows cython plain client")
             rps = asyncio.run(picows_main_cython(plain_url, msg, duration, None))
             RPS["plain"].append(rps)
 
         if not args.picows_plain_only:
-            print(f"Run picows cython ssl client")
+            print("Run picows cython ssl client")
             rps = asyncio.run(picows_main_cython(ssl_url, msg, duration, ssl_context))
             RPS["ssl"].append(rps)
 
@@ -177,7 +177,7 @@ if __name__ == '__main__':
         pass
 
     if not args.picows_plain_only and not args.picows_ssl_only and args.boost_client is not None:
-        print(f"Run boost.beast plain client")
+        print("Run boost.beast plain client")
         pr = subprocess.run([args.boost_client, b"0",
                              args.host.encode(),
                              args.plain_port.encode(),
@@ -186,7 +186,7 @@ if __name__ == '__main__':
         _, rps = pr.stdout.split(b":", 2)
         RPS["plain"].append(int(rps.decode()))
 
-        print(f"Run boost.beast ssl client")
+        print("Run boost.beast ssl client")
         pr = subprocess.run([args.boost_client, b"1",
                              args.host.encode(),
                              args.ssl_port.encode(),
@@ -194,7 +194,7 @@ if __name__ == '__main__':
                             shell=False, check=True, capture_output=True)
         name, rps = pr.stdout.split(b":", 2)
         RPS["ssl"].append(int(rps.decode()))
-        NAMES.append(f"c++ boost.beast")
+        NAMES.append("c++ boost.beast")
 
     if args.picows_plain_only or args.picows_ssl_only:
         exit()

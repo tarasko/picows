@@ -3,7 +3,6 @@ import os
 import pathlib
 import ssl
 from logging import getLogger, INFO, basicConfig
-from ssl import SSLContext
 
 from picows import WSFrame, WSTransport, ws_create_server, WSListener, WSMsgType, WSUpgradeRequest
 
