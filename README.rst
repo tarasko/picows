@@ -173,7 +173,7 @@ Contributing / Building From Source
 5. Run benchmark::
 
     $ python -m examples.echo_server
-    $ python -m examples.echo_client
+    $ python -m examples.echo_client_benchmark
 
 6. Build docs::
 
