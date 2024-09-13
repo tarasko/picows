@@ -32,6 +32,12 @@ Use pip to install it::
 
     $ pip install picows
 
+
+Documentation
+=============
+
+https://picows.readthedocs.io/en/stable/
+
 Rationale
 =========
 Popular WebSocket libraries attempt to provide high-level interfaces. They take care of timeouts, flow control, optional compression/decompression, assembling WebSocket messages from frames, as well as implementing async iteration interfaces.
@@ -131,7 +137,45 @@ Features
 * Ability to check if a frame is the last one in the receiving buffer
 * Support both secure and unsecure protocols (ws and wss schemes)
 
-Documentation
-=============
+Contributing / Building From Source
+===================================
+1. Fork and clone the repository::
 
-https://picows.readthedocs.io/en/stable/
+    $ git clone git@github.com:tarasko/picows.git
+    $ cd picows
+
+2. Create a virtual environment and activate it::
+
+    $ python3 -m venv picows-dev
+    $ source picows-dev/bin/activate
+
+
+3. Install development dependencies::
+
+    # To run tests
+    $ pip install -r requirements-test.txt
+
+    # To run benchmark
+    $ pip install -r requirements-benchmark.txt
+
+    # To build docs
+    $ pip install -r docs/requirements.txt
+
+4. Build inplace and run tests::
+
+    $ export PICOWS_BUILD_EXAMPLES=1
+    $ python setup.py build_ext --inplace
+    $ pytest -s -v
+
+    # Run specific test
+    $ pytest -s -v -k test_client_handshake_timeout[uvloop-plain]
+
+5. Run benchmark::
+
+    $ python -m examples.echo_server
+    $ python -m examples.echo_client
+
+6. Build docs::
+
+    $ make -C docs clean html
+
