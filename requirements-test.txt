@@ -1,5 +1,6 @@
 setuptools >= 61.0
 Cython >= 3.0
+multidict
 pytest
 pytest-asyncio
 async_timeout
