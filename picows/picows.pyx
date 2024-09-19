@@ -9,6 +9,7 @@ import struct
 import urllib.parse
 from ssl import SSLContext
 from typing import cast, Tuple, Optional, Callable
+from multidict import CIMultiDict
 
 cimport cython
 
@@ -917,7 +918,7 @@ cdef class WSProtocol:
         cdef list lines = <list>raw_headers.split(b"\r\n")
         cdef bytes response_status_line = <bytes>lines[0]
 
-        cdef dict headers = {}
+        cdef object headers = CIMultiDict()
         cdef list parts
         cdef bytes line, name, value
         cdef str name_str
@@ -928,8 +929,7 @@ cdef class WSProtocol:
             if len(parts) != 2:
                 raise RuntimeError(f"Mailformed header in upgrade request: {raw_headers}")
             name, value = <bytes>parts[0], <bytes>parts[1]
-            name_str = <str>(<bytes>name.strip()).decode()
-            headers[name_str.lower()] = (<bytes>value.strip()).decode()
+            headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
 
         if "websocket" != headers.get("upgrade"):
             raise RuntimeError(f"No WebSocket UPGRADE header: {raw_headers}\n Can 'Upgrade' only to 'websocket'")

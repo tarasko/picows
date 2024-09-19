@@ -55,7 +55,7 @@ cdef class WSUpgradeRequest:
         readonly bytes method
         readonly bytes path
         readonly bytes version
-        readonly dict headers
+        readonly object headers     # CIMultiDict[istr, str]
 
 
 cdef class WSFrame:

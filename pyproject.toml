@@ -7,7 +7,7 @@ readme = "README.rst"
 license = {text = "MIT License"}
 dynamic = ["version"]
 keywords = ["websocket", "networking"]
-dependencies = []
+dependencies = ["multidict"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Framework :: AsyncIO",
