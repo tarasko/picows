@@ -98,9 +98,9 @@ Classes
         HTTP version. For example b"HTTP/1.1"
 
     .. py:attribute:: headers
-        :type: Dict[str, str]
+        :type: CIMultiDict[str, str]
 
-        Request headers. header names are always in lowercase
+        Request headers. Keys are case insensitive
 
 .. autoclass:: WSListener
     :members:

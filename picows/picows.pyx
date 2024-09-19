@@ -969,19 +969,22 @@ cdef class WSProtocol:
 
     cdef inline _try_read_and_process_upgrade_response(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
-        response = data.split(b"\r\n\r\n", 1)
+        cdef list response = <list>data.split(b"\r\n\r\n", 1)
         if len(response) < 2:
             return None
 
-        raw_headers, tail = response
+        cdef bytes raw_headers, tail
+        raw_headers, tail = <bytes>response[0], <bytes>response[1]
 
-        lines = raw_headers.split(b"\r\n")
-        response_status_line = lines[0]
+        cdef list lines = <list>raw_headers.split(b"\r\n")
+        cdef bytes response_status_line = <bytes>lines[0]
 
-        response_headers = {}
-        for line in lines[1:]:
-            name, value = line.split(b":", maxsplit=1)
-            response_headers[name.strip().decode().lower()] = value.strip().decode()
+        cdef bytes line, name, value
+        response_headers = CIMultiDict()
+        for idx in range(1, len(lines)):
+            line = <bytes>lines[idx]
+            name, value = <list>line.split(b":", 1)
+            response_headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
 
         # check handshake
         if response_status_line.decode().lower() != "http/1.1 101 switching protocols":

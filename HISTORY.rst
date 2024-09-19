@@ -5,6 +5,10 @@ picows Release History
    :depth: 1
    :local:
 
+1.3.0b1
+
+* Change WSUpgradeRequest.headers type from Dict to CIMultiDict
+
 1.2.2 (2024-09-13)
 ------------------
 
