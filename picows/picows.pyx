@@ -713,14 +713,14 @@ cdef class WSProtocol:
 
         if self.is_client_side:
             self._logger.info("WS connection established: %s -> %s, recvbuf=%d, sendbuf=%d, quickack=%d, nodelay=%d",
-                              peername, sockname,
+                              sockname, peername,
                               sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF),
                               sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF),
                               quickack,
                               sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
         else:
-            self._logger.info("New connection accepted: %s -> %s, recvbuf=%d, sendbuf=%d, quickack=%d, nodelay=%d",
-                              peername, sockname,
+            self._logger.info("New connection accepted: %s <- %s, recvbuf=%d, sendbuf=%d, quickack=%d, nodelay=%d",
+                              sockname, peername,
                               sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF),
                               sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF),
                               quickack,
