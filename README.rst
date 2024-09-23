@@ -1,25 +1,29 @@
 .. image:: https://raw.githubusercontent.com/tarasko/picows/master/docs/source/_static/banner.png
+    :align: center
+    :scale: 50%
 
 Introduction
 ============
 
 .. image:: https://badge.fury.io/py/picows.svg
-   :target: https://pypi.org/project/picows
-   :alt: Latest PyPI package version
+    :target: https://pypi.org/project/picows
+    :alt: Latest PyPI package version
 
 .. image:: https://img.shields.io/pypi/dm/picows
-   :target: https://pypistats.org/packages/picows
-   :alt: Downloads count
+    :target: https://pypistats.org/packages/picows
+    :alt: Downloads count
 
 .. image:: https://readthedocs.org/projects/picows/badge/?version=latest
-   :target: https://picows.readthedocs.io/en/latest/
-   :alt: Latest Read The Docs
+    :target: https://picows.readthedocs.io/en/latest/
+    :alt: Latest Read The Docs
 
 **picows** is a high-performance python library designed for building asyncio WebSocket clients and servers.
 Implemented in Cython, it offers exceptional speed and efficiency, surpassing other popular WebSocket python libraries.
 
 .. image:: https://raw.githubusercontent.com/tarasko/picows/master/docs/source/_static/picows_benchmark.png
-  :target: https://github.com/tarasko/picows/blob/master/docs/source/_static/picows_benchmark.png?raw=true
+    :target: https://github.com/tarasko/picows/blob/master/docs/source/_static/picows_benchmark.png?raw=true
+    :align: center
+
 
 The above chart shows the performance of echo clients communicating with a server through a loopback interface using popular Python libraries. 
 `boost.beast client <https://www.boost.org/doc/libs/1_85_0/libs/beast/example/websocket/client/sync/websocket_client_sync.cpp>`_
