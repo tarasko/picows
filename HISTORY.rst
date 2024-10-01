@@ -5,10 +5,11 @@ picows Release History
    :depth: 1
    :local:
 
-1.3.0b1
+1.3.0 (2024-10-01)
 
 * Change WSUpgradeRequest.headers type from Dict to CIMultiDict
-* Fix:
+* Fix: ws_connect is ignoring URI query parameters
+* Fix: WSUpgradeRequest.version field is always None
 
 1.2.2 (2024-09-13)
 ------------------
