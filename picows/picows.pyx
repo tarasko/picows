@@ -1229,7 +1229,10 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
     else:
         raise ValueError(f"invalid url scheme: {url}")
 
-    ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, url_parts.path, True, ws_listener_factory,
+    path_plus_query = url_parts.path
+    if url_parts.query:
+        path_plus_query += "?" + url_parts.query
+    ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, path_plus_query, True, ws_listener_factory,
                                              logger_name, disconnect_on_exception, websocket_handshake_timeout)
 
     cdef WSProtocol ws_protocol
