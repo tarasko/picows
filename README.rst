@@ -1,6 +1,5 @@
 .. image:: https://raw.githubusercontent.com/tarasko/picows/master/docs/source/_static/banner.png
     :align: center
-    :scale: 50%
 
 Introduction
 ============
