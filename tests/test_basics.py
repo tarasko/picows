@@ -249,6 +249,22 @@ async def test_server_handshake_timeout():
         assert client_reader.at_eof()
 
 
+async def test_request_path_and_params():
+    request_path = "/v1/ws?key=blablabla&data=fhhh"
+    def listener_factory(request: picows.WSUpgradeRequest):
+        assert request.method == b"GET"
+        assert request.path == request_path.encode()
+        assert request.version == b"HTTP/1.1"
+
+        return picows.WSListener()
+
+    server = await picows.ws_create_server(listener_factory,
+                                           "127.0.0.1", 0, websocket_handshake_timeout=0.1)
+    async with ServerAsyncContext(server):
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}{request_path}"
+        (_, client) = await picows.ws_connect(picows.WSListener, url)
+
+
 async def test_route_not_found():
     server = await picows.ws_create_server(lambda _: None, "127.0.0.1", 0)
     async with ServerAsyncContext(server):

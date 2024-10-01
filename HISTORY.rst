@@ -8,6 +8,7 @@ picows Release History
 1.3.0b1
 
 * Change WSUpgradeRequest.headers type from Dict to CIMultiDict
+* Fix:
 
 1.2.2 (2024-09-13)
 ------------------

@@ -957,6 +957,7 @@ cdef class WSProtocol:
         cdef WSUpgradeRequest upgrade_request = <WSUpgradeRequest>WSUpgradeRequest.__new__(WSUpgradeRequest)
         upgrade_request.method = <bytes>status_line_parts[0]
         upgrade_request.path = <bytes>status_line_parts[1]
+        upgrade_request.version = <bytes>status_line_parts[2]
         upgrade_request.headers = headers
 
         memmove(self._buffer.data, self._buffer.data + len(raw_headers) + 4, self._buffer.size - len(raw_headers) - 4)
