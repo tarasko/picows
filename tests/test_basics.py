@@ -249,8 +249,8 @@ async def test_server_handshake_timeout():
         assert client_reader.at_eof()
 
 
-async def test_request_path_and_params():
-    request_path = "/v1/ws?key=blablabla&data=fhhh"
+@pytest.mark.parametrize("request_path", ["/v1/ws?key=blablabla&data=fhhh", "/v1/ws"])
+async def test_request_path_and_params(request_path):
     def listener_factory(request: picows.WSUpgradeRequest):
         assert request.method == b"GET"
         assert request.path == request_path.encode()
