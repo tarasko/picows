@@ -98,7 +98,7 @@
         return picows_convert_wsa_error_to_errno(WSAGetLastError());
     }
 
-    inline double picows_get_monotonic_time()
+    inline double picows_get_monotonic_time(void)
     {
         LARGE_INTEGER frequency, counter;
         QueryPerformanceFrequency(&frequency);
@@ -116,7 +116,7 @@
 
     inline int picows_get_errno(void) { return errno; }
 
-    inline double picows_get_monotonic_time()
+    inline double picows_get_monotonic_time(void)
     {
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
