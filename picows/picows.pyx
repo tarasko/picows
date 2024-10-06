@@ -50,7 +50,7 @@ cdef extern from "picows_compat.h" nogil:
     cdef ssize_t PICOWS_SOCKET_ERROR
     int picows_get_errno()
     double picows_get_monotonic_time()
-    ssize_t send(int sockfd, const void* buf, size_t len, int flags);
+    ssize_t send(int sockfd, const void* buf, size_t len, int flags)
 
 
 class WSError(RuntimeError):
