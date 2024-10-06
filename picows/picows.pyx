@@ -960,6 +960,7 @@ cdef class WSProtocol:
         cdef double now
         cdef double prev_last_data_time
         cdef double idle_delay
+        cdef object sleep = asyncio.sleep
         try:
             if self._log_debug_enabled:
                 self._logger.log(PICOWS_DEBUG_LL, "Auto-ping loop started with idle_timeout=%s, reply_timeout=%s",
@@ -969,7 +970,7 @@ cdef class WSProtocol:
                 now = picows_get_monotonic_time()
                 idle_delay = self._last_data_time + self._auto_ping_idle_timeout - now
                 prev_last_data_time = self._last_data_time
-                await asyncio.sleep(idle_delay)
+                await sleep(idle_delay)
 
                 if self._last_data_time > prev_last_data_time:
                     continue
@@ -977,7 +978,7 @@ cdef class WSProtocol:
                 self.listener.send_user_specific_ping(self.transport)
 
                 self._auto_ping_expect_pong = True
-                await asyncio.sleep(self._auto_ping_reply_timeout)
+                await sleep(self._auto_ping_reply_timeout)
                 if self._auto_ping_expect_pong:
                     # Pong hasn't arrived withing specified interval
                     self.transport.send_close(WSCloseCode.GOING_AWAY, f"peer has not replied to ping/heartbeat request within {self._auto_ping_reply_timeout} second(s)".encode())
@@ -985,7 +986,7 @@ cdef class WSProtocol:
                     # But don't wait for any tcp confirmation, use abort()
                     # because normal disconnect may hang until OS TCP/IP timeout
                     # for ACK is fired.
-                    await asyncio.sleep(0.01)
+                    await sleep(0.01)
                     self.transport.underlying_transport.abort()
         except asyncio.CancelledError:
             if self._log_debug_enabled:
