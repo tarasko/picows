@@ -33,6 +33,6 @@ html_theme = 'alabaster'
 html_static_path = ['_static']
 
 html_theme_options = {
-    'page_width': '1200px',  # Set this to your desired width
-    'sidebar_width': '400px',  # Adjust the sidebar width as well
+    'page_width': '1300px',  # Set this to your desired width
+    'sidebar_width': '450px',  # Adjust the sidebar width as well
 }

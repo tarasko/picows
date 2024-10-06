@@ -83,6 +83,8 @@ cdef class WSTransport:
         readonly bint is_client_side
         readonly bint is_secure
 
+        bint auto_ping_expect_pong
+
         object _logger                          #: Logger
         bint _log_debug_enabled
         object _disconnected_future             #: asyncio.Future
@@ -95,6 +97,7 @@ cdef class WSTransport:
     cpdef send_pong(self, message=*)
     cpdef send_close(self, WSCloseCode close_code=*, close_message=*)
     cpdef disconnect(self)
+    cpdef notify_user_specific_pong_received(self)
 
     cdef inline _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64)
     cdef inline _send_http_handshake_response(self, bytes accept_val)
@@ -109,6 +112,10 @@ cdef class WSListener:
     cpdef on_ws_connected(self, WSTransport transport)
     cpdef on_ws_frame(self, WSTransport transport, WSFrame frame)
     cpdef on_ws_disconnected(self, WSTransport transport)
+
+    cpdef send_user_specific_ping(self, WSTransport transport)
+    cpdef is_user_specific_pong(self, WSFrame frame)
+
     cpdef pause_writing(self)
     cpdef resume_writing(self)
 
