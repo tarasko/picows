@@ -62,7 +62,7 @@
     #include <winsock2.h>
     #define PICOWS_SOCKET_ERROR SOCKET_ERROR
 
-    inline int picows_convert_wsa_error_to_errno(int ec)
+    static int picows_convert_wsa_error_to_errno(int ec)
     {
         switch(ec)
         {
@@ -93,12 +93,12 @@
         }
     }
 
-    inline int picows_get_errno(void)
+    static int picows_get_errno(void)
     {
         return picows_convert_wsa_error_to_errno(WSAGetLastError());
     }
 
-    inline double picows_get_monotonic_time(void)
+    static double picows_get_monotonic_time(void)
     {
         LARGE_INTEGER frequency, counter;
         QueryPerformanceFrequency(&frequency);
@@ -114,12 +114,12 @@
     #define PICOWS_EAGAIN EAGAIN
     #define PICOWS_EWOULDBLOCK EWOULDBLOCK
 
-    inline int picows_get_errno(void) { return errno; }
+    static int picows_get_errno(void) { return errno; }
 
-    inline double picows_get_monotonic_time(void)
+    static double picows_get_monotonic_time(void)
     {
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
-        return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+        return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
     }
 #endif
