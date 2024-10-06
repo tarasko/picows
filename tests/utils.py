@@ -36,13 +36,13 @@ class CloseFrame:
         self.rsv1 = frame.rsv1
 
 
-class PingFrame:
-    def __init__(self, frame: picows.WSFrame):
-        self.msg_type = frame.msg_type
-        self.close_code = frame.get_close_code()
-        self.close_message = frame.get_close_message()
-        self.fin = frame.fin
-        self.rsv1 = frame.rsv1
+def materialize_frame(frame: picows.WSFrame):
+    if frame.msg_type == picows.WSMsgType.TEXT:
+        return TextFrame(frame)
+    elif frame.msg_type == picows.WSMsgType.CLOSE:
+        return CloseFrame(frame)
+    else:
+        return BinaryFrame(frame)
 
 
 class ServerAsyncContext:

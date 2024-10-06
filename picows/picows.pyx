@@ -388,6 +388,7 @@ cdef class WSTransport:
         self.underlying_transport = underlying_transport
         self.is_client_side = is_client_side
         self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
+        self.auto_ping_expect_pong = False
         self._logger = logger
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
         self._disconnected_future = loop.create_future()
@@ -565,6 +566,24 @@ cdef class WSTransport:
         """
         await asyncio.shield(self._disconnected_future)
 
+    cpdef notify_user_specific_pong_received(self):
+        """
+        Notify auto-ping loop that an user specific pong message 
+        has been received.
+        
+        This method is helpful when checking that frame contains user specific 
+        pong is too expensive for is_user_specific_pong. 
+        (it may, for example, require full json parsing). 
+        In such case `WSListener.is_user_specific_pong` shall always return 
+        false and `WSListener.on_ws_frame` logic shall call 
+        `WSTransport.notify_user_specific_pong_received()`.
+        
+        It is ok to call this method even if auto-ping is disabled or the 
+        auto-ping loop doesn't expect pong messages. In such case this 
+        method simply does nothing.
+        """
+        self.auto_ping_expect_pong = False
+
     cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64):
         initial_handshake = (b"GET %b HTTP/1.1\r\n"
                              b"Host: %b\r\n"
@@ -679,7 +698,6 @@ cdef class WSProtocol:
         size_t _max_frame_size
 
         bint _enable_auto_ping
-        bint _auto_ping_expect_pong
         double _auto_ping_idle_timeout
         double _auto_ping_reply_timeout
         object _auto_ping_loop_task
@@ -726,7 +744,6 @@ cdef class WSProtocol:
         self._max_frame_size = 1024 * 1024
 
         self._enable_auto_ping = enable_auto_ping
-        self._auto_ping_expect_pong = False
         self._auto_ping_idle_timeout = auto_ping_idle_timeout
         self._auto_ping_reply_timeout = auto_ping_reply_timeout
         self._auto_ping_loop_task = None
@@ -977,9 +994,9 @@ cdef class WSProtocol:
 
                 self.listener.send_user_specific_ping(self.transport)
 
-                self._auto_ping_expect_pong = True
+                self.transport.auto_ping_expect_pong = True
                 await sleep(self._auto_ping_reply_timeout)
-                if self._auto_ping_expect_pong:
+                if self.transport.auto_ping_expect_pong:
                     # Pong hasn't arrived withing specified interval
                     self.transport.send_close(WSCloseCode.GOING_AWAY, f"peer has not replied to ping/heartbeat request within {self._auto_ping_reply_timeout} second(s)".encode())
                     # Give a chance for the transport to send close message
@@ -1253,9 +1270,9 @@ cdef class WSProtocol:
 
     cdef inline _invoke_on_ws_frame(self, WSFrame frame):
         try:
-            if self._enable_auto_ping and self._auto_ping_expect_pong:
+            if self._enable_auto_ping and self.transport.auto_ping_expect_pong:
                 if self.listener.is_user_specific_pong(frame):
-                    self._auto_ping_expect_pong = False
+                    self.transport.auto_ping_expect_pong = False
                     if self._log_debug_enabled:
                         self._logger.log(PICOWS_DEBUG_LL, "Received pong for the previously sent ping, reset expect_pong flag")
                     return

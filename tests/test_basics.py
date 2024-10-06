@@ -8,8 +8,8 @@ import pytest
 import async_timeout
 
 from tests.utils import create_client_ssl_context, create_server_ssl_context, \
-    TextFrame, CloseFrame, BinaryFrame, ServerAsyncContext, TIMEOUT
-
+    TextFrame, CloseFrame, BinaryFrame, ServerAsyncContext, TIMEOUT, \
+    materialize_frame
 
 if os.name == 'nt':
     @pytest.fixture(
@@ -77,12 +77,7 @@ async def echo_client(echo_server):
             self.is_paused = False
 
         def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-            if frame.msg_type == picows.WSMsgType.TEXT:
-                self.msg_queue.put_nowait(TextFrame(frame))
-            elif frame.msg_type == picows.WSMsgType.CLOSE:
-                self.msg_queue.put_nowait(CloseFrame(frame))
-            else:
-                self.msg_queue.put_nowait(BinaryFrame(frame))
+            self.msg_queue.put_nowait(materialize_frame(frame))
 
         def pause_writing(self):
             self.is_paused = True
