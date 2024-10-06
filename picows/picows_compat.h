@@ -97,12 +97,29 @@
     {
         return picows_convert_wsa_error_to_errno(WSAGetLastError());
     }
+
+    inline double picows_get_monotonic_time()
+    {
+        LARGE_INTEGER frequency, counter;
+        QueryPerformanceFrequency(&frequency);
+        QueryPerformanceCounter(&counter);
+        return (double)counter.QuadPart / frequency.QuadPart;
+    }
 #else
     #include <sys/types.h>
     #include <sys/socket.h>
+    #include <time.h>
+
     #define PICOWS_SOCKET_ERROR -1
     #define PICOWS_EAGAIN EAGAIN
     #define PICOWS_EWOULDBLOCK EWOULDBLOCK
 
     inline int picows_get_errno(void) { return errno; }
+
+    inline double picows_get_monotonic_time()
+    {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        return ts.tv_sec + ts.tv_nsec / 1e9;
+    }
 #endif

@@ -109,6 +109,10 @@ cdef class WSListener:
     cpdef on_ws_connected(self, WSTransport transport)
     cpdef on_ws_frame(self, WSTransport transport, WSFrame frame)
     cpdef on_ws_disconnected(self, WSTransport transport)
+
+    cpdef send_user_specific_ping(self, WSTransport transport)
+    cpdef is_user_specific_pong(self, WSFrame frame)
+
     cpdef pause_writing(self)
     cpdef resume_writing(self)
 
