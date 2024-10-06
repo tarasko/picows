@@ -161,7 +161,6 @@ cdef class WSFrame:
     """
     Received websocket frame.
 
-    Internally WSFrame just points to a chunk of memory in the receiving buffer without copying or owning memory.\n
     .. DANGER::
         Only use WSFrame object during :any:`WSListener.on_ws_frame` callback. WSFrame objects are essentially just
         pointers to the underlying receiving buffer. After :any:`WSListener.on_ws_frame` has completed the buffer
@@ -323,7 +322,7 @@ cdef class WSListener:
             WSFrame is essentially just a pointer to a chunk of memory in the receiving buffer. It does not own 
             the memory. Do NOT cache or store WSFrame object for later processing because the data may be invalidated
             after :any:`WSListener.on_ws_frame` is complete.
-            Process the payload immediatelly or just copy it with one of `WSFrame.get_*` methods.            
+            Process the payload immediately or just copy it with one of `WSFrame.get_*` methods.            
 
         :param transport: :any:`WSTransport` object
         :param frame: :any:`WSFrame` object            
@@ -340,12 +339,17 @@ cdef class WSListener:
 
     cpdef send_user_specific_ping(self, WSTransport transport):
         """
-        Called when auto-ping loop wants to send a ping to remote peer.
+        Called when the auto-ping logic wants to send a ping to a remote peer.
         
         User can override this method to send something else instead of 
-        a standard PING frame.
+        the standard PING frame.
         
-        Default implementation just call `transport.send_ping()`
+        Default implementation:
+        
+        .. code:: python
+        
+            def send_user_specific_ping(self, transport: picows.WSTransport)
+                return transport.send_ping()
 
         :param transport: :any:`WSTransport`
         """
@@ -353,20 +357,19 @@ cdef class WSListener:
 
     cpdef is_user_specific_pong(self, WSFrame frame):
         """        
-        Called before on_ws_frame if auto ping is enabled. 
+        Called before :any:`WSListener.on_ws_frame` if auto ping is enabled and pong is expected. 
         
         User can override this method to indicate that the received frame is a 
         valid response to a previously sent user specific ping message.
         
-        Default implementation just do: 
-        ```
-        return frame.msg_type == WSMsgType.PONG
-        ```
+        The default implementation just do:
         
-        If this method returns True then the frame will be  *consumed* by the 
-        protocol, i.e `on_ws_frame` will not be called for this frame.        
+        .. code:: python
         
-        :return: Returns true if a frame is a response to a previously send ping.  
+            def is_user_specific_pong(self, frame: picows.WSFrame)
+                return frame.msg_type == WSMsgType.PONG
+        
+        :return: Returns True if the frame is a response to a previously send ping. In such case the frame will be  *consumed* by the protocol, i.e :any:`WSListener.on_ws_frame` will not be called for this frame.         
         """
         return frame.msg_type == WSMsgType.PONG
 
@@ -568,19 +571,19 @@ cdef class WSTransport:
 
     cpdef notify_user_specific_pong_received(self):
         """
-        Notify auto-ping loop that an user specific pong message 
+        Notify the auto-ping loop that a user-specific pong message 
         has been received.
         
-        This method is helpful when checking that frame contains user specific 
-        pong is too expensive for is_user_specific_pong. 
-        (it may, for example, require full json parsing). 
-        In such case `WSListener.is_user_specific_pong` shall always return 
-        false and `WSListener.on_ws_frame` logic shall call 
-        `WSTransport.notify_user_specific_pong_received()`.
+        This method is useful when determining whether a frame contains a 
+        user-specific pong is too expensive for is_user_specific_pong 
+        (for example, it may require full JSON parsing). 
+        In such cases, :any:`WSListener.is_user_specific_pong` should always 
+        return `False`, and the logic in :any:`WSListener.on_ws_frame` should 
+        call :any:`WSTransport.notify_user_specific_pong_received`.
         
-        It is ok to call this method even if auto-ping is disabled or the 
-        auto-ping loop doesn't expect pong messages. In such case this 
-        method simply does nothing.
+        It is safe to call this method even if auto-ping is disabled or 
+        the auto-ping loop doesn’t expect pong messages. 
+        In such cases, the method simply does nothing.
         """
         self.auto_ping_expect_pong = False
 
@@ -1339,6 +1342,18 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
         is the time in seconds to wait for the websocket client to receive websocket handshake response before aborting the connection.
     :param logger_name:
         picows will use `picows.<logger_name>` logger to do all the logging.
+    :param enable_auto_ping:
+        Enable detection of a stale connection by periodically pinging remote peer.
+
+        .. note::
+            This does NOT enable automatic replies to incoming `ping` requests.
+            Library user is always supposed to explicitly implement replies
+            to incoming `ping` requests in `WSListener.on_ws_frame`
+    :param auto_ping_idle_timeout:
+        how long to wait before sending `ping` request when there is no
+        incoming data.
+    :param auto_ping_reply_timeout:
+        how long to wait for a `pong` reply before shutting down connection.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
 
@@ -1422,6 +1437,18 @@ async def ws_create_server(ws_listener_factory: Callable[[WSUpgradeRequest], Opt
         is the time in seconds to wait for the websocket server to receive websocket handshake request before aborting the connection.
     :param logger_name:
         picows will use `picows.<logger_name>` logger to do all the logging.
+    :param enable_auto_ping:
+        Enable detection of a stale connection by periodically pinging remote peer.
+
+        .. note::
+            This does NOT enable automatic replies to incoming `ping` requests.
+            Library user is always supposed to explicitly implement replies
+            to incoming `ping` requests in `WSListener.on_ws_frame`
+    :param auto_ping_idle_timeout:
+        how long to wait before sending `ping` request when there is no
+        incoming data.
+    :param auto_ping_reply_timeout:
+        how long to wait for a `pong` reply before shutting down connection.
     :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
     ws_protocol_factory = lambda: WSProtocol(None, None, False, ws_listener_factory, logger_name,
