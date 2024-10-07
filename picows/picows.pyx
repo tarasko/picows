@@ -587,6 +587,9 @@ cdef class WSTransport:
         In such cases, the method simply does nothing.
         """
         self.auto_ping_expect_pong = False
+        if self._log_debug_enabled:
+            self._logger.log(PICOWS_DEBUG_LL,
+                             "Reset expect_pong flag because notify_user_specific_pong_received() called")
 
     cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64):
         initial_handshake = (b"GET %b HTTP/1.1\r\n"
@@ -996,12 +999,20 @@ cdef class WSProtocol:
                 if self._last_data_time > prev_last_data_time:
                     continue
 
+                if self._log_debug_enabled:
+                    self._logger.log(PICOWS_DEBUG_LL, "Send PING because no new data over the last %s seconds", self._auto_ping_idle_timeout)
+
                 self.listener.send_user_specific_ping(self.transport)
 
                 self.transport.auto_ping_expect_pong = True
                 await sleep(self._auto_ping_reply_timeout)
                 if self.transport.auto_ping_expect_pong:
                     # Pong hasn't arrived withing specified interval
+                    if self._log_debug_enabled:
+                        self._logger.log(PICOWS_DEBUG_LL,
+                                         "Initiate disconnect because no PONG received within %s seconds",
+                                         self._auto_ping_reply_timeout)
+
                     self.transport.send_close(WSCloseCode.GOING_AWAY, f"peer has not replied to ping/heartbeat request within {self._auto_ping_reply_timeout} second(s)".encode())
                     # Give a chance for the transport to send close message
                     # But don't wait for any tcp confirmation, use abort()
@@ -1278,7 +1289,7 @@ cdef class WSProtocol:
                 if self.listener.is_user_specific_pong(frame):
                     self.transport.auto_ping_expect_pong = False
                     if self._log_debug_enabled:
-                        self._logger.log(PICOWS_DEBUG_LL, "Received pong for the previously sent ping, reset expect_pong flag")
+                        self._logger.log(PICOWS_DEBUG_LL, "Received PONG for the previously sent PING, reset expect_pong flag")
                     return
 
             self.listener.on_ws_frame(self.transport, frame)
