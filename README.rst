@@ -45,24 +45,26 @@ https://picows.readthedocs.io/en/stable/
 
 Motivation
 ==========
-Popular WebSocket libraries attempt to provide high-level interfaces.
-They take care of timeouts, flow control, optional compression/decompression,
-assembling WebSocket messages from frames, as well as implementing async iteration interfaces.
-These features are often implemented in pure Python and come with a significant
-cost even when messages are small, un-fragmented (every WebSocket frame is final),
-and uncompressed. The async iteration interface is done using Futures,
-which adds extra work for the event loop and introduces delays.
-Furthermore, it is not always possible to check if more messages have already
-arrived; in some use cases, only the last message matters and other messages can be
-discarded without even parsing their content.
+Popular WebSocket libraries provides high-level interfaces that handle timeouts,
+flow control, optional compression/decompression, and reassembly of WebSocket messages
+from frames, while also implementing async iteration interfaces.
+However, these features are typically implemented in pure Python, resulting in
+significant overhead—even when messages are small, un-fragmented (with every WebSocket frame marked as final),
+and uncompressed.
 
+The async iteration interface relies on ``asyncio.Futures``, which adds additional
+work for the event loop and can introduce delays. Moreover, it’s not always necessary
+to process every message. In some use cases, only the latest message matters,
+and previous ones can be discarded without even parsing their content.
 
 API Design
 ==========
-The API follows the `transport/protocol design from asyncio <https://docs.python.org/3/library/asyncio-protocol.html#asyncio-transports-protocols>`_.
-The data path is non-async.
-A user handler receive frames objects instead of messages.
-A message can potentially consist of multiple frames but it is up to user to choose the best strategy for concatenating them.
+The library achieves superior performance by offering an efficient, non-async data path, similar to the
+`transport/protocol design from asyncio <https://docs.python.org/3/library/asyncio-protocol.html#asyncio-transports-protocols>`_.
+The user handler receives WebSocket frame objects instead of complete messages.
+Since a message can span multiple frames, it is up to the user to decide the most
+effective strategy for concatenating them. Each frame object includes additional
+details about the current parser state, which may help optimize the behavior of the user’s application.
 
 Getting started
 ===============
