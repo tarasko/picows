@@ -164,7 +164,6 @@ async def test_client_handshake_timeout(echo_server):
                                               ssl_context=create_client_ssl_context(),
                                               websocket_handshake_timeout=0.00001)
 
-
 async def test_server_handshake_timeout():
     server = await picows.ws_create_server(lambda _: picows.WSListener(),
                                            "127.0.0.1", 0, websocket_handshake_timeout=0.1)
@@ -178,6 +177,26 @@ async def test_server_handshake_timeout():
         await asyncio.sleep(0.2)
         assert client_reader.at_eof()
 
+
+async def test_client_multiple_disconnect(echo_server):
+    (transport, _) = await picows.ws_connect(picows.WSListener,
+                                             echo_server,
+                                             ssl_context=create_client_ssl_context())
+    transport.disconnect()
+    transport.disconnect()
+    transport.disconnect()
+
+    await transport.wait_disconnected()
+
+    (transport, _) = await picows.ws_connect(picows.WSListener,
+                                             echo_server,
+                                             ssl_context=create_client_ssl_context())
+
+    transport.disconnect(False)
+    transport.disconnect(False)
+    transport.disconnect(False)
+
+    await transport.wait_disconnected()
 
 @pytest.mark.parametrize("request_path", ["/v1/ws", "/v1/ws?key=blablabla&data=fhhh"])
 async def test_request_path_and_params(request_path):
