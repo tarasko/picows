@@ -1,8 +1,9 @@
-.. include:: ../../README.rst
+.. include:: getting_started.rst
 
 .. toctree::
     :hidden:
 
-    introduction
+    getting_started
+    guides
     reference
 
