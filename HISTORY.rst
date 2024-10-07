@@ -5,6 +5,13 @@ picows Release History
    :depth: 1
    :local:
 
+1.4.0 (2024-10-07)
+------------------
+
+* Added optional automatic ping-pong mechanism to detect broken connection
+* Added an option to WSTransport.disconnect to disconnect immediately without flushing send buffers
+* Re-structured documentation, added 'Topic guides' section
+
 1.3.0 (2024-10-01)
 ------------------
 
