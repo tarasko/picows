@@ -45,7 +45,7 @@ https://picows.readthedocs.io/en/stable/
 
 Motivation
 ==========
-Popular WebSocket libraries provides high-level interfaces that handle timeouts,
+Popular WebSocket libraries provide high-level interfaces that handle timeouts,
 flow control, optional compression/decompression, and reassembly of WebSocket messages
 from frames, while also implementing async iteration interfaces.
 However, these features are typically implemented in pure Python, resulting in
