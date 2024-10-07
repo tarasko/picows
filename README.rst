@@ -3,6 +3,8 @@
 
 Introduction
 ============
+.. image:: https://img.shields.io/github/actions/workflow/status/tarasko/picows/run-tests.yml?branch=master
+    :target: https://github.com/tarasko/picows/actions/workflows/run-tests.yml?query=branch%3Amaster
 
 .. image:: https://badge.fury.io/py/picows.svg
     :target: https://pypi.org/project/picows
