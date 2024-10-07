@@ -96,7 +96,7 @@ cdef class WSTransport:
     cpdef send_ping(self, message=*)
     cpdef send_pong(self, message=*)
     cpdef send_close(self, WSCloseCode close_code=*, close_message=*)
-    cpdef disconnect(self)
+    cpdef disconnect(self, bint graceful=*)
     cpdef notify_user_specific_pong_received(self)
 
     cdef inline _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64)
