@@ -43,96 +43,28 @@ Documentation
 
 https://picows.readthedocs.io/en/stable/
 
-Rationale
-=========
-Popular WebSocket libraries attempt to provide high-level interfaces. They take care of timeouts, flow control, optional compression/decompression, assembling WebSocket messages from frames, as well as implementing async iteration interfaces.
-These features are often implemented in pure Python and come with a significant cost even when messages are small, unfragmented (every WebSocket frame is final), and uncompressed. The async iteration interface is done using Futures, which adds extra work for the event loop and introduces delays. Furthermore, it is not always possible to check if more messages have already arrived; sometimes, only the last message matters.
+Motivation
+==========
+Popular WebSocket libraries attempt to provide high-level interfaces.
+They take care of timeouts, flow control, optional compression/decompression,
+assembling WebSocket messages from frames, as well as implementing async iteration interfaces.
+These features are often implemented in pure Python and come with a significant
+cost even when messages are small, un-fragmented (every WebSocket frame is final),
+and uncompressed. The async iteration interface is done using Futures,
+which adds extra work for the event loop and introduces delays.
+Furthermore, it is not always possible to check if more messages have already
+arrived; in some use cases, only the last message matters and other messages can be
+discarded without even parsing their content.
 
 
 API Design
 ==========
-The API follows the low-level `transport/protocol design from asyncio <https://docs.python.org/3/library/asyncio-protocol.html#asyncio-transports-protocols>`_.
-It passes frames instead of messages to a user handler. A message can potentially consist of multiple frames but it is up to user to choose the best strategy for merging them. 
-Same principle applies for compression and flow control. User can implement their own strategies using the most appropriate tools.
+The API follows the `transport/protocol design from asyncio <https://docs.python.org/3/library/asyncio-protocol.html#asyncio-transports-protocols>`_.
+The data path is non-async.
+A user handler receive frames objects instead of messages.
+A message can potentially consist of multiple frames but it is up to user to choose the best strategy for concatenating them.
 
-That being said the most common use-case is when messages and frames are the same, i.e. a message consists of only a single frame, and no compression is being used.
-
-Getting started
-===============
-
-Echo client
------------
-Connects to an echo server, sends a message and disconnect upon reply.
-
-.. code-block:: python
-
-    import asyncio
-    import uvloop
-    from picows import ws_connect, WSFrame, WSTransport, WSListener, WSMsgType, WSCloseCode
-
-    class ClientListener(WSListener):
-        def on_ws_connected(self, transport: WSTransport):
-            self.transport = transport
-            transport.send(WSMsgType.TEXT, b"Hello world")
-
-        def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
-            print(f"Echo reply: {frame.get_payload_as_ascii_text()}")
-            transport.send_close(WSCloseCode.OK)
-            transport.disconnect()
-
-
-    async def main(url):
-        (_, client) = await ws_connect(ClientListener, url)
-        await client.transport.wait_disconnected()
-
-
-    if __name__ == '__main__':
-        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-        asyncio.run(main("ws://127.0.0.1:9001"))
-
-This prints:
-
-.. code-block::
-
-    Echo reply: Hello world
-
-Echo server
------------
-
-.. code-block:: python
-
-    import asyncio
-    import uvloop
-    from picows import ws_create_server, WSFrame, WSTransport, WSListener, WSMsgType, WSUpgradeRequest
-
-    class ServerClientListener(WSListener):
-        def on_ws_connected(self, transport: WSTransport):
-            print("New client connected")
-
-        def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
-            if frame.msg_type == WSMsgType.PING:
-                transport.send_pong(frame.get_payload_as_bytes())
-            elif frame.msg_type == WSMsgType.CLOSE:
-                transport.send_close(frame.get_close_code(), frame.get_close_message())
-                transport.disconnect()
-            else:
-                transport.send(frame.msg_type, frame.get_payload_as_bytes())
-
-    async def main():
-        def listener_factory(r: WSUpgradeRequest):
-            # Routing can be implemented here by analyzing request content
-            return ServerClientListener()
-
-        server: asyncio.Server = await ws_create_server(listener_factory, "127.0.0.1", 9001)
-        for s in server.sockets:
-            print(f"Server started on {s.getsockname()}")
-
-        await server.serve_forever()
-
-    if __name__ == '__main__':
-      asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-      asyncio.run(main())
-
+.. include:: docs/source/getting_started.rst
 
 Features
 ========
