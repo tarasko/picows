@@ -555,7 +555,7 @@ cdef class WSTransport:
         It is safe to call this method multiple times. 
         It does nothing if the transport is already closed.
 
-        :param graceful: If True then send any remaining outgoing data in the buffer before closing the socket. This may potentially significantly delay on_ws_disconnected event since OS may wait for TCP_ACK for the data that was previously sent and until OS ack timeout fires up the socket will remain in connected state. Default: True           
+        :param graceful: If True then send any remaining outgoing data in the buffer before closing the socket. This may potentially significantly delay on_ws_disconnected event since OS may wait for TCP_ACK for the data that was previously sent and until OS ack timeout fires up the socket will remain in connected state.           
         """
         if graceful:
             self.underlying_transport.close()
