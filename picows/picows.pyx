@@ -239,7 +239,8 @@ cdef class WSFrame:
     def __str__(self):
         return (f"WSFrame({WSMsgType(self.msg_type).name}, fin={True if self.fin else False}, "
                 f"rsv1={True if self.rsv1 else False}, "
-                f"lib={True if self.last_in_buffer else False}, psz={self.payload_size}, tsz={self.tail_size})")
+                f"last_in_buffer={True if self.last_in_buffer else False}, "
+                f"payload_sz={self.payload_size}, tail_sz={self.tail_size})")
 
 
 cdef class MemoryBuffer:
