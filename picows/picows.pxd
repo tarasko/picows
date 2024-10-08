@@ -84,6 +84,8 @@ cdef class WSTransport:
         readonly bint is_secure
 
         bint auto_ping_expect_pong
+        object pong_received_at_fut
+        object listener_proxy
 
         object _logger                          #: Logger
         bint _log_debug_enabled
@@ -109,6 +111,8 @@ cdef class WSTransport:
 
 
 cdef class WSListener:
+    cdef object __weakref__
+
     cpdef on_ws_connected(self, WSTransport transport)
     cpdef on_ws_frame(self, WSTransport transport, WSFrame frame)
     cpdef on_ws_disconnected(self, WSTransport transport)

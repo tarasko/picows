@@ -251,3 +251,28 @@ async def test_is_user_specific_pong_exception():
         assert listener.frames[0].msg_type == picows.WSMsgType.PING
         assert listener.frames[1].msg_type == picows.WSMsgType.CLOSE
         assert listener.frames[1].close_code == picows.WSCloseCode.INTERNAL_ERROR
+
+
+async def test_roundtrip_latency():
+    class ServerClientListener(picows.WSListener):
+        def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
+            if frame.msg_type == picows.WSMsgType.PING:
+                transport.send_pong(frame.get_payload_as_bytes())
+
+    server = await picows.ws_create_server(lambda _: ServerClientListener(),
+                                           "127.0.0.1", 0)
+
+    class ClientListener(picows.WSListener):
+        async def on_connected(self, transport: picows.WSTransport):
+            results = await transport.measure_ping_pong_latency(5)
+            print(results)
+            transport.disconnect()
+
+        def on_ws_connected(self, transport: picows.WSTransport):
+            asyncio.get_running_loop().create_task(self.on_connected(transport))
+
+    async with ServerAsyncContext(server):
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
+        (transport, listener) = await picows.ws_connect(ClientListener, url, enable_auto_ping=True)
+        async with async_timeout.timeout(TIMEOUT):
+            await transport.wait_disconnected()
