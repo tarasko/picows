@@ -51,7 +51,7 @@ Popular WebSocket libraries provide high-level interfaces that handle timeouts,
 flow control, optional compression/decompression, and reassembly of WebSocket messages
 from frames, while also implementing async iteration interfaces.
 However, these features are typically implemented in pure Python, resulting in
-significant overhead—even when messages are small, un-fragmented (with every WebSocket frame marked as final),
+significant overhead even when messages are small, un-fragmented (with every WebSocket frame marked as final),
 and uncompressed.
 
 The async iteration interface relies on ``asyncio.Futures``, which adds additional
@@ -146,12 +146,12 @@ Echo server
 
 
 Features
-========
+====================
 * Maximally efficient WebSocket frame parser and builder implemented in Cython
 * Re-use memory as much as possible, avoid reallocations, and avoid unnecessary Python object creations
 * Provide Cython .pxd for efficient integration of user Cythonized code with picows
 * Ability to check if a frame is the last one in the receiving buffer
-* Support both secure and unsecure protocols (ws and wss schemes)
+* Auto ping-pong with an option to customize ping/pong messages.
 
 Contributing / Building From Source
 ===================================

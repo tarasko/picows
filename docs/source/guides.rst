@@ -152,9 +152,9 @@ Here is the naive way to implement concatenation:
             # Called after concatenating a message from multiple frames
             pass
 
-Before blindly coping this code, consider checking what remote peer is sending.
-It is very common that clients and servers never fragment their messages.
-Also control messages PING/PONG/CLOSE are never fragmented.
+Before using this code snippet, consider verifying what the remote peer is sending.
+It's quite common for clients and servers to never fragment their messages.
+Additionally, control messages like PING, PONG, and CLOSE are never fragmented.
 
 Async iteration
 ---------------
