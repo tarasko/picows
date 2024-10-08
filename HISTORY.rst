@@ -6,6 +6,7 @@ picows Release History
    :local:
 
 1.4.1 (2024-10-08)
+------------------
 
 * Log disconnect due to no PONG reply on INFO level
 * Make WSFrame string representation more descriptive
