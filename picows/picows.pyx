@@ -1007,11 +1007,10 @@ cdef class WSProtocol:
                 self.transport.auto_ping_expect_pong = True
                 await sleep(self._auto_ping_reply_timeout)
                 if self.transport.auto_ping_expect_pong:
-                    # Pong hasn't arrived withing specified interval
-                    if self._log_debug_enabled:
-                        self._logger.log(PICOWS_DEBUG_LL,
-                                         "Initiate disconnect because no PONG received within %s seconds",
-                                         self._auto_ping_reply_timeout)
+                    # Pong hasn't arrived within specified interval
+                    self._logger.info(
+                        "Initiating disconnect because no PONG was received within %s seconds",
+                        self._auto_ping_reply_timeout)
 
                     self.transport.send_close(WSCloseCode.GOING_AWAY, f"peer has not replied to ping/heartbeat request within {self._auto_ping_reply_timeout} second(s)".encode())
                     # Give a chance for the transport to send close message
