@@ -148,7 +148,7 @@ Here is the naive way to implement concatenation:
             # Called for the simple case when a frame is a whole message
             pass
 
-        def on_concatenated_message(self, msg_type: picows.WSMsgType, payload: bytearray):
+        def on_concatenated_message(self, transport: picows.WSTransport, msg_type: picows.WSMsgType, payload: bytearray):
             # Called after concatenating a message from multiple frames
             pass
 
