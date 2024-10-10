@@ -152,6 +152,7 @@ Features
 * Provide Cython .pxd for efficient integration of user Cythonized code with picows
 * Ability to check if a frame is the last one in the receiving buffer
 * Auto ping-pong with an option to customize ping/pong messages.
+* Convenient method to measure websocket roundtrip trip time using ping/pong messages.
 
 Contributing / Building From Source
 ===================================
@@ -183,8 +184,8 @@ Contributing / Building From Source
     $ python setup.py build_ext --inplace
     $ pytest -s -v
 
-    # Run specific test
-    $ pytest -s -v -k test_client_handshake_timeout[uvloop-plain]
+    # Run specific test with picows debug logs enabled
+    $ pytest -s -v -k test_client_handshake_timeout[uvloop-plain] --log-cli-level 9
 
 5. Run benchmark::
 

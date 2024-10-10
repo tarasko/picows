@@ -87,6 +87,16 @@ it does not handle replying to incoming ``PING`` frames.
 
             ...
 
+Measuring/checking round-trip time
+----------------------------------
+**picows** allows to conveniently measure round-trip time to a remote peer using
+:any:`measure_roundtrip_time`. This is done by sending PING request multiple
+times and measuring response delay.
+
+Checkout an `example <https://raw.githubusercontent.com/tarasko/picows/master/examples/okx_roundtrip_time.py>`_
+of how to measure RTT to a popular OKX crypto-currency exchange and initiate
+reconnect if it doesn't satisfy a predefined threshold.
+
 Message fragmentation
 ---------------------
 In the WebSocket protocol, there is a distinction between messages and frames.
