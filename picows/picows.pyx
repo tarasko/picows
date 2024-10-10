@@ -579,7 +579,7 @@ cdef class WSTransport:
         Coroutine that measures roundtrip time by running ping-pong.
 
         :param rounds: how many ping-pong rounds to do
-        :return: List of measured roundtrip times
+        :return: list of measured roundtrip times
         """
 
         cdef double ping_at
