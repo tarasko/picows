@@ -5,6 +5,11 @@ picows Release History
    :depth: 1
    :local:
 
+1.5.0 (2024-10-10)
+------------------
+
+* Added WSTransport.measure_roundtrip_time method + example
+
 1.4.1 (2024-10-08)
 ------------------
 
