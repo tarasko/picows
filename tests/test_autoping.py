@@ -297,3 +297,31 @@ async def test_roundtrip_latency(use_notify, with_auto_ping):
             transport.disconnect()
 
             await transport.wait_disconnected()
+
+
+@pytest.mark.parametrize("with_auto_ping", [False, True], ids=["no_auto_ping", "with_auto_ping"])
+async def test_roundtrip_latency_disconnect(with_auto_ping):
+    class ServerClientListener(picows.WSListener):
+        def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
+            if frame.msg_type == picows.WSMsgType.PING:
+                transport.send_pong(frame.get_payload_as_bytes())
+
+    server = await picows.ws_create_server(lambda _: ServerClientListener(),
+                                           "127.0.0.1", 0)
+
+    class ClientListener(picows.WSListener):
+        def send_user_specific_ping(self, transport):
+            transport.send_ping()
+            # Disconnect immediately to test that the client will not hang up
+            # waiting indefinitely for PONG
+            transport.disconnect()
+
+    async with ServerAsyncContext(server):
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
+        (transport, listener) = await picows.ws_connect(ClientListener, url,
+                                                        enable_auto_ping=with_auto_ping,
+                                                        auto_ping_idle_timeout=0.5,
+                                                        auto_ping_reply_timeout=0.5)
+        async with async_timeout.timeout(TIMEOUT):
+            with pytest.raises(ConnectionResetError):
+                await transport.measure_ping_pong_latency(5)

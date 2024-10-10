@@ -579,18 +579,19 @@ cdef class WSTransport:
         cdef double pong_at
         cdef int i
         cdef list results = []
+        cdef object shield = asyncio.shield
 
         # If auto-ping is enabled and currently waiting for pong then
         # wait until we receive it and only then proceed with our own pings
         if self.auto_ping_expect_pong:
             self.pong_received_at_fut = asyncio.get_running_loop().create_future()
-            await self.pong_received_at_fut
+            await shield(self.pong_received_at_fut)
 
         for i in range(rounds):
             self.listener_proxy.send_user_specific_ping(self)
             self.pong_received_at_fut = asyncio.get_running_loop().create_future()
             ping_at = picows_get_monotonic_time()
-            pong_at = await self.pong_received_at_fut
+            pong_at = await shield(self.pong_received_at_fut)
             results.append(pong_at - ping_at)
 
         return results
@@ -862,6 +863,10 @@ cdef class WSProtocol:
 
         if self._auto_ping_loop_task is not None and not self._auto_ping_loop_task.done():
             self._auto_ping_loop_task.cancel()
+
+        if self.transport.pong_received_at_fut is not None:
+            self.transport.pong_received_at_fut.set_exception(ConnectionResetError())
+            self.transport.pong_received_at_fut = None
 
         self.transport._mark_disconnected()
 
