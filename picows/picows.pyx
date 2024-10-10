@@ -617,9 +617,14 @@ cdef class WSTransport:
             self.pong_received_at_fut.set_result(picows_get_monotonic_time())
             self.pong_received_at_fut = None
 
-        if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL,
-                             "Reset expect_pong flag because notify_user_specific_pong_received() called")
+            if self._log_debug_enabled:
+                self._logger.log(PICOWS_DEBUG_LL,
+                                 "notify_user_specific_pong_received() for PONG(measure_ping_pong_latency), reset expect_pong")
+        else:
+            if self._log_debug_enabled:
+                self._logger.log(PICOWS_DEBUG_LL,
+                                 "notify_user_specific_pong_received() for PONG(idle timeout), reset expect_pong")
+
 
     cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64):
         initial_handshake = (b"GET %b HTTP/1.1\r\n"
@@ -990,7 +995,8 @@ cdef class WSProtocol:
             self._listener_factory = None
             try:
                 self.listener = listener_factory(upgrade_request)
-                self.transport.listener_proxy = weakref.proxy(self.listener)
+                if self.listener is not None:
+                    self.transport.listener_proxy = weakref.proxy(self.listener)
             except Exception as ex:
                 self.transport._send_internal_server_error(str(ex))
                 self.transport.disconnect()
@@ -1325,10 +1331,15 @@ cdef class WSProtocol:
             if self._enable_auto_ping and self.transport.auto_ping_expect_pong or self.transport.pong_received_at_fut is not None:
                 if self.listener.is_user_specific_pong(frame):
                     self.transport.auto_ping_expect_pong = False
-                    self.transport.pong_received_at_fut.set_result(picows_get_monotonic_time())
-                    self.transport.pong_received_at_fut = None
-                    if self._log_debug_enabled:
-                        self._logger.log(PICOWS_DEBUG_LL, "Received PONG for the previously sent PING, reset expect_pong flag")
+                    if self.transport.pong_received_at_fut is not None:
+                        self.transport.pong_received_at_fut.set_result(picows_get_monotonic_time())
+                        self.transport.pong_received_at_fut = None
+                        if self._log_debug_enabled:
+                            self._logger.log(PICOWS_DEBUG_LL, "Received PONG for the previously sent PING(measure_ping_pong_latency), reset expect_pong flag")
+                    else:
+                        if self._log_debug_enabled:
+                            self._logger.log(PICOWS_DEBUG_LL, "Received PONG for the previously sent PING(idle timeout), reset expect_pong flag")
+
                     return
 
             self.listener.on_ws_frame(self.transport, frame)

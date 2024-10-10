@@ -265,7 +265,7 @@ async def test_ws_on_connected_throw():
             await transport.wait_disconnected()
 
 
-@pytest.mark.parametrize("disconnect_on_exception", [True, False])
+@pytest.mark.parametrize("disconnect_on_exception", [True, False], ids=["disconnect_on_exception", "no_disconnect_on_exception"])
 async def test_ws_on_frame_throw(disconnect_on_exception):
     class ServerClientListener(picows.WSListener):
         def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):

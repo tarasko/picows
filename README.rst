@@ -183,8 +183,8 @@ Contributing / Building From Source
     $ python setup.py build_ext --inplace
     $ pytest -s -v
 
-    # Run specific test
-    $ pytest -s -v -k test_client_handshake_timeout[uvloop-plain]
+    # Run specific test with picows debug logs enabled
+    $ pytest -s -v -k test_client_handshake_timeout[uvloop-plain] --log-cli-level 9
 
 5. Run benchmark::
 
