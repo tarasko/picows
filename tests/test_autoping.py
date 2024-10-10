@@ -282,7 +282,7 @@ async def test_roundtrip_latency(use_notify, with_auto_ping):
                                                         auto_ping_idle_timeout=0.5,
                                                         auto_ping_reply_timeout=0.5)
         async with async_timeout.timeout(2):
-            results = await transport.measure_ping_pong_latency(5)
+            results = await transport.measure_roundtrip_latency(5)
             assert len(results) == 5
             for l in results:
                 assert l > 0 and l < 1.0
@@ -290,7 +290,7 @@ async def test_roundtrip_latency(use_notify, with_auto_ping):
         await asyncio.sleep(0.7)
 
         async with async_timeout.timeout(2):
-            results = await transport.measure_ping_pong_latency(5)
+            results = await transport.measure_roundtrip_latency(5)
             assert len(results) == 5
             for l in results:
                 assert l > 0 and l < 1.0
@@ -324,4 +324,4 @@ async def test_roundtrip_latency_disconnect(with_auto_ping):
                                                         auto_ping_reply_timeout=0.5)
         async with async_timeout.timeout(TIMEOUT):
             with pytest.raises(ConnectionResetError):
-                await transport.measure_ping_pong_latency(5)
+                await transport.measure_roundtrip_latency(5)

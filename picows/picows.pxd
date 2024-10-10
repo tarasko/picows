@@ -84,7 +84,7 @@ cdef class WSTransport:
         readonly bint is_secure
 
         bint auto_ping_expect_pong
-        object pong_received_at_fut
+        object pong_received_at_future
         object listener_proxy
 
         object _logger                          #: Logger

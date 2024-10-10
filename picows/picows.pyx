@@ -394,7 +394,7 @@ cdef class WSTransport:
         self.is_client_side = is_client_side
         self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
         self.auto_ping_expect_pong = False
-        self.pong_received_at_fut = None
+        self.pong_received_at_future = None
         self.listener_proxy = None
         self._logger = logger
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
@@ -574,7 +574,7 @@ cdef class WSTransport:
         """
         await asyncio.shield(self._disconnected_future)
 
-    async def measure_ping_pong_latency(self, int rounds):
+    async def measure_roundtrip_latency(self, int rounds):
         cdef double ping_at
         cdef double pong_at
         cdef int i
@@ -584,14 +584,14 @@ cdef class WSTransport:
         # If auto-ping is enabled and currently waiting for pong then
         # wait until we receive it and only then proceed with our own pings
         if self.auto_ping_expect_pong:
-            self.pong_received_at_fut = asyncio.get_running_loop().create_future()
-            await shield(self.pong_received_at_fut)
+            self.pong_received_at_future = asyncio.get_running_loop().create_future()
+            await shield(self.pong_received_at_future)
 
         for i in range(rounds):
             self.listener_proxy.send_user_specific_ping(self)
-            self.pong_received_at_fut = asyncio.get_running_loop().create_future()
+            self.pong_received_at_future = asyncio.get_running_loop().create_future()
             ping_at = picows_get_monotonic_time()
-            pong_at = await shield(self.pong_received_at_fut)
+            pong_at = await shield(self.pong_received_at_future)
             results.append(pong_at - ping_at)
 
         return results
@@ -614,13 +614,13 @@ cdef class WSTransport:
         """
         self.auto_ping_expect_pong = False
 
-        if self.pong_received_at_fut is not None:
-            self.pong_received_at_fut.set_result(picows_get_monotonic_time())
-            self.pong_received_at_fut = None
+        if self.pong_received_at_future is not None:
+            self.pong_received_at_future.set_result(picows_get_monotonic_time())
+            self.pong_received_at_future = None
 
             if self._log_debug_enabled:
                 self._logger.log(PICOWS_DEBUG_LL,
-                                 "notify_user_specific_pong_received() for PONG(measure_ping_pong_latency), reset expect_pong")
+                                 "notify_user_specific_pong_received() for PONG(measure_roundtrip_latency), reset expect_pong")
         else:
             if self._log_debug_enabled:
                 self._logger.log(PICOWS_DEBUG_LL,
@@ -864,9 +864,9 @@ cdef class WSProtocol:
         if self._auto_ping_loop_task is not None and not self._auto_ping_loop_task.done():
             self._auto_ping_loop_task.cancel()
 
-        if self.transport.pong_received_at_fut is not None:
-            self.transport.pong_received_at_fut.set_exception(ConnectionResetError())
-            self.transport.pong_received_at_fut = None
+        if self.transport.pong_received_at_future is not None:
+            self.transport.pong_received_at_future.set_exception(ConnectionResetError())
+            self.transport.pong_received_at_future = None
 
         self.transport._mark_disconnected()
 
@@ -1045,8 +1045,8 @@ cdef class WSProtocol:
                 if self._log_debug_enabled:
                     self._logger.log(PICOWS_DEBUG_LL, "Send PING because no new data over the last %s seconds", self._auto_ping_idle_timeout)
 
-                if self.transport.pong_received_at_fut is not None:
-                    # measure_ping_pong_latency is currently doing it's own ping-pongs
+                if self.transport.pong_received_at_future is not None:
+                    # measure_roundtrip_latency is currently doing it's own ping-pongs
                     # set _last_data_time to now and sleep
                     self._last_data_time = picows_get_monotonic_time()
                     continue
@@ -1333,14 +1333,14 @@ cdef class WSProtocol:
 
     cdef inline _invoke_on_ws_frame(self, WSFrame frame):
         try:
-            if self._enable_auto_ping and self.transport.auto_ping_expect_pong or self.transport.pong_received_at_fut is not None:
+            if self._enable_auto_ping and self.transport.auto_ping_expect_pong or self.transport.pong_received_at_future is not None:
                 if self.listener.is_user_specific_pong(frame):
                     self.transport.auto_ping_expect_pong = False
-                    if self.transport.pong_received_at_fut is not None:
-                        self.transport.pong_received_at_fut.set_result(picows_get_monotonic_time())
-                        self.transport.pong_received_at_fut = None
+                    if self.transport.pong_received_at_future is not None:
+                        self.transport.pong_received_at_future.set_result(picows_get_monotonic_time())
+                        self.transport.pong_received_at_future = None
                         if self._log_debug_enabled:
-                            self._logger.log(PICOWS_DEBUG_LL, "Received PONG for the previously sent PING(measure_ping_pong_latency), reset expect_pong flag")
+                            self._logger.log(PICOWS_DEBUG_LL, "Received PONG for the previously sent PING(measure_roundtrip_latency), reset expect_pong flag")
                     else:
                         if self._log_debug_enabled:
                             self._logger.log(PICOWS_DEBUG_LL, "Received PONG for the previously sent PING(idle timeout), reset expect_pong flag")
