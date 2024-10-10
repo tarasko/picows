@@ -9,7 +9,7 @@ import socket
 import struct
 import urllib.parse
 from ssl import SSLContext
-from typing import cast, Tuple, Optional, Callable
+from typing import cast, Tuple, Optional, Callable, List
 
 from multidict import CIMultiDict
 
@@ -574,22 +574,30 @@ cdef class WSTransport:
         """
         await asyncio.shield(self._disconnected_future)
 
-    async def measure_roundtrip_latency(self, int rounds):
+    async def measure_roundtrip_time(self, int rounds) -> List[float]:
+        """
+        Coroutine that measures roundtrip time by running ping-pong.
+
+        :param rounds: how many ping-pong rounds to do
+        :return: List of measured roundtrip times
+        """
+
         cdef double ping_at
         cdef double pong_at
         cdef int i
         cdef list results = []
         cdef object shield = asyncio.shield
+        cdef object create_future = asyncio.get_running_loop().create_future
 
         # If auto-ping is enabled and currently waiting for pong then
         # wait until we receive it and only then proceed with our own pings
         if self.auto_ping_expect_pong:
-            self.pong_received_at_future = asyncio.get_running_loop().create_future()
+            self.pong_received_at_future = create_future()
             await shield(self.pong_received_at_future)
 
         for i in range(rounds):
             self.listener_proxy.send_user_specific_ping(self)
-            self.pong_received_at_future = asyncio.get_running_loop().create_future()
+            self.pong_received_at_future = create_future()
             ping_at = picows_get_monotonic_time()
             pong_at = await shield(self.pong_received_at_future)
             results.append(pong_at - ping_at)
@@ -620,7 +628,7 @@ cdef class WSTransport:
 
             if self._log_debug_enabled:
                 self._logger.log(PICOWS_DEBUG_LL,
-                                 "notify_user_specific_pong_received() for PONG(measure_roundtrip_latency), reset expect_pong")
+                                 "notify_user_specific_pong_received() for PONG(measure_roundtrip_time), reset expect_pong")
         else:
             if self._log_debug_enabled:
                 self._logger.log(PICOWS_DEBUG_LL,
@@ -1046,7 +1054,7 @@ cdef class WSProtocol:
                     self._logger.log(PICOWS_DEBUG_LL, "Send PING because no new data over the last %s seconds", self._auto_ping_idle_timeout)
 
                 if self.transport.pong_received_at_future is not None:
-                    # measure_roundtrip_latency is currently doing it's own ping-pongs
+                    # measure_roundtrip_time is currently doing it's own ping-pongs
                     # set _last_data_time to now and sleep
                     self._last_data_time = picows_get_monotonic_time()
                     continue
@@ -1340,7 +1348,7 @@ cdef class WSProtocol:
                         self.transport.pong_received_at_future.set_result(picows_get_monotonic_time())
                         self.transport.pong_received_at_future = None
                         if self._log_debug_enabled:
-                            self._logger.log(PICOWS_DEBUG_LL, "Received PONG for the previously sent PING(measure_roundtrip_latency), reset expect_pong flag")
+                            self._logger.log(PICOWS_DEBUG_LL, "Received PONG for the previously sent PING(measure_roundtrip_time), reset expect_pong flag")
                     else:
                         if self._log_debug_enabled:
                             self._logger.log(PICOWS_DEBUG_LL, "Received PONG for the previously sent PING(idle timeout), reset expect_pong flag")
