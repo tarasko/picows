@@ -93,8 +93,8 @@ Measuring/checking round-trip time
 :any:`measure_roundtrip_time`. This is done by sending PING request multiple
 times and measuring response delay.
 
-Checkout an `example <https://raw.githubusercontent.com/tarasko/picows/master/examples/okx_roundtrip_time.py>`_
-of how to measure RTT to a popular OKX crypto-currency exchange and initiate
+Checkout an `okx_roundtrip_time.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/okx_roundtrip_time.py>`_
+example of how to measure RTT to a popular OKX crypto-currency exchange and initiate
 reconnect if it doesn't satisfy a predefined threshold.
 
 Message fragmentation
@@ -229,7 +229,7 @@ Using Cython interface
 If you are using Cython in your project, you can access picows type definitions
 and some extra functionality by importing `picows.pxd <https://raw.githubusercontent.com/tarasko/picows/master/picows/picows.pxd>`_ that is installed with the library.
 
-Check out an `example <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_cython.pyx>`_ of a simple echo client that is written in Cython.
+Check out an `echo_client_cython.pyx <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_cython.pyx>`_ of a simple echo client that is written in Cython.
 
 Enable debug logs
 -----------------
@@ -239,6 +239,7 @@ You may use any available way to set log level to PICOWS_DEBUG_LL (=9) to enable
 debug logging.
 
 .. code-block:: python
+
     # Either set global log level
     logging.basicConfig(level=picows.PICOWS_DEBUG_LL)
     # Or set picows logger log level only
