@@ -230,3 +230,17 @@ If you are using Cython in your project, you can access picows type definitions
 and some extra functionality by importing `picows.pxd <https://raw.githubusercontent.com/tarasko/picows/master/picows/picows.pxd>`_ that is installed with the library.
 
 Check out an `example <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_cython.pyx>`_ of a simple echo client that is written in Cython.
+
+Enable debug logs
+-----------------
+
+**picows** logs using Python's standard logging module under picows.* logger.
+You may use any available way to set log level to PICOWS_DEBUG_LL (=9) to enable
+debug logging.
+
+.. code-block:: python
+    # Either set global log level
+    logging.basicConfig(level=picows.PICOWS_DEBUG_LL)
+    # Or set picows logger log level only
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger("picows").setLevel(picows.PICOWS_DEBUG_LL)

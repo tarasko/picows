@@ -34,5 +34,6 @@ async def main(url):
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=9)
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger("picows").setLevel(9)
     asyncio.run(main("wss://ws.okx.com:8443/ws/v5/public"))

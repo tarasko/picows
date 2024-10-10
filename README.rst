@@ -43,7 +43,7 @@ Use pip to install it::
 Documentation
 =============
 
-https://picows.readthedocs.io/en/stable/
+https://picows.readthedocs.io/en/latest/
 
 Motivation
 ==========
@@ -152,7 +152,7 @@ Features
 * Provide Cython .pxd for efficient integration of user Cythonized code with picows
 * Ability to check if a frame is the last one in the receiving buffer
 * Auto ping-pong with an option to customize ping/pong messages.
-* Convenient method to measure websocket roundtrip trip time using ping/pong messages.
+* Convenient method to measure websocket roundtrip time using ping/pong messages.
 
 Contributing / Building From Source
 ===================================
