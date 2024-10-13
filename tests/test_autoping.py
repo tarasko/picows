@@ -7,6 +7,7 @@ from aiohttp import WSMsgType
 
 import picows
 from picows import WSFrame
+from picows.picows import WSListener
 from tests.utils import ServerAsyncContext, TIMEOUT, TextFrame, CloseFrame, \
     BinaryFrame, materialize_frame
 
@@ -49,7 +50,7 @@ async def test_ping_pong():
 
     async with ServerAsyncContext(server):
         url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
-        (transport, listener) = await picows.ws_connect(ClientListener, url)
+        (transport, listener) = await picows.ws_connect(ClientListener, url, enable_auto_pong_reply=False)
         async with async_timeout.timeout(TIMEOUT):
             await transport.wait_disconnected()
             assert listener.ping_count == 3
@@ -116,7 +117,8 @@ async def test_custom_ping_notify_pong():
                                            "127.0.0.1", 0,
                                            enable_auto_ping=True,
                                            auto_ping_idle_timeout=0.1,
-                                           auto_ping_reply_timeout=0.1)
+                                           auto_ping_reply_timeout=0.1,
+                                           enable_auto_pong_reply=False)
 
     class ClientListener(picows.WSListener):
         def __init__(self):
@@ -151,7 +153,7 @@ async def test_no_pong_reply():
 
     async with ServerAsyncContext(server):
         url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
-        (transport, listener) = await picows.ws_connect(AccumulatingListener, url)
+        (transport, listener) = await picows.ws_connect(AccumulatingListener, url, enable_auto_pong_reply=False)
         async with async_timeout.timeout(TIMEOUT):
             await transport.wait_disconnected()
 
@@ -227,7 +229,7 @@ async def test_send_user_specific_ping_exception():
 
 async def test_is_user_specific_pong_exception():
     class ServerClientListener(picows.WSListener):
-        def is_user_specific_pong(self, transport: picows.WSTransport):
+        def is_user_specific_pong(self, frame: picows.WSFrame):
             raise RuntimeError("failed")
 
     server = await picows.ws_create_server(lambda _: ServerClientListener(),
@@ -236,34 +238,21 @@ async def test_is_user_specific_pong_exception():
                                            auto_ping_idle_timeout=0.1,
                                            auto_ping_reply_timeout=0.1)
 
-    class ClientListener(AccumulatingListener):
-        def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-            if frame.msg_type == picows.WSMsgType.PING:
-                transport.send_pong(frame.get_payload_as_bytes())
-
-            super().on_ws_frame(transport, frame)
-
     async with ServerAsyncContext(server):
         url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
-        (transport, listener) = await picows.ws_connect(ClientListener, url)
+        (transport, listener) = await picows.ws_connect(AccumulatingListener, url)
         async with async_timeout.timeout(TIMEOUT):
             await transport.wait_disconnected()
 
-        assert len(listener.frames) == 2
-        assert listener.frames[0].msg_type == picows.WSMsgType.PING
-        assert listener.frames[1].msg_type == picows.WSMsgType.CLOSE
-        assert listener.frames[1].close_code == picows.WSCloseCode.INTERNAL_ERROR
+        assert len(listener.frames) == 1
+        assert listener.frames[0].msg_type == picows.WSMsgType.CLOSE
+        assert listener.frames[0].close_code == picows.WSCloseCode.INTERNAL_ERROR
 
 
 @pytest.mark.parametrize("use_notify", [False, True], ids=["dont_use_notify", "use_notify"])
 @pytest.mark.parametrize("with_auto_ping", [False, True], ids=["no_auto_ping", "with_auto_ping"])
 async def test_roundtrip_time(use_notify, with_auto_ping):
-    class ServerClientListener(picows.WSListener):
-        def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-            if frame.msg_type == picows.WSMsgType.PING:
-                transport.send_pong(frame.get_payload_as_bytes())
-
-    server = await picows.ws_create_server(lambda _: ServerClientListener(),
+    server = await picows.ws_create_server(lambda _: WSListener(),
                                            "127.0.0.1", 0)
 
     class ClientListenerUseNotify(picows.WSListener):
@@ -301,12 +290,7 @@ async def test_roundtrip_time(use_notify, with_auto_ping):
 
 @pytest.mark.parametrize("with_auto_ping", [False, True], ids=["no_auto_ping", "with_auto_ping"])
 async def test_roundtrip_latency_disconnect(with_auto_ping):
-    class ServerClientListener(picows.WSListener):
-        def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-            if frame.msg_type == picows.WSMsgType.PING:
-                transport.send_pong(frame.get_payload_as_bytes())
-
-    server = await picows.ws_create_server(lambda _: ServerClientListener(),
+    server = await picows.ws_create_server(lambda _: WSListener(),
                                            "127.0.0.1", 0)
 
     class ClientListener(picows.WSListener):

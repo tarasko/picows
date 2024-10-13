@@ -58,7 +58,8 @@ async def echo_server(request):
                                            "127.0.0.1",
                                            0,
                                            ssl=create_server_ssl_context() if use_ssl else None,
-                                           websocket_handshake_timeout=0.5)
+                                           websocket_handshake_timeout=0.5,
+                                           enable_auto_pong_reply=False)
 
     async with ServerAsyncContext(server):
         yield f"{'wss' if use_ssl else 'ws'}://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
@@ -93,7 +94,8 @@ async def echo_client(echo_server):
 
     (_, client) = await picows.ws_connect(PicowsClientListener, echo_server,
                                           ssl_context=create_client_ssl_context(),
-                                          websocket_handshake_timeout=0.5)
+                                          websocket_handshake_timeout=0.5,
+                                          enable_auto_pong_reply=False)
     yield client
 
     # Teardown client
