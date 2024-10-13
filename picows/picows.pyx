@@ -571,6 +571,7 @@ cdef class WSTransport:
         Coroutine that conveniently allows to wait until websocket is
         completely disconnected.
         (underlying transport is closed, on_ws_disconnected has been called)
+
         """
         await asyncio.shield(self._disconnected_future)
 
