@@ -50,7 +50,7 @@ async def test_ping_pong():
 
     async with ServerAsyncContext(server):
         url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
-        (transport, listener) = await picows.ws_connect(ClientListener, url, enable_auto_pong_reply=False)
+        (transport, listener) = await picows.ws_connect(ClientListener, url, enable_auto_pong=False)
         async with async_timeout.timeout(TIMEOUT):
             await transport.wait_disconnected()
             assert listener.ping_count == 3
@@ -118,7 +118,7 @@ async def test_custom_ping_notify_pong():
                                            enable_auto_ping=True,
                                            auto_ping_idle_timeout=0.1,
                                            auto_ping_reply_timeout=0.1,
-                                           enable_auto_pong_reply=False)
+                                           enable_auto_pong=False)
 
     class ClientListener(picows.WSListener):
         def __init__(self):
@@ -153,7 +153,7 @@ async def test_no_pong_reply():
 
     async with ServerAsyncContext(server):
         url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
-        (transport, listener) = await picows.ws_connect(AccumulatingListener, url, enable_auto_pong_reply=False)
+        (transport, listener) = await picows.ws_connect(AccumulatingListener, url, enable_auto_pong=False)
         async with async_timeout.timeout(TIMEOUT):
             await transport.wait_disconnected()
 

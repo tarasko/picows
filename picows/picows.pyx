@@ -748,7 +748,7 @@ cdef class WSProtocol:
         bytes _websocket_key_b64
         size_t _max_frame_size
 
-        bint _enable_auto_pong_reply
+        bint _enable_auto_pong
         bint _enable_auto_ping
         double _auto_ping_idle_timeout
         double _auto_ping_reply_timeout
@@ -774,7 +774,7 @@ cdef class WSProtocol:
     def __init__(self, str host_port, str ws_path, bint is_client_side, ws_listener_factory, str logger_name,
                  bint disconnect_on_exception, websocket_handshake_timeout,
                  enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
-                 enable_auto_pong_reply):
+                 enable_auto_pong):
         self.transport = None
         self.listener = None
 
@@ -796,7 +796,7 @@ cdef class WSProtocol:
         self._websocket_key_b64 = b64encode(os.urandom(16))
         self._max_frame_size = 1024 * 1024
 
-        self._enable_auto_pong_reply = enable_auto_pong_reply
+        self._enable_auto_pong = enable_auto_pong
         self._enable_auto_ping = enable_auto_ping
         self._auto_ping_idle_timeout = auto_ping_idle_timeout
         self._auto_ping_reply_timeout = auto_ping_reply_timeout
@@ -1344,7 +1344,7 @@ cdef class WSProtocol:
 
     cdef inline _invoke_on_ws_frame(self, WSFrame frame):
         try:
-            if self._enable_auto_pong_reply and frame.msg_type == WSMsgType.PING:
+            if self._enable_auto_pong and frame.msg_type == WSMsgType.PING:
                 payload = frame.get_payload_as_bytes()
                 self.transport.send_pong(payload)
                 if self._log_debug_enabled:
@@ -1408,7 +1408,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                      enable_auto_ping: bool = False,
                      auto_ping_idle_timeout: float = 10,
                      auto_ping_reply_timeout: float = 10,
-                     enable_auto_pong_reply: bool = True,
+                     enable_auto_pong: bool = True,
                      **kwargs
                      ) -> Tuple[WSTransport, WSListener]:
     """
@@ -1440,7 +1440,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
         incoming data.
     :param auto_ping_reply_timeout:
         how long to wait for a `pong` reply before shutting down connection.
-    :param enable_auto_pong_reply:
+    :param enable_auto_pong:
         If enabled then picows will automatically reply to incoming PING frames.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
@@ -1466,7 +1466,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
     ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, path_plus_query, True, ws_listener_factory,
                                              logger_name, disconnect_on_exception, websocket_handshake_timeout,
                                              enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
-                                             enable_auto_pong_reply)
+                                             enable_auto_pong)
 
     cdef WSProtocol ws_protocol
 
@@ -1488,7 +1488,7 @@ async def ws_create_server(ws_listener_factory: Callable[[WSUpgradeRequest], Opt
                            enable_auto_ping: bool = False,
                            auto_ping_idle_timeout: float = 20,
                            auto_ping_reply_timeout: float = 20,
-                           enable_auto_pong_reply: bool = True,
+                           enable_auto_pong: bool = True,
                            **kwargs
                            ) -> asyncio.Server:
     """
@@ -1539,14 +1539,14 @@ async def ws_create_server(ws_listener_factory: Callable[[WSUpgradeRequest], Opt
         incoming data.
     :param auto_ping_reply_timeout:
         how long to wait for a `pong` reply before shutting down connection.
-    :param enable_auto_pong_reply:
+    :param enable_auto_pong:
         If enabled then picows will automatically reply to incoming PING frames.
     :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
     ws_protocol_factory = lambda: WSProtocol(None, None, False, ws_listener_factory, logger_name,
                                              disconnect_on_exception, websocket_handshake_timeout,
                                              enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
-                                             enable_auto_pong_reply)
+                                             enable_auto_pong)
 
     return await asyncio.get_running_loop().create_server(
         ws_protocol_factory,

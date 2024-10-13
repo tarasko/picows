@@ -1,7 +1,7 @@
 Topic guides
 ===============
 
-Auto ping-pong
+Auto ping
 --------------
 `Available since 1.4`
 
@@ -9,7 +9,7 @@ The WebSocket protocol includes special frame types, WSMsgType.PING and WSMsgTyp
 
 From the user's perspective, these frames function like regular frames and may contain payload data. When one side receives a PING frame, it must respond with a PONG frame that includes the same payload as the PING.
 
-**picows** offers an efficient 'auto ping-pong' mechanism to automatically send a PING to the remote peer after a specified period of inactivity and to handle and verify PONG responses. If no PONG is received, the WebSocket will be disconnected.
+**picows** offers an efficient 'auto ping' mechanism to automatically send a PING to the remote peer after a specified period of inactivity and to handle and verify PONG responses. If no PONG is received, the WebSocket will be disconnected.
 
 This behaviour is controlled by the 3 parameters passed to :any:`ws_connect` or :any:`ws_create_server`:
 
@@ -72,10 +72,14 @@ If this applies to your use case, it's better to delay the determination of a po
             # Process other operations
             ...
 
+Auto pong
+---------
+`Available since 1.6`
 
-Additionally, you must manually respond to incoming ``PING`` frames.
-The auto-ping mechanism only handles sending ``PING`` frames to the remote peer and processing ``PONG`` replies;
-it does not handle replying to incoming ``PING`` frames.
+By default **picows** always replies to incoming PING messages with PONG.
+This is controlled by `enable_auto_pong` argument to :any:`ws_connect`
+and :any:`ws_create_server`. If disabled, PING messages must be handled
+manually from :any:`on_ws_frame`.
 
 .. code-block:: python
 
@@ -89,6 +93,8 @@ it does not handle replying to incoming ``PING`` frames.
 
 Measuring/checking round-trip time
 ----------------------------------
+`Available since 1.5`
+
 **picows** allows to conveniently measure round-trip time to a remote peer using
 :any:`measure_roundtrip_time`. This is done by sending PING request multiple
 times and measuring response delay.
