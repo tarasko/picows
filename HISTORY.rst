@@ -5,6 +5,11 @@ picows Release History
    :depth: 1
    :local:
 
+1.6.0
+------------------
+
+* Added optional automatic replies to incoming PING messages, enabled by default
+
 1.5.0 (2024-10-10)
 ------------------
 
