@@ -143,3 +143,4 @@ Enums
 
 .. autoenum:: WSMsgType
 .. autoenum:: WSCloseCode
+.. autoenum:: WSAutoPingStrategy

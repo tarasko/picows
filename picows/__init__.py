@@ -2,6 +2,7 @@ from .picows import (
     WSError,
     WSMsgType,
     WSCloseCode,
+    WSAutoPingStrategy,
     WSFrame,
     WSTransport,
     WSListener,
