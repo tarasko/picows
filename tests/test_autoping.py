@@ -250,8 +250,10 @@ async def test_is_user_specific_pong_exception():
 
 
 @pytest.mark.parametrize("use_notify", [False, True], ids=["dont_use_notify", "use_notify"])
-@pytest.mark.parametrize("with_auto_ping", [False, True], ids=["no_auto_ping", "with_auto_ping"])
-async def test_roundtrip_time(use_notify, with_auto_ping):
+@pytest.mark.parametrize("auto_ping_strategy",
+                         [None, picows.WSAutoPingStrategy.PING_WHEN_IDLE, picows.WSAutoPingStrategy.PING_PERIODICALLY],
+                         ids=["no_auto_ping", "auto_ping_when_idle", "auto_ping_periodically"])
+async def test_roundtrip_time(use_notify, auto_ping_strategy):
     server = await picows.ws_create_server(lambda _: WSListener(),
                                            "127.0.0.1", 0)
 
@@ -266,10 +268,13 @@ async def test_roundtrip_time(use_notify, with_auto_ping):
     async with ServerAsyncContext(server):
         url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
         listener_factory = ClientListenerUseNotify if use_notify else picows.WSListener
+        enable_auto_ping = auto_ping_strategy is not None
+        auto_ping_strategy = auto_ping_strategy or picows.WSAutoPingStrategy.PING_WHEN_IDLE
         (transport, listener) = await picows.ws_connect(listener_factory, url,
-                                                        enable_auto_ping=with_auto_ping,
+                                                        enable_auto_ping=enable_auto_ping,
                                                         auto_ping_idle_timeout=0.5,
-                                                        auto_ping_reply_timeout=0.5)
+                                                        auto_ping_reply_timeout=0.5,
+                                                        auto_ping_strategy=auto_ping_strategy)
         async with async_timeout.timeout(2):
             results = await transport.measure_roundtrip_time(5)
             assert len(results) == 5

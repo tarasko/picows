@@ -36,6 +36,11 @@ cpdef enum WSCloseCode:
     BAD_GATEWAY = 1014
 
 
+cpdef enum WSAutoPingStrategy:
+    PING_WHEN_IDLE = 1
+    PING_PERIODICALLY = 2
+
+
 cdef class MemoryBuffer:
     cdef:
         Py_ssize_t size

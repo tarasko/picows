@@ -55,7 +55,9 @@ cdef extern from "picows_compat.h" nogil:
 
 
 class WSError(RuntimeError):
-    """Exception type for picows library"""
+    """
+    Currently it is only thrown by :any:`ws_connect` on handshake errors.
+    """
     pass
 
 
@@ -753,6 +755,7 @@ cdef class WSProtocol:
         bint _enable_auto_ping
         double _auto_ping_idle_timeout
         double _auto_ping_reply_timeout
+        WSAutoPingStrategy _auto_ping_strategy
         object _auto_ping_loop_task
         double _last_data_time
 
@@ -775,6 +778,7 @@ cdef class WSProtocol:
     def __init__(self, str host_port, str ws_path, bint is_client_side, ws_listener_factory, str logger_name,
                  bint disconnect_on_exception, websocket_handshake_timeout,
                  enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
+                 auto_ping_strategy,
                  enable_auto_pong):
         self.transport = None
         self.listener = None
@@ -801,6 +805,7 @@ cdef class WSProtocol:
         self._enable_auto_ping = enable_auto_ping
         self._auto_ping_idle_timeout = auto_ping_idle_timeout
         self._auto_ping_reply_timeout = auto_ping_reply_timeout
+        self._auto_ping_strategy = auto_ping_strategy
         self._auto_ping_loop_task = None
         self._last_data_time = 0
 
@@ -1046,21 +1051,30 @@ cdef class WSProtocol:
                                  self._auto_ping_idle_timeout, self._auto_ping_reply_timeout)
 
             while True:
-                now = picows_get_monotonic_time()
-                idle_delay = self._last_data_time + self._auto_ping_idle_timeout - now
-                prev_last_data_time = self._last_data_time
-                await sleep(idle_delay)
+                if self._auto_ping_strategy == WSAutoPingStrategy.PING_WHEN_IDLE:
+                    now = picows_get_monotonic_time()
+                    idle_delay = self._last_data_time + self._auto_ping_idle_timeout - now
+                    prev_last_data_time = self._last_data_time
+                    await sleep(idle_delay)
 
-                if self._last_data_time > prev_last_data_time:
-                    continue
+                    if self._last_data_time > prev_last_data_time:
+                        continue
 
-                if self._log_debug_enabled:
-                    self._logger.log(PICOWS_DEBUG_LL, "Send PING because no new data over the last %s seconds", self._auto_ping_idle_timeout)
+                    if self._log_debug_enabled:
+                        self._logger.log(PICOWS_DEBUG_LL, "Send PING because no new data over the last %s seconds", self._auto_ping_idle_timeout)
+                else:
+                    await sleep(self._auto_ping_idle_timeout)
+
+                    if self._log_debug_enabled:
+                        self._logger.log(PICOWS_DEBUG_LL, "Send periodic PING", self._auto_ping_idle_timeout)
 
                 if self.transport.pong_received_at_future is not None:
                     # measure_roundtrip_time is currently doing it's own ping-pongs
                     # set _last_data_time to now and sleep
                     self._last_data_time = picows_get_monotonic_time()
+                    if self._log_debug_enabled:
+                        self._logger.log(PICOWS_DEBUG_LL, "Hold back PING sending, because measure_roundtrip_time is in progress")
+
                     continue
 
                 self.listener.send_user_specific_ping(self.transport)
@@ -1409,6 +1423,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                      enable_auto_ping: bool = False,
                      auto_ping_idle_timeout: float = 10,
                      auto_ping_reply_timeout: float = 10,
+                     auto_ping_strategy = WSAutoPingStrategy.PING_WHEN_IDLE,
                      enable_auto_pong: bool = True,
                      **kwargs
                      ) -> Tuple[WSTransport, WSListener]:
@@ -1434,13 +1449,19 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
 
         .. note::
             This does NOT enable automatic replies to incoming `ping` requests.
-            Library user is always supposed to explicitly implement replies
-            to incoming `ping` requests in `WSListener.on_ws_frame`
+            enable_auto_pong argument controls it.
     :param auto_ping_idle_timeout:
-        how long to wait before sending `ping` request when there is no
-        incoming data.
+        * when auto_ping_strategy == PING_WHEN_IDLE
+            how long to wait before sending `ping` request when there is no incoming data.
+        * when auto_ping_strategy == PING_PERIODICALLY
+            how often to send ping
     :param auto_ping_reply_timeout:
         how long to wait for a `pong` reply before shutting down connection.
+    :param auto_ping_strategy:
+        An :any:`WSAutoPingStrategy` enum value:
+
+        * PING_WHEN_IDLE - ping only if there is no new incoming data.
+        * PING_PERIODICALLY - send ping at regular intervals regardless of incoming data.
     :param enable_auto_pong:
         If enabled then picows will automatically reply to incoming PING frames.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
@@ -1449,6 +1470,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
     assert "ssl" not in kwargs, "explicit 'ssl' argument for loop.create_connection is not supported"
     assert "sock" not in kwargs, "explicit 'sock' argument for loop.create_connection is not supported"
     assert "all_errors" not in kwargs, "explicit 'all_errors' argument for loop.create_connection is not supported"
+    assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), "invalid value of auto_ping_strategy parameter"
 
     url_parts = urllib.parse.urlparse(url, allow_fragments=False)
 
@@ -1467,6 +1489,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
     ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, path_plus_query, True, ws_listener_factory,
                                              logger_name, disconnect_on_exception, websocket_handshake_timeout,
                                              enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
+                                             auto_ping_strategy,
                                              enable_auto_pong)
 
     cdef WSProtocol ws_protocol
@@ -1489,6 +1512,7 @@ async def ws_create_server(ws_listener_factory: Callable[[WSUpgradeRequest], Opt
                            enable_auto_ping: bool = False,
                            auto_ping_idle_timeout: float = 20,
                            auto_ping_reply_timeout: float = 20,
+                           auto_ping_strategy = WSAutoPingStrategy.PING_WHEN_IDLE,
                            enable_auto_pong: bool = True,
                            **kwargs
                            ) -> asyncio.Server:
@@ -1533,20 +1557,30 @@ async def ws_create_server(ws_listener_factory: Callable[[WSUpgradeRequest], Opt
 
         .. note::
             This does NOT enable automatic replies to incoming `ping` requests.
-            Library user is always supposed to explicitly implement replies
-            to incoming `ping` requests in `WSListener.on_ws_frame`
+            enable_auto_pong argument controls it.
     :param auto_ping_idle_timeout:
-        how long to wait before sending `ping` request when there is no
-        incoming data.
+        * when auto_ping_strategy == PING_WHEN_IDLE
+            how long to wait before sending `ping` request when there is no incoming data.
+        * when auto_ping_strategy == PING_PERIODICALLY
+            how often to send ping
     :param auto_ping_reply_timeout:
         how long to wait for a `pong` reply before shutting down connection.
+    :param auto_ping_strategy:
+        An :any:`WSAutoPingStrategy` enum value:
+
+        * PING_WHEN_IDLE - ping only if there is no new incoming data.
+        * PING_PERIODICALLY - send ping at regular intervals regardless of incoming data.
     :param enable_auto_pong:
         If enabled then picows will automatically reply to incoming PING frames.
     :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
+
+    assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), "invalid value of auto_ping_strategy parameter"
+
     ws_protocol_factory = lambda: WSProtocol(None, None, False, ws_listener_factory, logger_name,
                                              disconnect_on_exception, websocket_handshake_timeout,
                                              enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
+                                             auto_ping_strategy,
                                              enable_auto_pong)
 
     return await asyncio.get_running_loop().create_server(
