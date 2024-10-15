@@ -10,6 +10,7 @@ picows Release History
 
 * Added optional automatic replies to incoming PING messages, enabled by default
 * Added auto_ping_strategy argument to ws_connect/ws_create_server that controls when pings are sent
+* Added new topic guides to the documentation
 
 1.5.0 (2024-10-10)
 ------------------
