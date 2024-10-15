@@ -252,8 +252,8 @@ debug logging.
     logging.basicConfig(level=logging.INFO)
     logging.getLogger("picows").setLevel(picows.PICOWS_DEBUG_LL)
 
-On exceptions
--------------
+Exceptions handling
+-------------------
 
 When talking about how library deals with exceptions, there are 2 questions that
 must be addressed:
@@ -263,11 +263,17 @@ must be addressed:
 **picows** may throw any exception that the underlying system calls may throw.
 Think about `ConnectionResetError` from :any:`ws_connect` or `BrokenPipeError`
 from :any:`WSTransport.send`.
+
 **picows** doesn't wrap these exceptions into it's own special exception type.
-Additionally :any:`ws_connect` may throw :any:`WSError` in case when there are
+Additionally :any:`ws_connect` may throw :any:`WSError` in cases when there are
 websocket negotiation errors.
 In general :any:`WSError` is reserved for anything that is only specific to
 websockets.
+
+There is also a special exception `asyncio.CancelledError` that any coroutine
+can throws when it is externally cancelled. Some times you need to handle this
+exception manually. Think about reconnection loop when you would like to
+reconnect on any error. But on asyncio.CancelledError the loop should break.
 
 **What happens if a user callback throw an exception, how does the library handles it?**
 
