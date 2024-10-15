@@ -121,9 +121,7 @@ Echo server
             print("New client connected")
 
         def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
-            if frame.msg_type == WSMsgType.PING:
-                transport.send_pong(frame.get_payload_as_bytes())
-            elif frame.msg_type == WSMsgType.CLOSE:
+            if frame.msg_type == WSMsgType.CLOSE:
                 transport.send_close(frame.get_close_code(), frame.get_close_message())
                 transport.disconnect()
             else:
