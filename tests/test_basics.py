@@ -9,7 +9,7 @@ import async_timeout
 
 from tests.utils import create_client_ssl_context, create_server_ssl_context, \
     TextFrame, CloseFrame, BinaryFrame, ServerAsyncContext, TIMEOUT, \
-    materialize_frame
+    materialize_frame, ClientAsyncContext
 
 if os.name == 'nt':
     @pytest.fixture(
@@ -61,8 +61,8 @@ async def echo_server(request):
                                            websocket_handshake_timeout=0.5,
                                            enable_auto_pong=False)
 
-    async with ServerAsyncContext(server):
-        yield f"{'wss' if use_ssl else 'ws'}://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+    async with ServerAsyncContext(server) as server_ctx:
+        yield server_ctx.ssl_url if use_ssl else server_ctx.plain_url
 
 
 @pytest.fixture()
@@ -92,20 +92,17 @@ async def echo_client(echo_server):
                 self.msg_queue.task_done()
                 return item
 
-    (_, client) = await picows.ws_connect(PicowsClientListener, echo_server,
-                                          ssl_context=create_client_ssl_context(),
-                                          websocket_handshake_timeout=0.5,
-                                          enable_auto_pong=False)
-    yield client
+    async with ClientAsyncContext(PicowsClientListener, echo_server,
+                                  ssl_context=create_client_ssl_context(),
+                                  websocket_handshake_timeout=0.5,
+                                  enable_auto_pong=False
+                                  ) as (transport, listener):
+        yield listener
 
-    # Teardown client
-    client.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"poka poka")
-    try:
+        # Teardown client
+        transport.send_close(picows.WSCloseCode.GOING_AWAY, b"poka poka")
         # Gracefull shutdown, expect server to disconnect us because we have sent close message
-        async with async_timeout.timeout(TIMEOUT):
-            await client.transport.wait_disconnected()
-    finally:
-        client.transport.disconnect()
+        await transport.wait_disconnected()
 
 
 @pytest.mark.parametrize("msg_size", [0, 1, 2, 3, 4, 5, 6, 7, 8, 64, 256 * 1024])
@@ -202,11 +199,11 @@ async def test_client_multiple_disconnect(echo_server):
 
 @pytest.mark.parametrize("request_path", ["/v1/ws", "/v1/ws?key=blablabla&data=fhhh"])
 async def test_request_path_and_params(request_path):
-    def listener_factory(request: picows.WSUpgradeRequest):
-        assert request.method == b"GET"
-        assert request.path == request_path.encode()
-        assert request.version == b"HTTP/1.1"
+    request_from_client = None
 
+    def listener_factory(request: picows.WSUpgradeRequest):
+        nonlocal request_from_client
+        request_from_client = request
         return picows.WSListener()
 
     server = await picows.ws_create_server(listener_factory,
@@ -216,14 +213,16 @@ async def test_request_path_and_params(request_path):
         (transport, _) = await picows.ws_connect(picows.WSListener, url)
         transport.disconnect()
 
+    assert request_from_client.method == b"GET"
+    assert request_from_client.path == request_path.encode()
+    assert request_from_client.version == b"HTTP/1.1"
+
 
 async def test_route_not_found():
     server = await picows.ws_create_server(lambda _: None, "127.0.0.1", 0)
-    async with ServerAsyncContext(server):
-        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
-
+    async with ServerAsyncContext(server) as server_ctx:
         with pytest.raises(picows.WSError, match="404 Not Found"):
-            (_, client) = await picows.ws_connect(picows.WSListener, url)
+            (_, client) = await picows.ws_connect(picows.WSListener, server_ctx.plain_url)
 
 
 async def test_server_internal_error():
@@ -231,11 +230,9 @@ async def test_server_internal_error():
         raise RuntimeError("oops")
 
     server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
-    async with ServerAsyncContext(server):
-        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
-
+    async with ServerAsyncContext(server) as server_ctx:
         with pytest.raises(picows.WSError, match="500 Internal Server Error"):
-            (_, client) = await picows.ws_connect(picows.WSListener, url)
+            (_, client) = await picows.ws_connect(picows.WSListener, server_ctx.plain_url)
 
 
 async def test_server_bad_request():
@@ -260,9 +257,8 @@ async def test_ws_on_connected_throw():
 
     server = await picows.ws_create_server(lambda _: ServerClientListener(),
                                            "127.0.0.1", 0)
-    async with ServerAsyncContext(server):
-        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
-        (transport, _) = await picows.ws_connect(picows.WSListener, url)
+    async with ServerAsyncContext(server) as server_ctx:
+        (transport, _) = await picows.ws_connect(picows.WSListener, server_ctx.plain_url)
         async with async_timeout.timeout(TIMEOUT):
             await transport.wait_disconnected()
 
@@ -278,13 +274,10 @@ async def test_ws_on_frame_throw(disconnect_on_exception):
                                            0,
                                            disconnect_on_exception=disconnect_on_exception)
 
-    async with ServerAsyncContext(server):
-        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+    async with ServerAsyncContext(server) as server_ctx:
+        async with ClientAsyncContext(picows.WSListener, server_ctx.plain_url) as (transport, listener):
+            transport.send(picows.WSMsgType.BINARY, b"halo")
 
-        (transport, _) = await picows.ws_connect(picows.WSListener, url)
-        transport.send(picows.WSMsgType.BINARY, b"halo")
-
-        try:
             if disconnect_on_exception:
                 async with async_timeout.timeout(TIMEOUT):
                     await transport.wait_disconnected()
@@ -292,8 +285,6 @@ async def test_ws_on_frame_throw(disconnect_on_exception):
                 with pytest.raises(asyncio.TimeoutError):
                     async with async_timeout.timeout(TIMEOUT):
                         await transport.wait_disconnected()
-        finally:
-            transport.disconnect()
 
 
 async def test_stress(echo_client):
