@@ -174,8 +174,8 @@ async def test_no_ping_when_data_is_present():
 
     async with ServerAsyncContext(server) as server_ctx:
         async with ClientAsyncContext(AccumulatingListener, server_ctx.plain_url, enable_auto_pong=False) as (transport, listener):
-            for i in range(20):
-                await asyncio.sleep(0.05)
+            for i in range(50):
+                await asyncio.sleep(0.02)
                 transport.send(picows.WSMsgType.TEXT, b"hi")
 
         assert len(listener.frames) == 0
@@ -202,8 +202,8 @@ async def test_periodic_ping_when_data_is_present():
 
     async with ServerAsyncContext(server) as server_ctx:
         async with ClientAsyncContext(ClientListener, server_ctx.plain_url, enable_auto_pong=False) as (transport, listener):
-            for i in range(20):
-                await asyncio.sleep(0.05)
+            for i in range(50):
+                await asyncio.sleep(0.02)
                 transport.send(picows.WSMsgType.TEXT, b"hi")
 
             assert len(listener.frames) >= 3
