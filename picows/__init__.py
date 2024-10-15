@@ -17,6 +17,7 @@ __all__ = [
     'WSError',
     'WSMsgType',
     'WSCloseCode',
+    'WSAutoPingStrategy',
     'WSFrame',
     'WSTransport',
     'WSListener',
