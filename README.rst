@@ -43,7 +43,7 @@ Use pip to install it::
 Documentation
 =============
 
-https://picows.readthedocs.io/en/latest/
+https://picows.readthedocs.io/en/stable/
 
 Motivation
 ==========
