@@ -6,6 +6,7 @@ import async_timeout
 import pytest
 
 import picows
+from picows import ws_connect
 
 TIMEOUT = 0.5
 
@@ -49,9 +50,14 @@ class ServerAsyncContext:
     def __init__(self, server):
         self.server = server
         self.server_task = asyncio.create_task(server.serve_forever())
+        self.plain_url = None
+        self.ssl_url = None
 
     async def __aenter__(self):
-        return await self.server.__aenter__()
+        await self.server.__aenter__()
+        self.plain_url = f"ws://127.0.0.1:{self.server.sockets[0].getsockname()[1]}"
+        self.ssl_url = f"wss://127.0.0.1:{self.server.sockets[0].getsockname()[1]}"
+        return self
 
     async def __aexit__(self, *exc):
         self.server_task.cancel()
@@ -59,6 +65,20 @@ class ServerAsyncContext:
         with pytest.raises(asyncio.CancelledError):
             async with async_timeout.timeout(TIMEOUT):
                 await self.server_task
+
+
+class ClientAsyncContext:
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+
+    async def __aenter__(self):
+        self._transport, self._listener = await picows.ws_connect(*self.args, **self.kwargs)
+        return self._transport, self._listener
+
+    async def __aexit__(self, *exc):
+        self._transport.disconnect(graceful=False)
+        await self._transport.wait_disconnected()
 
 
 def create_server_ssl_context():

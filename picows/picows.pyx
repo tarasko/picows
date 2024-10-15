@@ -1066,7 +1066,7 @@ cdef class WSProtocol:
                     await sleep(self._auto_ping_idle_timeout)
 
                     if self._log_debug_enabled:
-                        self._logger.log(PICOWS_DEBUG_LL, "Send periodic PING", self._auto_ping_idle_timeout)
+                        self._logger.log(PICOWS_DEBUG_LL, "Send periodic PING")
 
                 if self.transport.pong_received_at_future is not None:
                     # measure_roundtrip_time is currently doing it's own ping-pongs
