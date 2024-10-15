@@ -258,26 +258,25 @@ Exceptions handling
 When talking about how library deals with exceptions, there are 2 questions that
 must be addressed:
 
-**What kind of exceptions the library functions can throws?**
+**What kinds of exceptions can the library functions throws?**
 
-**picows** may throw any exception that the underlying system calls may throw.
-Think about `ConnectionResetError` from :any:`ws_connect` or `BrokenPipeError`
+**picows** may raise any exception that the underlying system calls may raise.
+For example, `ConnectionResetError` from :any:`ws_connect` or `BrokenPipeError`
 from :any:`WSTransport.send`.
 
-**picows** doesn't wrap these exceptions into it's own special exception type.
-Additionally :any:`ws_connect` may throw :any:`WSError` in cases when there are
-websocket negotiation errors.
-In general :any:`WSError` is reserved for anything that is only specific to
-websockets.
+**picows** does not wrap these exceptions in its own special exception type.
+Additionally, :any:`ws_connect` may raise :any:`WSError` in cases of websocket
+negotiation errors.
+In general :any:`WSError` is reserved for errors specific to websockets only.
 
-There is also a special exception `asyncio.CancelledError` that any coroutine
-can throws when it is externally cancelled. Some times you need to handle this
-exception manually. Think about reconnection loop when you would like to
-reconnect on any error. But on asyncio.CancelledError the loop should break.
+There is also a special exception, `asyncio.CancelledError`, which any coroutine
+can raise when it is externally cancelled. Sometimes you need to handle this
+exception manually. For example, in a reconnection loop where you want to
+reconnect on any error, the loop should break on `asyncio.CancelledError`.
 
-**What happens if a user callback throw an exception, how does the library handles it?**
+**What happens if a user callback raises an exception, and how does the library handle it?**
 
-It is described in the docs of a particular method. Most of the times **picows** will
-send a CLOSE frame with INTERNAL_ERROR close code and disconnect. But for
-:any:`on_ws_frame` it is possible to override it by specifying disconnect_on_error=False
-to :any:`ws_connect`/:any:`ws_create_server`
+This is described in the documentation of each particular method.
+In most cases, **picows** will send a CLOSE frame with an INTERNAL_ERROR close code and disconnect.
+However, for :any:`on_ws_frame`, it is possible to override it by setting disconnect_on_error=False
+in :any:`ws_connect`/:any:`ws_create_server`.
