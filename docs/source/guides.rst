@@ -251,3 +251,27 @@ debug logging.
     # Or set picows logger log level only
     logging.basicConfig(level=logging.INFO)
     logging.getLogger("picows").setLevel(picows.PICOWS_DEBUG_LL)
+
+On exceptions
+-------------
+
+When talking about how library deals with exceptions, there are 2 questions that
+must be addressed:
+
+**What kind of exceptions the library functions can throws?**
+
+**picows** may throw any exception that the underlying system calls may throw.
+Think about `ConnectionResetError` from :any:`ws_connect` or `BrokenPipeError`
+from :any:`WSTransport.send`.
+**picows** doesn't wrap these exceptions into it's own special exception type.
+Additionally :any:`ws_connect` may throw :any:`WSError` in case when there are
+websocket negotiation errors.
+In general :any:`WSError` is reserved for anything that is only specific to
+websockets.
+
+**What happens if a user callback throw an exception, how does the library handles it?**
+
+It is described in the docs of a particular method. Most of the times **picows** will
+send a CLOSE frame with INTERNAL_ERROR close code and disconnect. But for
+:any:`on_ws_frame` it is possible to override it by specifying disconnect_on_error=False
+to :any:`ws_connect`/:any:`ws_create_server`

@@ -56,7 +56,7 @@ cdef extern from "picows_compat.h" nogil:
 
 class WSError(RuntimeError):
     """
-    Currently it is only thrown by :any:`ws_connect` on handshake errors.
+    Thrown by :any:`ws_connect` on any kind of handshake errors.
     """
     pass
 
