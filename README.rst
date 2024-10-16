@@ -83,7 +83,6 @@ Connects to an echo server, sends a message and disconnect upon reply.
 
     class ClientListener(WSListener):
         def on_ws_connected(self, transport: WSTransport):
-            self.transport = transport
             transport.send(WSMsgType.TEXT, b"Hello world")
 
         def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
@@ -93,8 +92,8 @@ Connects to an echo server, sends a message and disconnect upon reply.
 
 
     async def main(url):
-        (_, client) = await ws_connect(ClientListener, url)
-        await client.transport.wait_disconnected()
+        transport, client = await ws_connect(ClientListener, url)
+        await transport.wait_disconnected()
 
 
     if __name__ == '__main__':
