@@ -1,12 +1,15 @@
 import asyncio
 from enum import Enum
 from ssl import SSLContext
-from collections.abc import Callable, Iterable
-from typing import Final
+from typing import Final, Mapping, Iterable, Tuple, Callable, Optional
 
 PICOWS_DEBUG_LL: Final = 9
 
+WSHeadersLike = Mapping[str, str] | Iterable[Tuple[str, str]]
+
+
 class WSError(RuntimeError): ...
+
 
 class WSMsgType(Enum):
     CONTINUATION = 0x0
@@ -15,6 +18,7 @@ class WSMsgType(Enum):
     PING = 0x9
     PONG = 0xA
     CLOSE = 0x8
+
 
 class WSCloseCode(Enum):
     NO_INFO = 0
@@ -32,9 +36,11 @@ class WSCloseCode(Enum):
     TRY_AGAIN_LATER = 1013
     BAD_GATEWAY = 1014
 
+
 class WSAutoPingStrategy(Enum):
     PING_WHEN_IDLE = 1
     PING_PERIODICALLY = 2
+
 
 class WSFrame:
     def get_payload_as_bytes(self) -> bytes: ...
@@ -44,6 +50,7 @@ class WSFrame:
     def get_close_code(self) -> WSCloseCode: ...
     def get_close_message(self) -> bytes: ...
     def __str__(self): ...
+
 
 class WSTransport:
     def __init__(self, is_client_side: bool, underlying_transport, logger, loop): ...
@@ -62,6 +69,7 @@ class WSTransport:
     async def measure_roundtrip_time(self, rounds: int) -> list[float]: ...
     def notify_user_specific_pong_received(self): ...
 
+
 class WSListener:
     def on_ws_connected(self, transport: WSTransport): ...
     def on_ws_frame(self, transport: WSTransport, frame: WSFrame): ...
@@ -71,7 +79,9 @@ class WSListener:
     def pause_writing(self): ...
     def resume_writing(self): ...
 
+
 class WSUpgradeRequest: ...
+
 
 async def ws_connect(
     ws_listener_factory: Callable[[], WSListener],
@@ -86,8 +96,11 @@ async def ws_connect(
     auto_ping_reply_timeout: float = 10,
     auto_ping_strategy: WSAutoPingStrategy = ...,
     enable_auto_pong: bool = True,
+    additional_headers: Optional[WSHeadersLike] = None,
     **kwargs,
 ) -> tuple[WSTransport, WSListener]: ...
+
+
 async def ws_create_server(
     ws_listener_factory: Callable[[WSUpgradeRequest], WSListener | None],
     host: str | Iterable[str] | None = None,
