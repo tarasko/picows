@@ -87,6 +87,7 @@ cdef class WSTransport:
         readonly object underlying_transport    #: asyncio.Transport
         readonly bint is_client_side
         readonly bint is_secure
+        readonly WSUpgradeRequest request
 
         bint auto_ping_expect_pong
         object pong_received_at_future

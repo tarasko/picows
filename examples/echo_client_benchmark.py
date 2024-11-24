@@ -36,6 +36,10 @@ async def picows_main(endpoint: str, msg: bytes, duration: int, ssl_context):
     print(f"Run picows python {cl_type} client")
 
     class PicowsClientListener(WSListener):
+        _transport: WSTransport
+        _start_time: float
+        _cnt: int
+
         def __init__(self):
             super().__init__()
 

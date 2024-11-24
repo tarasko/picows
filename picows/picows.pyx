@@ -395,6 +395,7 @@ cdef class WSTransport:
         self.underlying_transport = underlying_transport
         self.is_client_side = is_client_side
         self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
+        self.request = None
         self.auto_ping_expect_pong = False
         self.pong_received_at_future = None
         self.listener_proxy = None
@@ -639,23 +640,35 @@ cdef class WSTransport:
 
 
     cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, object additional_headers):
-        cdef bytearray additional_headers_str = bytearray()
+        cdef WSUpgradeRequest request = WSUpgradeRequest()
+        cdef bytearray headers_str = bytearray()
+
+        request.method = b"GET"
+        request.path = ws_path
+        request.version = b"HTTP/1.1"
+        request.headers = CIMultiDict([
+            ("Host", host_port.decode()),
+            ("Upgrade", "websocket"),
+            ("Connection", "Upgrade"),
+            ("Sec-WebSocket-Version", "13"),
+            ("Sec-WebSocket-Key", websocket_key_b64.decode()),
+        ])
 
         if additional_headers:
-            sequence = additional_headers.items() if hasattr(additional_headers, "items") else additional_headers
+            sequence = additional_headers.items() \
+                if hasattr(additional_headers, "items") else additional_headers
             for k, v in sequence:
-                additional_headers_str += f"{k}: {v}\r\n".encode()
+                request.headers.add(k, v)
 
-        initial_handshake = (b"GET %b HTTP/1.1\r\n"
-                             b"Host: %b\r\n"
-                             b"Upgrade: websocket\r\n"
-                             b"Connection: Upgrade\r\n"
-                             b"Sec-WebSocket-Version: 13\r\n"
-                             b"Sec-WebSocket-Key: %b\r\n"
+        for k, v in request.headers.items():
+            headers_str += f"{k}: {v}\r\n".encode()
+
+        initial_handshake = (b"%b %b %b\r\n"
                              b"%b"
-                             b"\r\n" % (ws_path, host_port, websocket_key_b64, additional_headers_str))
+                             b"\r\n" % (request.method, request.path, request.version, headers_str))
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "Send upgrade request: %s", initial_handshake)
+        self.request = request
         self.underlying_transport.write(initial_handshake)
 
     cdef _send_http_handshake_response(self, bytes accept_val):
