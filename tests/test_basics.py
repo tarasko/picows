@@ -213,9 +213,43 @@ async def test_request_path_and_params(request_path):
         (transport, _) = await picows.ws_connect(picows.WSListener, url)
         transport.disconnect()
 
-    assert request_from_client.method == b"GET"
-    assert request_from_client.path == request_path.encode()
-    assert request_from_client.version == b"HTTP/1.1"
+        assert request_from_client.method == b"GET"
+        assert request_from_client.path == request_path.encode()
+        assert request_from_client.version == b"HTTP/1.1"
+
+        assert transport.request.method == b"GET"
+        assert transport.request.path == request_path.encode()
+        assert transport.request.version == b"HTTP/1.1"
+
+        assert transport.response.version == b"HTTP/1.1"
+        assert transport.response.status_code == 101
+        assert transport.response.status == b"Switching Protocols"
+
+
+@pytest.mark.parametrize("extra_headers", [
+    {"User-Agent": "picows", "Token": "abc"},
+    [("User-Agent", "picows"), ("Token", "abc")]
+])
+async def test_client_extra_headers(extra_headers):
+    request_from_client = None
+
+    def listener_factory(request: picows.WSUpgradeRequest):
+        nonlocal request_from_client
+        request_from_client = request
+        return picows.WSListener()
+
+    server = await picows.ws_create_server(listener_factory,
+                                           "127.0.0.1", 0,
+                                           websocket_handshake_timeout=0.1)
+    async with ServerAsyncContext(server):
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+        (transport, _) = await picows.ws_connect(picows.WSListener, url, extra_headers=extra_headers)
+        transport.disconnect()
+
+        assert request_from_client.headers["User-Agent"] == "picows"
+        assert request_from_client.headers["token"] == "abc"
+        assert transport.request.headers["User-Agent"] == "picows"
+        assert transport.request.headers["token"] == "abc"
 
 
 async def test_route_not_found():

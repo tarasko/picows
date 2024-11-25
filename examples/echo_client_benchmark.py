@@ -117,7 +117,7 @@ async def aiohttp_main(url: str, data: bytes, duration: int, ssl_context):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Publish updates to telegram subscribers",
+    parser = argparse.ArgumentParser(description="Benchmark for the various websocket clients",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--host", default="127.0.0.1", help="Server host")
     parser.add_argument("--plain-port", default="9001", help="Server port with plain websockets")
