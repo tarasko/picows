@@ -71,6 +71,12 @@ cdef class WSUpgradeResponse:
         readonly object headers     # CIMultiDict[istr, str]
 
 
+cdef class WSUpgradeResponseWithListener:
+    cdef:
+        readonly WSUpgradeResponse response
+        readonly WSListener listener
+
+
 cdef class WSFrame:
     cdef:
         char* payload_ptr

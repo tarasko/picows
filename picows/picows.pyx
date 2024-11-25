@@ -1,13 +1,14 @@
 import asyncio
 import weakref
-from base64 import b64encode, b64decode
 import binascii
-from hashlib import sha1
 import logging
 import os
 import socket
 import struct
 import urllib.parse
+from http import HTTPStatus
+from base64 import b64encode, b64decode
+from hashlib import sha1
 from ssl import SSLContext
 from typing import cast, Tuple, Optional, Callable, List, Mapping, Iterable
 
@@ -84,6 +85,32 @@ cdef class WSUpgradeRequest:
 
 cdef class WSUpgradeResponse:
     pass
+
+
+cdef class WSUpgradeResponseWithListener:
+    pass
+
+
+def ws_make_upgrade_response(
+        WSListener listener,
+        status_code=101,
+        extra_headers: Optional[WSHeadersLike]=None) -> WSUpgradeResponseWithListener:
+    response = WSUpgradeResponse()
+    response.status_code = int(status_code)
+    response.status = HTTPStatus(status_code).phrase.encode()
+    response.headers = CIMultiDict()
+    if extra_headers:
+        sequence = extra_headers.items() if hasattr(extra_headers, "items") else extra_headers
+        for k, v in sequence:
+            if not isinstance(k, str) or not isinstance(v, str):
+                raise TypeError()
+
+            response.headers.add(k, v)
+
+    response_listener = WSUpgradeResponseWithListener()
+    response_listener.response = response
+    response_listener.listener = listener
+    return response_listener
 
 
 cdef _raise_from_errno(int ec):
@@ -1554,7 +1581,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
     return ws_protocol.transport, ws_protocol.listener
 
 
-async def ws_create_server(ws_listener_factory: Callable[[WSUpgradeRequest], Optional[WSListener]],
+async def ws_create_server(ws_listener_factory: Callable[[WSUpgradeRequest], Optional[WSListener | WSUpgradeResponseWithListener]],
                            host=None,
                            port=None,
                            *,
