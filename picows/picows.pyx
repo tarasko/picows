@@ -638,14 +638,21 @@ cdef class WSTransport:
                                  "notify_user_specific_pong_received() for PONG(idle timeout), reset expect_pong")
 
 
-    cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64):
+    cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, bytes user_agent_header, dict extra_headers):
         initial_handshake = (b"GET %b HTTP/1.1\r\n"
                              b"Host: %b\r\n"
                              b"Upgrade: websocket\r\n"
                              b"Connection: Upgrade\r\n"
                              b"Sec-WebSocket-Version: 13\r\n"
-                             b"Sec-WebSocket-Key: %b\r\n"
-                             b"\r\n" % (ws_path, host_port, websocket_key_b64))
+                             b"Sec-WebSocket-Key: %b\r\n" % (ws_path, host_port, websocket_key_b64))
+        
+        if user_agent_header:
+            initial_handshake += b"User-Agent: %b\r\n" % user_agent_header
+        if extra_headers:
+            for key, value in extra_headers.items():
+                initial_handshake += b"%b: %b\r\n" % (key.encode("utf-8"), value.encode("utf-8"))
+        initial_handshake += b"\r\n"
+
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "Send upgrade request: %s", initial_handshake)
         self.underlying_transport.write(initial_handshake)
@@ -759,6 +766,9 @@ cdef class WSProtocol:
         object _auto_ping_loop_task
         double _last_data_time
 
+        bytes _user_agent_header
+        dict _extra_headers
+
         # The following are the parts of an unfinished frame
         # Once the frame is finished WSFrame is created and returned
         WSParserState _state
@@ -778,8 +788,7 @@ cdef class WSProtocol:
     def __init__(self, str host_port, str ws_path, bint is_client_side, ws_listener_factory, str logger_name,
                  bint disconnect_on_exception, websocket_handshake_timeout,
                  enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
-                 auto_ping_strategy,
-                 enable_auto_pong):
+                 auto_ping_strategy, enable_auto_pong, str user_agent_header, dict extra_headers):
         self.transport = None
         self.listener = None
 
@@ -808,6 +817,9 @@ cdef class WSProtocol:
         self._auto_ping_strategy = auto_ping_strategy
         self._auto_ping_loop_task = None
         self._last_data_time = 0
+
+        self._user_agent_header = user_agent_header.encode() if user_agent_header else None
+        self._extra_headers = extra_headers
 
         if self._enable_auto_ping:
             assert self._auto_ping_reply_timeout <= self._auto_ping_idle_timeout, \
@@ -859,7 +871,7 @@ cdef class WSProtocol:
         self.transport = WSTransport(self.is_client_side, transport, self._logger, self._loop)
 
         if self.is_client_side:
-            self.transport._send_http_handshake(self._ws_path, self._host_port, self._websocket_key_b64)
+            self.transport._send_http_handshake(self._ws_path, self._host_port, self._websocket_key_b64, self._user_agent_header, self._extra_headers)
             self._handshake_timeout_handle = self._loop.call_later(
                 self._handshake_timeout, self._handshake_timeout_callback)
         else:
@@ -1425,6 +1437,8 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                      auto_ping_reply_timeout: float = 10,
                      auto_ping_strategy = WSAutoPingStrategy.PING_WHEN_IDLE,
                      enable_auto_pong: bool = True,
+                     user_agent_header: str = None,
+                     extra_headers: dict = None,
                      **kwargs
                      ) -> Tuple[WSTransport, WSListener]:
     """
@@ -1489,8 +1503,8 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
     ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, path_plus_query, True, ws_listener_factory,
                                              logger_name, disconnect_on_exception, websocket_handshake_timeout,
                                              enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
-                                             auto_ping_strategy,
-                                             enable_auto_pong)
+                                             auto_ping_strategy, enable_auto_pong, user_agent_header, extra_headers
+                                             )
 
     cdef WSProtocol ws_protocol
 
@@ -1575,13 +1589,16 @@ async def ws_create_server(ws_listener_factory: Callable[[WSUpgradeRequest], Opt
     :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
 
+    user_agent_header = None
+    extra_headers = None
+
     assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), "invalid value of auto_ping_strategy parameter"
 
     ws_protocol_factory = lambda: WSProtocol(None, None, False, ws_listener_factory, logger_name,
                                              disconnect_on_exception, websocket_handshake_timeout,
                                              enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
-                                             auto_ping_strategy,
-                                             enable_auto_pong)
+                                             auto_ping_strategy, enable_auto_pong, user_agent_header, extra_headers
+                                             )
 
     return await asyncio.get_running_loop().create_server(
         ws_protocol_factory,

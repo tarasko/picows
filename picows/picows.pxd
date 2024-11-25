@@ -106,7 +106,7 @@ cdef class WSTransport:
     cpdef disconnect(self, bint graceful=*)
     cpdef notify_user_specific_pong_received(self)
 
-    cdef inline _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64)
+    cdef inline _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, bytes user_agent_header, dict extra_headers)
     cdef inline _send_http_handshake_response(self, bytes accept_val)
     cdef inline _send_bad_request(self, str error)
     cdef inline _send_not_found(self)

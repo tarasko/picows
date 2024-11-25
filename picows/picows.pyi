@@ -86,6 +86,8 @@ async def ws_connect(
     auto_ping_reply_timeout: float = 10,
     auto_ping_strategy: WSAutoPingStrategy = ...,
     enable_auto_pong: bool = True,
+    user_agent_header: str | None = None,
+    extra_headers: dict | None = None,
     **kwargs,
 ) -> tuple[WSTransport, WSListener]: ...
 async def ws_create_server(
