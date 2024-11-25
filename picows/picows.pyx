@@ -9,7 +9,7 @@ import socket
 import struct
 import urllib.parse
 from ssl import SSLContext
-from typing import cast, Tuple, Optional, Callable, List, Mapping
+from typing import cast, Tuple, Optional, Callable, List, Mapping, Iterable
 
 from multidict import CIMultiDict
 
@@ -26,6 +26,7 @@ from libc.string cimport memmove, memcpy, strerror
 from libc.stdlib cimport rand
 
 PICOWS_DEBUG_LL = 9
+WSHeadersLike = Mapping[str, str] | Iterable[Tuple[str, str]]
 
 cdef:
     set _ALLOWED_CLOSE_CODES = {int(i) for i in WSCloseCode}
@@ -1472,7 +1473,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                      auto_ping_reply_timeout: float = 10,
                      auto_ping_strategy = WSAutoPingStrategy.PING_WHEN_IDLE,
                      enable_auto_pong: bool = True,
-                     extra_headers=None,
+                     extra_headers: WSHeadersLike = None,
                      **kwargs
                      ) -> Tuple[WSTransport, WSListener]:
     """
