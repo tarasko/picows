@@ -1589,13 +1589,16 @@ async def ws_create_server(ws_listener_factory: Callable[[WSUpgradeRequest], Opt
     :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
 
+    user_agent_header = None
+    extra_headers = None
+
     assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), "invalid value of auto_ping_strategy parameter"
 
     ws_protocol_factory = lambda: WSProtocol(None, None, False, ws_listener_factory, logger_name,
                                              disconnect_on_exception, websocket_handshake_timeout,
                                              enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
-                                             auto_ping_strategy,
-                                             enable_auto_pong)
+                                             auto_ping_strategy, enable_auto_pong, user_agent_header, extra_headers
+                                             )
 
     return await asyncio.get_running_loop().create_server(
         ws_protocol_factory,
