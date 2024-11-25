@@ -81,6 +81,10 @@ cdef class WSUpgradeRequest:
     pass
 
 
+cdef class WSUpgradeResponse:
+    pass
+
+
 cdef _raise_from_errno(int ec):
     cdef str reason = strerror(ec).decode()
 
@@ -396,6 +400,7 @@ cdef class WSTransport:
         self.is_client_side = is_client_side
         self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
         self.request = None
+        self.response = None #
         self.auto_ping_expect_pong = False
         self.pong_received_at_future = None
         self.listener_proxy = None
@@ -639,7 +644,7 @@ cdef class WSTransport:
                                  "notify_user_specific_pong_received() for PONG(idle timeout), reset expect_pong")
 
 
-    cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, object additional_headers):
+    cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, object extra_headers):
         cdef WSUpgradeRequest request = WSUpgradeRequest()
         cdef bytearray headers_str = bytearray()
 
@@ -654,9 +659,9 @@ cdef class WSTransport:
             ("Sec-WebSocket-Key", websocket_key_b64.decode()),
         ])
 
-        if additional_headers:
-            sequence = additional_headers.items() \
-                if hasattr(additional_headers, "items") else additional_headers
+        if extra_headers:
+            sequence = extra_headers.items() \
+                if hasattr(extra_headers, "items") else extra_headers
             for k, v in sequence:
                 request.headers.add(k, v)
 
@@ -780,7 +785,7 @@ cdef class WSProtocol:
         object _auto_ping_loop_task
         double _last_data_time
 
-        object _additional_headers
+        object _extra_headers
 
         # The following are the parts of an unfinished frame
         # Once the frame is finished WSFrame is created and returned
@@ -809,7 +814,7 @@ cdef class WSProtocol:
                  enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
                  auto_ping_strategy,
                  enable_auto_pong,
-                 additional_headers):
+                 extra_headers):
         self.transport = None
         self.listener = None
 
@@ -843,7 +848,7 @@ cdef class WSProtocol:
             assert self._auto_ping_reply_timeout <= self._auto_ping_idle_timeout, \
                 "auto_ping_reply_timeout can't be bigger than auto_ping_idle_timeout"
 
-        self._additional_headers = additional_headers
+        self._extra_headers = extra_headers
 
         self._state = WSParserState.WAIT_UPGRADE_RESPONSE
         self._buffer = MemoryBuffer()
@@ -891,7 +896,7 @@ cdef class WSProtocol:
         self.transport = WSTransport(self.is_client_side, transport, self._logger, self._loop)
 
         if self.is_client_side:
-            self.transport._send_http_handshake(self._ws_path, self._host_port, self._websocket_key_b64, self._additional_headers)
+            self.transport._send_http_handshake(self._ws_path, self._host_port, self._websocket_key_b64, self._extra_headers)
             self._handshake_timeout_handle = self._loop.call_later(
                 self._handshake_timeout, self._handshake_timeout_callback)
         else:
@@ -1020,14 +1025,17 @@ cdef class WSProtocol:
         self._shrink_buffer()
 
     cdef inline _negotiate(self):
+        cdef WSUpgradeResponse response
+
         if self.is_client_side:
             try:
-                self._try_read_and_process_upgrade_response()
+                response = self._try_read_and_process_upgrade_response()
                 if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
                     # Upgrade response hasn't fully arrived yet
                     return False
                 self.listener = self._listener_factory()
                 self.transport.listener_proxy = weakref.proxy(self.listener)
+                self.transport.response = response
                 self._listener_factory = None
             except Exception as ex:
                 self.transport.disconnect()
@@ -1206,35 +1214,40 @@ cdef class WSProtocol:
 
         return upgrade_request, accept_val
 
-    cdef inline _try_read_and_process_upgrade_response(self):
+    cdef inline WSUpgradeResponse _try_read_and_process_upgrade_response(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
-        cdef list response = <list>data.split(b"\r\n\r\n", 1)
-        if len(response) < 2:
+        cdef list data_parts = <list>data.split(b"\r\n\r\n", 1)
+        if len(data_parts) < 2:
             return None
 
         cdef bytes raw_headers, tail
-        raw_headers, tail = <bytes>response[0], <bytes>response[1]
+        raw_headers, tail = <bytes>data_parts[0], <bytes>data_parts[1]
 
         cdef list lines = <list>raw_headers.split(b"\r\n")
         cdef bytes response_status_line = <bytes>lines[0]
-
-        cdef bytes line, name, value
-        response_headers = CIMultiDict()
-        for idx in range(1, len(lines)):
-            line = <bytes>lines[idx]
-            name, value = <list>line.split(b":", 1)
-            response_headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
 
         # check handshake
         if response_status_line.decode().lower() != "http/1.1 101 switching protocols":
             raise WSError(f"cannot upgrade, invalid status in upgrade response: {response_status_line}")
 
-        connection_value = response_headers.get("connection")
+        cdef WSUpgradeResponse response = WSUpgradeResponse()
+        cdef bytes status_code
+        response.version, status_code, response.status = response_status_line.split(b" ", 2)
+        response.status_code = int(status_code.decode())
+
+        cdef bytes line, name, value
+        response.headers = CIMultiDict()
+        for idx in range(1, len(lines)):
+            line = <bytes>lines[idx]
+            name, value = <list>line.split(b":", 1)
+            response.headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
+
+        connection_value = response.headers.get("connection")
         connection_value = connection_value if connection_value is None else connection_value.lower()
         if connection_value != "upgrade":
-            raise WSError(f"cannot upgrade, invalid connection header: {response_headers['connection']}")
+            raise WSError(f"cannot upgrade, invalid connection header: {response.headers['connection']}")
 
-        r_key = response_headers.get("sec-websocket-accept")
+        r_key = response.headers.get("sec-websocket-accept")
         match = b64encode(sha1(self._websocket_key_b64 + _WS_KEY).digest()).decode()
         if r_key != match:
             raise WSError(f"cannot upgrade, invalid sec-websocket-accept response")
@@ -1244,6 +1257,8 @@ cdef class WSProtocol:
         self._state = WSParserState.READ_HEADER
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "WS handshake done, switch to upgraded state")
+
+        return response
 
     cdef inline WSFrame _get_next_frame(self):
         cdef WSFrame frame
@@ -1457,7 +1472,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                      auto_ping_reply_timeout: float = 10,
                      auto_ping_strategy = WSAutoPingStrategy.PING_WHEN_IDLE,
                      enable_auto_pong: bool = True,
-                     additional_headers=None,
+                     extra_headers=None,
                      **kwargs
                      ) -> Tuple[WSTransport, WSListener]:
     """
@@ -1497,7 +1512,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
         * PING_PERIODICALLY - send ping at regular intervals regardless of incoming data.
     :param enable_auto_pong:
         If enabled then picows will automatically reply to incoming PING frames.
-    :param additional_headers:
+    :param extra_headers:
         Arbitrary HTTP headers to add to the handshake request.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
@@ -1526,7 +1541,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                                              enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
                                              auto_ping_strategy,
                                              enable_auto_pong,
-                                             additional_headers)
+                                             extra_headers)
 
     cdef WSProtocol ws_protocol
 

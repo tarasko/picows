@@ -86,7 +86,9 @@ class WSTransport:
     @property
     def request(self) -> WSUpgradeRequest: ...
 
-    def __init__(self, is_client_side: bool, underlying_transport, logger, loop): ...
+    @property
+    def response(self) -> WSUpgradeResponse: ...
+
     def send(
         self,
         msg_type: WSMsgType,
@@ -127,6 +129,20 @@ class WSUpgradeRequest:
     def headers(self) -> CIMultiDict: ...
 
 
+class WSUpgradeResponse:
+    @property
+    def version(self) -> bytes: ...
+
+    @property
+    def status_code(self) -> int: ...
+
+    @property
+    def status(self) -> bytes: ...
+
+    @property
+    def headers(self) -> CIMultiDict: ...
+
+
 async def ws_connect(
     ws_listener_factory: Callable[[], WSListener],
     url: str,
@@ -140,7 +156,7 @@ async def ws_connect(
     auto_ping_reply_timeout: float = 10,
     auto_ping_strategy: WSAutoPingStrategy = ...,
     enable_auto_pong: bool = True,
-    additional_headers: Optional[WSHeadersLike] = None,
+    extra_headers: Optional[WSHeadersLike] = None,
     **kwargs,
 ) -> tuple[WSTransport, WSListener]: ...
 
