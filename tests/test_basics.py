@@ -8,7 +8,6 @@ import pytest
 import async_timeout
 
 from http import HTTPStatus
-from picows.picows import WSUpgradeResponseWithListener, WSUpgradeResponse
 from tests.utils import create_client_ssl_context, create_server_ssl_context, \
     TextFrame, CloseFrame, BinaryFrame, ServerAsyncContext, TIMEOUT, \
     materialize_frame, ClientAsyncContext
@@ -288,7 +287,7 @@ async def test_server_bad_request():
 async def test_custom_response():
     def factory_listener(r):
         extra_headers = {"User-Agent": "picows server"}
-        return WSUpgradeResponseWithListener(WSUpgradeResponse.create_101_response(extra_headers), picows.WSListener())
+        return picows.WSUpgradeResponseWithListener(picows.WSUpgradeResponse.create_101_response(extra_headers), picows.WSListener())
 
     server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
     async with ServerAsyncContext(server) as server_ctx:
@@ -301,7 +300,7 @@ async def test_custom_response():
 
 async def test_custom_response_error():
     def factory_listener(r):
-        return WSUpgradeResponseWithListener(WSUpgradeResponse.create_error_response(HTTPStatus.NOT_FOUND, b"blablabla"), None)
+        return picows.WSUpgradeResponseWithListener(picows.WSUpgradeResponse.create_error_response(HTTPStatus.NOT_FOUND, b"blablabla"), None)
 
     server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
     async with ServerAsyncContext(server) as server_ctx:
