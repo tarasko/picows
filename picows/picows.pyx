@@ -1124,7 +1124,7 @@ cdef class WSProtocol:
                     response = (<WSUpgradeResponseWithListener>listener_or_response_with_listener).response
                 elif isinstance(listener_or_response_with_listener, WSListener):
                     self.listener = listener_or_response_with_listener
-                    response = WSUpgradeResponse.create_switching_protocols_response()
+                    response = WSUpgradeResponse.create_101_response()
                 elif listener_or_response_with_listener is None:
                     self.listener = None
                     response = WSUpgradeResponse.create_error_response(

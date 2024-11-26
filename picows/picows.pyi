@@ -1,6 +1,7 @@
 import asyncio
 from enum import Enum
 from ssl import SSLContext
+from http import HTTPStatus
 
 # Some of the imports are deprecated in the newer python versions
 # But we still have support for 3.8 where collection.abc didn't have
@@ -131,19 +132,16 @@ class WSUpgradeRequest:
 
 class WSUpgradeResponse:
     @staticmethod
-    def create_error_response(status, body=None, extra_headers=None): ...
+    def create_error_response(status: int | HTTPStatus, body=None, extra_headers: Optional[WSHeadersLike]=None): ...
 
     @staticmethod
-    def create_switching_protocols_response(extra_headers=None): ...
+    def create_101_response(extra_headers: Optional[WSHeadersLike]=None): ...
 
     @property
     def version(self) -> bytes: ...
 
     @property
-    def status_code(self) -> int: ...
-
-    @property
-    def status(self) -> bytes: ...
+    def status(self) -> HTTPStatus: ...
 
     @property
     def headers(self) -> CIMultiDict: ...
@@ -172,7 +170,7 @@ async def ws_connect(
 
 
 async def ws_create_server(
-    ws_listener_factory: Callable[[WSUpgradeRequest], WSListener | None],
+    ws_listener_factory: Callable[[WSUpgradeRequest], WSListener | WSUpgradeResponseWithListener | None],
     host: str | Iterable[str] | None = None,
     port: int | None = None,
     *,
