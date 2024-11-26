@@ -63,6 +63,22 @@ cdef class WSUpgradeRequest:
         readonly object headers     # CIMultiDict[istr, str]
 
 
+cdef class WSUpgradeResponse:
+    cdef:
+        readonly bytes version
+        readonly object status      # HTTPStatus
+        readonly object headers     # CIMultiDict[istr, str]
+        readonly bytes body
+
+    cdef bytearray to_bytes(self)
+
+
+cdef class WSUpgradeResponseWithListener:
+    cdef:
+        readonly WSUpgradeResponse response
+        readonly WSListener listener
+
+
 cdef class WSFrame:
     cdef:
         char* payload_ptr
@@ -87,6 +103,8 @@ cdef class WSTransport:
         readonly object underlying_transport    #: asyncio.Transport
         readonly bint is_client_side
         readonly bint is_secure
+        readonly WSUpgradeRequest request
+        readonly WSUpgradeResponse response
 
         bint auto_ping_expect_pong
         object pong_received_at_future
@@ -106,11 +124,8 @@ cdef class WSTransport:
     cpdef disconnect(self, bint graceful=*)
     cpdef notify_user_specific_pong_received(self)
 
-    cdef inline _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, bytes user_agent_header, dict extra_headers)
-    cdef inline _send_http_handshake_response(self, bytes accept_val)
-    cdef inline _send_bad_request(self, str error)
-    cdef inline _send_not_found(self)
-    cdef inline _send_internal_server_error(self, str error)
+    cdef inline _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, object extra_headers)
+    cdef inline _send_http_handshake_response(self, WSUpgradeResponse response, bytes accept_val)
     cdef inline _mark_disconnected(self)
     cdef inline _try_native_write_then_transport_write(self, char * ptr, Py_ssize_t sz)
 

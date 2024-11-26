@@ -7,6 +7,7 @@ import picows
 import pytest
 import async_timeout
 
+from http import HTTPStatus
 from tests.utils import create_client_ssl_context, create_server_ssl_context, \
     TextFrame, CloseFrame, BinaryFrame, ServerAsyncContext, TIMEOUT, \
     materialize_frame, ClientAsyncContext
@@ -213,9 +214,42 @@ async def test_request_path_and_params(request_path):
         (transport, _) = await picows.ws_connect(picows.WSListener, url)
         transport.disconnect()
 
-    assert request_from_client.method == b"GET"
-    assert request_from_client.path == request_path.encode()
-    assert request_from_client.version == b"HTTP/1.1"
+        assert request_from_client.method == b"GET"
+        assert request_from_client.path == request_path.encode()
+        assert request_from_client.version == b"HTTP/1.1"
+
+        assert transport.request.method == b"GET"
+        assert transport.request.path == request_path.encode()
+        assert transport.request.version == b"HTTP/1.1"
+
+        assert transport.response.version == b"HTTP/1.1"
+        assert transport.response.status == HTTPStatus.SWITCHING_PROTOCOLS
+
+
+@pytest.mark.parametrize("extra_headers", [
+    {"User-Agent": "picows", "Token": "abc"},
+    [("User-Agent", "picows"), ("Token", "abc")]
+])
+async def test_client_extra_headers(extra_headers):
+    request_from_client = None
+
+    def listener_factory(request: picows.WSUpgradeRequest):
+        nonlocal request_from_client
+        request_from_client = request
+        return picows.WSListener()
+
+    server = await picows.ws_create_server(listener_factory,
+                                           "127.0.0.1", 0,
+                                           websocket_handshake_timeout=0.1)
+    async with ServerAsyncContext(server):
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+        (transport, _) = await picows.ws_connect(picows.WSListener, url, extra_headers=extra_headers)
+        transport.disconnect()
+
+        assert request_from_client.headers["User-Agent"] == "picows"
+        assert request_from_client.headers["token"] == "abc"
+        assert transport.request.headers["User-Agent"] == "picows"
+        assert transport.request.headers["token"] == "abc"
 
 
 async def test_route_not_found():
@@ -248,6 +282,31 @@ async def test_server_bad_request():
         async with async_timeout.timeout(TIMEOUT):
             await r.read()
         assert r.at_eof()
+
+
+async def test_custom_response():
+    def factory_listener(r):
+        extra_headers = {"User-Agent": "picows server"}
+        return picows.WSUpgradeResponseWithListener(picows.WSUpgradeResponse.create_101_response(extra_headers), picows.WSListener())
+
+    server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
+    async with ServerAsyncContext(server) as server_ctx:
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+        (transport, _) = await picows.ws_connect(picows.WSListener, url)
+        transport.disconnect()
+
+        assert transport.response.headers["User-Agent"] == "picows server"
+
+
+async def test_custom_response_error():
+    def factory_listener(r):
+        return picows.WSUpgradeResponseWithListener(picows.WSUpgradeResponse.create_error_response(HTTPStatus.NOT_FOUND, b"blablabla"), None)
+
+    server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
+    async with ServerAsyncContext(server) as server_ctx:
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+        with pytest.raises(picows.WSError, match="blablabla"):
+            (transport, _) = await picows.ws_connect(picows.WSListener, url)
 
 
 async def test_ws_on_connected_throw():
