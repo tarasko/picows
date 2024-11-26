@@ -11,7 +11,7 @@ from http import HTTPStatus
 from base64 import b64encode, b64decode
 from hashlib import sha1
 from ssl import SSLContext
-from typing import cast, Tuple, Optional, Callable, List, Mapping, Iterable
+from typing import cast, Tuple, Optional, Callable, List, Mapping, Iterable, Union
 
 from multidict import CIMultiDict
 
@@ -28,7 +28,9 @@ from libc.string cimport memmove, memcpy, strerror
 from libc.stdlib cimport rand
 
 PICOWS_DEBUG_LL = 9
-WSHeadersLike = Mapping[str, str] | Iterable[Tuple[str, str]]
+WSHeadersLike = Union[Mapping[str, str], Iterable[Tuple[str, str]]]
+WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
+
 
 cdef:
     set _ALLOWED_CLOSE_CODES = {int(i) for i in WSCloseCode}
@@ -97,7 +99,7 @@ cdef class WSUpgradeRequest:
 
 cdef class WSUpgradeResponse:
     @staticmethod
-    def create_error_response(status: int | HTTPStatus,
+    def create_error_response(status: Union[int, HTTPStatus],
                               body=None,
                               extra_headers: Optional[WSHeadersLike]=None) -> WSUpgradeResponse:
         """
@@ -1631,7 +1633,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
     return ws_protocol.transport, ws_protocol.listener
 
 
-async def ws_create_server(ws_listener_factory: Callable[[WSUpgradeRequest], Optional[WSListener | WSUpgradeResponseWithListener]],
+async def ws_create_server(ws_listener_factory: WSServerListenerFactory,
                            host=None,
                            port=None,
                            *,

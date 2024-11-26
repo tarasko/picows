@@ -6,13 +6,14 @@ from http import HTTPStatus
 # Some of the imports are deprecated in the newer python versions
 # But we still have support for 3.8 where collection.abc didn't have
 # proper types yet.
-from typing import Final, Optional, Mapping, Iterable, Tuple, Callable
+from typing import Final, Optional, Mapping, Iterable, Tuple, Callable, Union
 from multidict import CIMultiDict
 
 
 PICOWS_DEBUG_LL: Final = 9
-WSHeadersLike = Mapping[str, str] | Iterable[Tuple[str, str]]
-WSBuffer = bytes | bytearray | memoryview
+WSHeadersLike = Union[Mapping[str, str], Iterable[Tuple[str, str]]]
+WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
+WSBuffer = Union[bytes, bytearray, memoryview]
 
 
 class WSError(RuntimeError): ...
@@ -132,7 +133,7 @@ class WSUpgradeRequest:
 
 class WSUpgradeResponse:
     @staticmethod
-    def create_error_response(status: int | HTTPStatus, body=None, extra_headers: Optional[WSHeadersLike]=None): ...
+    def create_error_response(status: Union[int, HTTPStatus], body=None, extra_headers: Optional[WSHeadersLike]=None): ...
 
     @staticmethod
     def create_101_response(extra_headers: Optional[WSHeadersLike]=None): ...
@@ -155,7 +156,7 @@ async def ws_connect(
     ws_listener_factory: Callable[[], WSListener],
     url: str,
     *,
-    ssl_context: SSLContext | None = None,
+    ssl_context: Union[SSLContext, None] = None,
     disconnect_on_exception: bool = True,
     websocket_handshake_timeout=5,
     logger_name: str = "client",
@@ -166,13 +167,13 @@ async def ws_connect(
     enable_auto_pong: bool = True,
     extra_headers: Optional[WSHeadersLike] = None,
     **kwargs,
-) -> tuple[WSTransport, WSListener]: ...
+) -> Tuple[WSTransport, WSListener]: ...
 
 
 async def ws_create_server(
-    ws_listener_factory: Callable[[WSUpgradeRequest], WSListener | WSUpgradeResponseWithListener | None],
-    host: str | Iterable[str] | None = None,
-    port: int | None = None,
+    ws_listener_factory: WSServerListenerFactory,
+    host: Union[str, Iterable[str], None] = None,
+    port: Union[int, None] = None,
     *,
     disconnect_on_exception: bool = True,
     websocket_handshake_timeout: int = 5,
