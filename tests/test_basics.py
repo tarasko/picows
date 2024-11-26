@@ -7,6 +7,8 @@ import picows
 import pytest
 import async_timeout
 
+from http import HTTPStatus
+from picows.picows import WSUpgradeResponseWithListener, WSUpgradeResponse
 from tests.utils import create_client_ssl_context, create_server_ssl_context, \
     TextFrame, CloseFrame, BinaryFrame, ServerAsyncContext, TIMEOUT, \
     materialize_frame, ClientAsyncContext
@@ -222,8 +224,7 @@ async def test_request_path_and_params(request_path):
         assert transport.request.version == b"HTTP/1.1"
 
         assert transport.response.version == b"HTTP/1.1"
-        assert transport.response.status_code == 101
-        assert transport.response.status == b"Switching Protocols"
+        assert transport.response.status == HTTPStatus.SWITCHING_PROTOCOLS
 
 
 @pytest.mark.parametrize("extra_headers", [
@@ -282,6 +283,20 @@ async def test_server_bad_request():
         async with async_timeout.timeout(TIMEOUT):
             await r.read()
         assert r.at_eof()
+
+
+async def test_custom_response():
+    def factory_listener(r):
+        extra_headers = {"User-Agent": "picows server"}
+        return WSUpgradeResponseWithListener(picows.WSListener(), WSUpgradeResponse.create_switching_protocols_response(extra_headers))
+
+    server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
+    async with ServerAsyncContext(server) as server_ctx:
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+        (transport, _) = await picows.ws_connect(picows.WSListener, url)
+        transport.disconnect()
+
+        assert transport.response.headers["User-Agent"] == "picows server"
 
 
 async def test_ws_on_connected_throw():

@@ -130,6 +130,12 @@ class WSUpgradeRequest:
 
 
 class WSUpgradeResponse:
+    @staticmethod
+    def create_error_response(status, body=None, extra_headers=None): ...
+
+    @staticmethod
+    def create_switching_protocols_response(extra_headers=None): ...
+
     @property
     def version(self) -> bytes: ...
 
@@ -141,6 +147,14 @@ class WSUpgradeResponse:
 
     @property
     def headers(self) -> CIMultiDict: ...
+
+
+class WSUpgradeResponseWithListener:
+    def __init__(self,
+                 listener: WSListener,
+                 status_code = 101,
+                 extra_headers: Optional[WSHeadersLike] = None,
+                 body: Optional[bytes] = None): ...
 
 
 async def ws_connect(

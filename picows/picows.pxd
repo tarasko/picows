@@ -66,9 +66,11 @@ cdef class WSUpgradeRequest:
 cdef class WSUpgradeResponse:
     cdef:
         readonly bytes version
-        readonly int status_code
-        readonly bytes status
+        readonly object status      # HTTPStatus
         readonly object headers     # CIMultiDict[istr, str]
+        readonly bytes body
+
+    cdef bytearray to_bytes(self)
 
 
 cdef class WSUpgradeResponseWithListener:
@@ -123,7 +125,7 @@ cdef class WSTransport:
     cpdef notify_user_specific_pong_received(self)
 
     cdef inline _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, object extra_headers)
-    cdef inline _send_http_handshake_response(self, bytes accept_val)
+    cdef inline _send_http_handshake_response(self, WSUpgradeResponse response, bytes accept_val)
     cdef inline _send_bad_request(self, str error)
     cdef inline _send_not_found(self)
     cdef inline _send_internal_server_error(self, str error)
