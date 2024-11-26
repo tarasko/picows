@@ -299,6 +299,17 @@ async def test_custom_response():
         assert transport.response.headers["User-Agent"] == "picows server"
 
 
+async def test_custom_response_error():
+    def factory_listener(r):
+        return WSUpgradeResponseWithListener(None, WSUpgradeResponse.create_error_response(HTTPStatus.NOT_FOUND, b"blablabla"))
+
+    server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
+    async with ServerAsyncContext(server) as server_ctx:
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+        with pytest.raises(picows.WSError, match="blablabla"):
+            (transport, _) = await picows.ws_connect(picows.WSListener, url)
+
+
 async def test_ws_on_connected_throw():
     class ServerClientListener(picows.WSListener):
         def on_ws_connected(self, transport: picows.WSTransport):

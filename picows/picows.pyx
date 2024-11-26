@@ -748,45 +748,15 @@ cdef class WSTransport:
         self.underlying_transport.write(initial_handshake)
 
     cdef _send_http_handshake_response(self, WSUpgradeResponse response, bytes accept_val):
-        response.headers["Sec-WebSocket-Accept"] = accept_val.decode()
+        if accept_val is not None:
+            response.headers["Sec-WebSocket-Accept"] = accept_val.decode()
+
         cdef bytearray response_bytes = response.to_bytes()
 
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", response_bytes)
         self.response = response
         self.underlying_transport.write(response_bytes)
-
-    cdef _send_bad_request(self, str error):
-        cdef bytes error_bytes = error.encode()
-        cdef bytes reply = (b"HTTP/1.1 400 Bad Request\r\n"
-                            b"Content-Type: text/plain\r\n"
-                            b"Content-Length: %d\r\n"
-                            b"\r\n"
-                            b"%b" % (len(error_bytes), error_bytes))
-        if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", reply)
-        self.underlying_transport.write(reply)
-
-    cdef _send_not_found(self):
-        cdef bytes reply = (b"HTTP/1.1 404 Not Found\r\n"
-                            b"Content-Type: text/plain\r\n"
-                            b"Content-Length: 13\r\n"
-                            b"\r\n"
-                            b"404 Not Found")
-        if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", reply)
-        self.underlying_transport.write(reply)
-
-    cdef _send_internal_server_error(self, str error):
-        cdef bytes error_bytes = error.encode()
-        cdef bytes reply = (b"HTTP/1.1 500 Internal Server Error\r\n"
-                            b"Content-Type: text/plain\r\n"
-                            b"Content-Length: %d\r\n"
-                            b"\r\n"
-                            b"%b" % (len(error_bytes), error_bytes))
-        if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", reply)
-        self.underlying_transport.write(reply)
 
     cdef _mark_disconnected(self):
         if not self._disconnected_future.done():
@@ -1097,7 +1067,7 @@ cdef class WSProtocol:
         self._shrink_buffer()
 
     cdef inline _negotiate(self):
-        cdef WSUpgradeResponse response
+        cdef WSUpgradeResponse response = None
 
         if self.is_client_side:
             try:
@@ -1117,7 +1087,10 @@ cdef class WSProtocol:
             try:
                 upgrade_request, accept_val = self._try_read_upgrade_request()
             except RuntimeError as ex:
-                self.transport._send_bad_request(str(ex))
+                response = WSUpgradeResponse.create_error_response(
+                    HTTPStatus.BAD_REQUEST, str(ex).encode())
+
+                self.transport._send_http_handshake_response(response, None)
                 self.transport.disconnect()
                 return False
 
@@ -1137,22 +1110,27 @@ cdef class WSProtocol:
                     response = WSUpgradeResponse.create_switching_protocols_response()
                 elif listener_or_response_with_listener is None:
                     self.listener = None
+                    response = WSUpgradeResponse.create_error_response(
+                        HTTPStatus.NOT_FOUND, b"404 Not Found"
+                    )
                 else:
-                    raise TypeError("user listener factory returned wrong listener type")
+                    raise TypeError("user listener_factory returned wrong listener type")
 
                 if self.listener is not None:
                     self.transport.listener_proxy = weakref.proxy(self.listener)
             except Exception as ex:
-                self.transport._send_internal_server_error(str(ex))
+                response = WSUpgradeResponse.create_error_response(
+                    HTTPStatus.INTERNAL_SERVER_ERROR, str(ex).encode())
+                self.transport._send_http_handshake_response(response, None)
                 self.transport.disconnect()
                 return False
 
-            if self.listener is None:
-                self.transport._send_not_found()
+            if response.status != HTTPStatus.SWITCHING_PROTOCOLS:
+                self.transport._send_http_handshake_response(response, None)
                 self.transport.disconnect()
                 return False
-
-            self.transport._send_http_handshake_response(response, accept_val)
+            else:
+                self.transport._send_http_handshake_response(response, accept_val)
 
         self._handshake_timeout_handle.cancel()
         self._handshake_timeout_handle = None
@@ -1311,7 +1289,7 @@ cdef class WSProtocol:
 
         # check handshake
         if response_status_line.decode().lower() != "http/1.1 101 switching protocols":
-            raise WSError(f"cannot upgrade, invalid status in upgrade response: {response_status_line}")
+            raise WSError(f"cannot upgrade, invalid status in upgrade response: {response_status_line}, body: {tail}")
 
         cdef WSUpgradeResponse response = WSUpgradeResponse()
         cdef bytes status_code
