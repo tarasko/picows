@@ -150,11 +150,7 @@ class WSUpgradeResponse:
 
 
 class WSUpgradeResponseWithListener:
-    def __init__(self,
-                 listener: WSListener,
-                 status_code = 101,
-                 extra_headers: Optional[WSHeadersLike] = None,
-                 body: Optional[bytes] = None): ...
+    def __init__(self, response: WSUpgradeResponse, listener: Optional[WSListener]): ...
 
 
 async def ws_connect(

@@ -1,4 +1,5 @@
 import asyncio
+import http
 import weakref
 import binascii
 import logging
@@ -96,7 +97,17 @@ cdef class WSUpgradeRequest:
 
 cdef class WSUpgradeResponse:
     @staticmethod
-    def create_error_response(status, body=None, extra_headers=None):
+    def create_error_response(status: int | HTTPStatus,
+                              body=None,
+                              extra_headers: Optional[WSHeadersLike]=None) -> WSUpgradeResponse:
+        """
+        Create upgrade response with error.
+
+        :param status: int status code or http.HTTPStatus enum value
+        :param body: optional bytes-like response body
+        :param extra_headers: optional additional headers
+        :return: a new WSUpgradeResponse object
+        """
         if status < 400:
             raise ValueError(
                 f"invalid error response code {status}, can be only >=400")
@@ -112,7 +123,13 @@ cdef class WSUpgradeResponse:
         return response
 
     @staticmethod
-    def create_switching_protocols_response(extra_headers=None):
+    def create_101_response(extra_headers: Optional[WSHeadersLike]=None) -> WSUpgradeResponse:
+        """
+        Create 101 Switching Protocols response.
+
+        :param extra_headers: optional additional headers
+        :return: a new WSUpgradeResponse object
+        """
         cdef WSUpgradeResponse response = WSUpgradeResponse()
         response.version = b"HTTP/1.1"
         response.status = HTTPStatus.SWITCHING_PROTOCOLS
@@ -145,7 +162,7 @@ cdef class WSUpgradeResponse:
 
 
 cdef class WSUpgradeResponseWithListener:
-    def __init__(self, WSListener listener, WSUpgradeResponse response):
+    def __init__(self, WSUpgradeResponse response, WSListener listener):
         if response.status == 101 and listener is None:
             raise ValueError(f"listener cannot be None for 101 Switching Protocols response")
 
@@ -1636,20 +1653,21 @@ async def ws_create_server(ws_listener_factory: Callable[[WSUpgradeRequest], Opt
     It has a few extra parameters to control the behaviour of websocket
 
     :param ws_listener_factory:
-        A factory function that accepts a WSUpgradeRequest object and returns
-        a user handler or None.
+        A factory function that accepts WSUpgradeRequest object and returns one of:
+
+        * User handler object. A standard 101 response will be sent to the client.
+        * WSUpgradeResponseWithListener object. This allows to send a custom response with extra headers and an optional body.
+        * None. In such case 404 Not Found response will be sent and the client will be disconnected.
 
         The user handler must derive from WSListener and is responsible for
         processing incoming data.
 
-        If None is returned, then a 404 Not Found page will be sent as a
-        response to the upgrade request, and the client will be disconnected.
-
-        The factory function works as a router. :any:`WSUpgradeRequest` contains the
+        The factory function acts as a router. :any:`WSUpgradeRequest` contains the
         requested path and headers. Different user listeners may be returned
         depending on the path and other conditions.
     :param host:
         The host parameter can be set to several types which determine where the server would be listening:
+
         * If host is a string, the TCP server is bound to a single network interface specified by host.
         * If host is a sequence of strings, the TCP server is bound to all network interfaces specified by the sequence.
         * If host is an empty string or None, all interfaces are assumed and a list of multiple sockets will be returned (most likely one for IPv4 and another one for IPv6).

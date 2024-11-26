@@ -102,6 +102,34 @@ Classes
 
         Request headers. Keys are case insensitive
 
+.. autoclass:: WSUpgradeResponse
+    :members:
+
+    .. py:attribute:: version
+        :type: bytes
+
+        HTTP version. For example b"HTTP/1.1"
+
+    .. py:attribute:: status
+        :type: http.HTTPStatus
+
+        HTTP response status enum value. For example: HTTPStatus.SWITCHING_PROTOCOLS
+
+    .. py:attribute:: headers
+        :type: CIMultiDict[str, str]
+
+        Response headers. Keys are case insensitive
+
+    .. py:attribute:: body
+        :type: bytes
+
+        Optional response body. Can be non-empty in case of errors
+
+.. autoclass:: WSUpgradeResponseWithListener
+    :members:
+
+    .. py:method:: __init__(response: WSUpgradeResponse, listener: Optional[WSListener])
+
 .. autoclass:: WSListener
     :members:
 
@@ -116,6 +144,16 @@ Classes
         .. note::
 
             Please don't use it to send data. Use only WSTransport.send_* methods to send frames.
+
+    .. py:attribute:: request
+        :type: WSUpgradeRequest
+
+        Opening handshake request.
+
+    .. py:attribute:: response
+        :type: WSUpgradeResponse
+
+        Opening handshake response.
 
     .. py:method:: send_reuse_external_buffer(WSMsgType msg_type, char* msg_ptr, size_t msg_size, bint fin=True, bint rsv1=False)
 
