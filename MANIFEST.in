@@ -1,2 +1,3 @@
+include picows/picows.pxd picows/picows.pyx
 exclude picows/*.c
 exclude examples/*

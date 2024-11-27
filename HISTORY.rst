@@ -5,7 +5,7 @@ picows Release History
    :depth: 1
    :local:
 
-1.7.0 (2024-11-27)
+1.7.1 (2024-11-27)
 ------------------
 
 * Added extra_headers argument to ws_connect
