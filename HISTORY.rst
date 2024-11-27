@@ -5,6 +5,13 @@ picows Release History
    :depth: 1
    :local:
 
+1.7.0 (2024-11-27)
+------------------
+
+* Added extra_headers argument to ws_connect
+* Added request/response attributes to WSTransport. They can be used to access headers after successful negotiation
+* listener_factory passed to ws_create_server can now return WSUpgradeResponseWithListener to customize upgrade responses
+
 1.6.0 (2024-10-15)
 ------------------
 
