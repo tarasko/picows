@@ -35,5 +35,4 @@ setup(
         annotate=True,
         gdb_debug=False
     ),
-    package_data={"picows": ["py.typed"]},
 )
