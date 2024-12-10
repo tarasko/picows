@@ -6,7 +6,7 @@ from http import HTTPStatus
 # Some of the imports are deprecated in the newer python versions
 # But we still have support for 3.8 where collection.abc didn't have
 # proper types yet.
-from typing import Final, Optional, Mapping, Iterable, Tuple, Callable, Union
+from typing import Final, Optional, Mapping, Iterable, Tuple, Callable, Union, Any
 from multidict import CIMultiDict
 
 
@@ -161,7 +161,7 @@ class WSUpgradeResponseWithListener:
 async def ws_connect(
     ws_listener_factory: Callable[[], WSListener],
     url: str,
-    *,
+    *args: Any,
     ssl_context: Union[SSLContext, None] = None,
     disconnect_on_exception: bool = True,
     websocket_handshake_timeout: float = 5,
@@ -172,7 +172,7 @@ async def ws_connect(
     auto_ping_strategy: WSAutoPingStrategy = ...,
     enable_auto_pong: bool = True,
     extra_headers: Optional[WSHeadersLike] = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> Tuple[WSTransport, WSListener]: ...
 
 
@@ -180,7 +180,7 @@ async def ws_create_server(
     ws_listener_factory: WSServerListenerFactory,
     host: Union[str, Iterable[str], None] = None,
     port: Union[int, None] = None,
-    *,
+    *args: Any,
     disconnect_on_exception: bool = True,
     websocket_handshake_timeout: float = 5,
     logger_name: str = "server",
@@ -189,5 +189,5 @@ async def ws_create_server(
     auto_ping_reply_timeout: float = 20,
     auto_ping_strategy: WSAutoPingStrategy = ...,
     enable_auto_pong: bool = True,
-    **kwargs,
+    **kwargs: Any,
 ) -> asyncio.Server: ...
