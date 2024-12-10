@@ -6,9 +6,9 @@ import async_timeout
 import pytest
 
 import picows
-from picows import ws_connect
 
 TIMEOUT = 0.5
+
 
 class BinaryFrame:
     def __init__(self, frame: picows.WSFrame):
