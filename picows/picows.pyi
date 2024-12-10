@@ -172,9 +172,12 @@ async def ws_connect(
     auto_ping_strategy: WSAutoPingStrategy = ...,
     enable_auto_pong: bool = True,
     extra_headers: Optional[WSHeadersLike] = None,
-    **kwargs: Any,
+    **kwargs: Any
 ) -> Tuple[WSTransport, WSListener]: ...
 
+# TODO: In python 3.8 asyncio has a bug that it doesn't export Server,
+# so reference it directly from asyncio.base_events.
+# Soon python 3.8 support will be gone and we can annotate asyncio.Server
 
 async def ws_create_server(
     ws_listener_factory: WSServerListenerFactory,
@@ -189,5 +192,5 @@ async def ws_create_server(
     auto_ping_reply_timeout: float = 20,
     auto_ping_strategy: WSAutoPingStrategy = ...,
     enable_auto_pong: bool = True,
-    **kwargs: Any,
-) -> asyncio.Server: ...
+    **kwargs: Any
+) -> asyncio.base_events.Server: ...
