@@ -3,10 +3,11 @@ from enum import Enum
 from ssl import SSLContext
 from http import HTTPStatus
 
-# Some of the imports are deprecated in the newer python versions
+# TODO: Some of the imports are deprecated in the newer python versions
 # But we still have support for 3.8 where collection.abc didn't have
 # proper types yet.
-from typing import Final, Optional, Mapping, Iterable, Tuple, Callable, Union
+# Change this to collection.abc when 3.8 support is over.
+from typing import Final, Optional, Mapping, Iterable, Tuple, Callable, Union, Any
 from multidict import CIMultiDict
 
 
@@ -161,7 +162,7 @@ class WSUpgradeResponseWithListener:
 async def ws_connect(
     ws_listener_factory: Callable[[], WSListener],
     url: str,
-    *,
+    *args: Any,
     ssl_context: Union[SSLContext, None] = None,
     disconnect_on_exception: bool = True,
     websocket_handshake_timeout: float = 5,
@@ -172,15 +173,18 @@ async def ws_connect(
     auto_ping_strategy: WSAutoPingStrategy = ...,
     enable_auto_pong: bool = True,
     extra_headers: Optional[WSHeadersLike] = None,
-    **kwargs,
+    **kwargs: Any
 ) -> Tuple[WSTransport, WSListener]: ...
 
+# TODO: In python 3.8 asyncio has a bug that it doesn't export Server,
+# so reference it directly from asyncio.base_events.
+# Soon python 3.8 support will be gone and we can annotate asyncio.Server
 
 async def ws_create_server(
     ws_listener_factory: WSServerListenerFactory,
     host: Union[str, Iterable[str], None] = None,
     port: Union[int, None] = None,
-    *,
+    *args: Any,
     disconnect_on_exception: bool = True,
     websocket_handshake_timeout: float = 5,
     logger_name: str = "server",
@@ -189,5 +193,5 @@ async def ws_create_server(
     auto_ping_reply_timeout: float = 20,
     auto_ping_strategy: WSAutoPingStrategy = ...,
     enable_auto_pong: bool = True,
-    **kwargs,
-) -> asyncio.Server: ...
+    **kwargs: Any
+) -> asyncio.base_events.Server: ...
