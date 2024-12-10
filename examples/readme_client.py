@@ -1,5 +1,4 @@
 import asyncio
-import uvloop
 from picows import ws_connect, WSFrame, WSTransport, WSListener, WSMsgType, WSCloseCode
 
 
@@ -19,5 +18,4 @@ async def main(url):
 
 
 if __name__ == '__main__':
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     asyncio.run(main("ws://127.0.0.1:9001"))

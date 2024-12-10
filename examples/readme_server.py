@@ -1,5 +1,4 @@
 import asyncio
-import uvloop
 from picows import ws_create_server, WSFrame, WSTransport, WSListener, \
     WSMsgType, WSUpgradeRequest
 
@@ -30,5 +29,4 @@ async def main():
 
 
 if __name__ == '__main__':
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     asyncio.run(main())
