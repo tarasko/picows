@@ -15,11 +15,16 @@ from aiohttp import ClientSession, WSMsgType as aiohttp_WSMsgType
 from picows import WSFrame, WSTransport, WSListener, ws_connect, WSMsgType
 from time import time
 
-_logger = getLogger(__name__)
+
+try:
+    from examples.echo_client_cython import picows_main_cython
+except ImportError:
+    picows_main_cython = None
 
 
 RPS: Dict[str, List[float]] = {"ssl": [], "plain": []}
 NAMES: List[str] = []
+_logger = getLogger(__name__)
 
 
 def create_client_ssl_context():
@@ -116,7 +121,101 @@ async def aiohttp_main(url: str, data: bytes, duration: int, ssl_context):
                     break
 
 
-if __name__ == '__main__':
+def run_for_websockets_library(plain_url, ssl_url, ssl_context, msg, duration):
+    global NAMES, RPS
+    _, rps = asyncio.run(websockets_main(plain_url, msg, duration, None))
+    RPS["plain"].append(rps)
+    name, rps = asyncio.run(websockets_main(ssl_url, msg, duration, ssl_context))
+    RPS["ssl"].append(rps)
+    NAMES.append(name)
+
+
+def run_for_aiohttp_library(plain_url, ssl_url, ssl_context, msg, duration):
+    global NAMES, RPS
+    _, rps = asyncio.run(aiohttp_main(plain_url, msg, duration, None))
+    RPS["plain"].append(rps)
+    name, rps = asyncio.run(aiohttp_main(ssl_url, msg, duration, ssl_context))
+    RPS["ssl"].append(rps)
+    NAMES.append(name)
+
+
+def run_picows_client(plain_url, ssl_url, ssl_context, msg, duration):
+    global NAMES, RPS
+    _, rps = asyncio.run(picows_main(plain_url, msg, duration, None))
+    RPS["plain"].append(rps)
+    name, rps = asyncio.run(picows_main(ssl_url, msg, duration, ssl_context))
+    RPS["ssl"].append(rps)
+    NAMES.append(name)
+
+
+def run_picows_cython_plain_client(plain_url, ssl_url, ssl_context, msg, duration):
+    global NAMES, RPS
+    print("Run picows cython plain client")
+    rps = asyncio.run(picows_main_cython(plain_url, msg, duration, None))
+    RPS["plain"].append(rps)
+
+
+def run_picows_cython_ssl_client(plain_url, ssl_url, ssl_context, msg, duration):
+    global NAMES, RPS
+    print("Run picows cython ssl client")
+    rps = asyncio.run(picows_main_cython(ssl_url, msg, duration, ssl_context))
+    RPS["ssl"].append(rps)
+
+
+def run_boost_beast_client(args):
+    global NAMES, RPS
+
+    print("Run boost.beast plain client")
+    pr = subprocess.run([args.boost_client, b"0",
+                         args.host.encode(),
+                         args.plain_port.encode(),
+                         args.msg_size, args.duration],
+                        shell=False, check=True, capture_output=True)
+    _, rps = pr.stdout.split(b":", 2)
+    RPS["plain"].append(int(rps.decode()))
+
+    print("Run boost.beast ssl client")
+    pr = subprocess.run([args.boost_client, b"1",
+                         args.host.encode(),
+                         args.ssl_port.encode(),
+                         args.msg_size, args.duration],
+                        shell=False, check=True, capture_output=True)
+    name, rps = pr.stdout.split(b":", 2)
+    RPS["ssl"].append(int(rps.decode()))
+    NAMES.append("c++ boost.beast")
+
+
+def print_result_and_plot(loop_name, msg_size):
+    for k, v in RPS.items():
+        print(k.replace("\n", " "), v)
+
+    print("names:", " | ".join(n.replace("\n", " ") for n in NAMES))
+
+    try:
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(layout='constrained')
+
+        x = np.arange(len(NAMES))
+        width = 0.25  # the width of the bars
+        multiplier = 0
+
+        for cl_type, measurement in RPS.items():
+            offset = width * multiplier
+            ax.bar(x + offset, measurement, width, label=cl_type)
+            multiplier += 1
+
+        ax.set_ylabel('request/second')
+        ax.set_title(f'Echo round-trip performance \n({loop_name}, msg_size={msg_size})')
+        ax.set_xticks(x + width, NAMES)
+        ax.legend(loc='upper left', ncols=3)
+
+        plt.show()
+    except ImportError:
+        pass
+
+
+def main():
     parser = argparse.ArgumentParser(description="Benchmark for the various websocket clients",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--host", default="127.0.0.1", help="Server host")
@@ -146,87 +245,27 @@ if __name__ == '__main__':
     ssl_url = f"wss://{args.host}:{args.ssl_port}/"
 
     if not args.picows_plain_only and not args.picows_ssl_only:
-        _, rps = asyncio.run(websockets_main(plain_url, msg, duration, None))
-        RPS["plain"].append(rps)
-        name, rps = asyncio.run(websockets_main(ssl_url, msg, duration, ssl_context))
-        RPS["ssl"].append(rps)
-        NAMES.append(name)
+        run_for_websockets_library(plain_url, ssl_url, ssl_context, msg, duration)
+        run_for_aiohttp_library(plain_url, ssl_url, ssl_context, msg, duration)
+        run_picows_client(plain_url, ssl_url, ssl_context, msg, duration)
 
-        _, rps = asyncio.run(aiohttp_main(plain_url, msg, duration, None))
-        RPS["plain"].append(rps)
-        name, rps = asyncio.run(aiohttp_main(ssl_url, msg, duration, ssl_context))
-        RPS["ssl"].append(rps)
-        NAMES.append(name)
+    if picows_main_cython is not None:
+        NAMES.append("picows\ncython client")
 
-        _, rps = asyncio.run(picows_main(plain_url, msg, duration, None))
-        RPS["plain"].append(rps)
-        name, rps = asyncio.run(picows_main(ssl_url, msg, duration, ssl_context))
-        RPS["ssl"].append(rps)
-        NAMES.append(name)
-
-    try:
-        from examples.echo_client_cython import picows_main_cython
         if not args.picows_ssl_only:
-            print("Run picows cython plain client")
-            rps = asyncio.run(picows_main_cython(plain_url, msg, duration, None))
-            RPS["plain"].append(rps)
+            run_picows_cython_plain_client(plain_url, ssl_url, ssl_context, msg, duration)
 
         if not args.picows_plain_only:
-            print("Run picows cython ssl client")
-            rps = asyncio.run(picows_main_cython(ssl_url, msg, duration, ssl_context))
-            RPS["ssl"].append(rps)
-
-        NAMES.append("picows\ncython client")
-    except ImportError:
-        pass
+            run_picows_cython_ssl_client(plain_url, ssl_url, ssl_context, msg, duration)
 
     if not args.picows_plain_only and not args.picows_ssl_only and args.boost_client is not None:
-        print("Run boost.beast plain client")
-        pr = subprocess.run([args.boost_client, b"0",
-                             args.host.encode(),
-                             args.plain_port.encode(),
-                             args.msg_size, args.duration],
-                            shell=False, check=True, capture_output=True)
-        _, rps = pr.stdout.split(b":", 2)
-        RPS["plain"].append(int(rps.decode()))
-
-        print("Run boost.beast ssl client")
-        pr = subprocess.run([args.boost_client, b"1",
-                             args.host.encode(),
-                             args.ssl_port.encode(),
-                             args.msg_size, args.duration],
-                            shell=False, check=True, capture_output=True)
-        name, rps = pr.stdout.split(b":", 2)
-        RPS["ssl"].append(int(rps.decode()))
-        NAMES.append("c++ boost.beast")
+        run_boost_beast_client(args)
 
     if args.picows_plain_only or args.picows_ssl_only:
         exit()
 
-    for k, v in RPS.items():
-        print(k.replace("\n", " "), v)
+    print_result_and_plot(loop_name, msg_size)
 
-    print("names:", " | ".join(n.replace("\n", " ") for n in NAMES))
 
-    try:
-        import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots(layout='constrained')
-
-        x = np.arange(len(NAMES))
-        width = 0.25  # the width of the bars
-        multiplier = 0
-
-        for cl_type, measurement in RPS.items():
-            offset = width * multiplier
-            rects = ax.bar(x + offset, measurement, width, label=cl_type)
-            multiplier += 1
-
-        ax.set_ylabel('request/second')
-        ax.set_title(f'Echo round-trip performance \n({loop_name}, msg_size={msg_size})')
-        ax.set_xticks(x + width, NAMES)
-        ax.legend(loc='upper left', ncols=3)
-
-        plt.show()
-    except ImportError:
-        pass
+if __name__ == '__main__':
+    main()

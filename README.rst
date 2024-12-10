@@ -78,7 +78,6 @@ Connects to an echo server, sends a message and disconnect upon reply.
 .. code-block:: python
 
     import asyncio
-    import uvloop
     from picows import ws_connect, WSFrame, WSTransport, WSListener, WSMsgType, WSCloseCode
 
     class ClientListener(WSListener):
@@ -97,7 +96,6 @@ Connects to an echo server, sends a message and disconnect upon reply.
 
 
     if __name__ == '__main__':
-        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
         asyncio.run(main("ws://127.0.0.1:9001"))
 
 This prints:
@@ -112,7 +110,6 @@ Echo server
 .. code-block:: python
 
     import asyncio
-    import uvloop
     from picows import ws_create_server, WSFrame, WSTransport, WSListener, WSMsgType, WSUpgradeRequest
 
     class ServerClientListener(WSListener):
@@ -138,7 +135,6 @@ Echo server
         await server.serve_forever()
 
     if __name__ == '__main__':
-      asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
       asyncio.run(main())
 
 

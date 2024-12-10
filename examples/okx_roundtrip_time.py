@@ -2,9 +2,10 @@ import asyncio
 import logging
 
 import picows
-from picows import ws_connect, WSFrame, WSTransport, WSListener, WSMsgType, WSCloseCode
+from picows import ws_connect, WSTransport, WSListener
 
 EXPECTED_OKX_ROUNDTRIP_TIME = 0.1
+
 
 class ClientListener(WSListener):
     async def check_okx_roundtrip_time(self, transport: picows.WSTransport):

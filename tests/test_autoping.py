@@ -6,7 +6,7 @@ from aiohttp import WSMsgType
 
 import picows
 from tests.utils import (ServerAsyncContext, ClientAsyncContext, TIMEOUT,
-                         TextFrame, CloseFrame, BinaryFrame, materialize_frame)
+                         CloseFrame, materialize_frame)
 
 
 class AccumulatingListener(picows.WSListener):
@@ -23,7 +23,6 @@ class AccumulatingServerListener(picows.WSListener):
 
     def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
         self.frames.append(materialize_frame(frame))
-
 
 
 async def test_ping_pong():
@@ -48,7 +47,8 @@ async def test_ping_pong():
                                                enable_auto_pong=False)
 
         async with ServerAsyncContext(server) as server_ctx:
-            async with ClientAsyncContext(ClientListener, server_ctx.plain_url, enable_auto_pong=False) as (transport, listener):
+            async with ClientAsyncContext(ClientListener, server_ctx.plain_url,
+                                          enable_auto_pong=False) as (transport, listener):
                 await transport.wait_disconnected()
                 assert listener.ping_count == 3
 
@@ -87,7 +87,8 @@ async def test_custom_ping_consume_pong():
 
     async with async_timeout.timeout(TIMEOUT):
         async with ServerAsyncContext(server) as server_ctx:
-            async with ClientAsyncContext(ClientListener, server_ctx.plain_url, enable_auto_pong=False) as (transport, listener):
+            async with ClientAsyncContext(ClientListener, server_ctx.plain_url,
+                                          enable_auto_pong=False) as (transport, listener):
                 # Will check that b"hello" was delivered to on_ws_frame and custom ping message not.
                 transport.send(WSMsgType.TEXT, b"hello")
                 await transport.wait_disconnected()
@@ -135,7 +136,8 @@ async def test_custom_ping_notify_pong():
 
     async with async_timeout.timeout(TIMEOUT):
         async with ServerAsyncContext(server) as server_ctx:
-            async with ClientAsyncContext(ClientListener, server_ctx.plain_url, enable_auto_pong=False) as (transport, listener):
+            async with ClientAsyncContext(ClientListener, server_ctx.plain_url,
+                                          enable_auto_pong=False) as (transport, listener):
                 transport.send(WSMsgType.TEXT, b"hello")
                 await transport.wait_disconnected()
 
@@ -154,7 +156,8 @@ async def test_no_pong_reply():
 
     async with async_timeout.timeout(TIMEOUT):
         async with ServerAsyncContext(server) as server_ctx:
-            async with ClientAsyncContext(AccumulatingListener, server_ctx.plain_url, enable_auto_pong=False) as (transport, listener):
+            async with ClientAsyncContext(AccumulatingListener, server_ctx.plain_url,
+                                          enable_auto_pong=False) as (transport, listener):
                 await transport.wait_disconnected()
 
                 assert len(listener.frames) == 2
@@ -173,7 +176,8 @@ async def test_no_ping_when_data_is_present():
                                            enable_auto_pong=False)
 
     async with ServerAsyncContext(server) as server_ctx:
-        async with ClientAsyncContext(AccumulatingListener, server_ctx.plain_url, enable_auto_pong=False) as (transport, listener):
+        async with ClientAsyncContext(AccumulatingListener, server_ctx.plain_url,
+                                      enable_auto_pong=False) as (transport, listener):
             for i in range(50):
                 await asyncio.sleep(0.02)
                 transport.send(picows.WSMsgType.TEXT, b"hi")
@@ -199,9 +203,9 @@ async def test_periodic_ping_when_data_is_present():
 
             super().on_ws_frame(transport, frame)
 
-
     async with ServerAsyncContext(server) as server_ctx:
-        async with ClientAsyncContext(ClientListener, server_ctx.plain_url, enable_auto_pong=False) as (transport, listener):
+        async with ClientAsyncContext(ClientListener, server_ctx.plain_url,
+                                      enable_auto_pong=False) as (transport, listener):
             for i in range(50):
                 await asyncio.sleep(0.02)
                 transport.send(picows.WSMsgType.TEXT, b"hi")
@@ -226,7 +230,8 @@ async def test_send_user_specific_ping_exception():
 
     async with async_timeout.timeout(TIMEOUT):
         async with ServerAsyncContext(server) as server_ctx:
-            async with ClientAsyncContext(AccumulatingListener, server_ctx.plain_url, enable_auto_pong=False) as (transport, listener):
+            async with ClientAsyncContext(AccumulatingListener, server_ctx.plain_url,
+                                          enable_auto_pong=False) as (transport, listener):
                 await transport.wait_disconnected()
 
                 assert len(listener.frames) == 1
@@ -250,7 +255,8 @@ async def test_is_user_specific_pong_exception():
 
     async with async_timeout.timeout(TIMEOUT):
         async with ServerAsyncContext(server) as server_ctx:
-            async with ClientAsyncContext(AccumulatingListener, server_ctx.plain_url, enable_auto_pong=True) as (transport, listener):
+            async with ClientAsyncContext(AccumulatingListener, server_ctx.plain_url,
+                                          enable_auto_pong=True) as (transport, listener):
                 await transport.wait_disconnected()
 
                 assert len(listener.frames) == 1
@@ -288,16 +294,16 @@ async def test_roundtrip_time(use_notify, auto_ping_strategy):
             async with async_timeout.timeout(2):
                 results = await transport.measure_roundtrip_time(5)
                 assert len(results) == 5
-                for l in results:
-                    assert l > 0 and l < 1.0
+                for rtt in results:
+                    assert rtt > 0 and rtt < 1.0
 
             await asyncio.sleep(0.7)
 
             async with async_timeout.timeout(2):
                 results = await transport.measure_roundtrip_time(5)
                 assert len(results) == 5
-                for l in results:
-                    assert l > 0 and l < 1.0
+                for rtt in results:
+                    assert rtt > 0 and rtt < 1.0
 
 
 @pytest.mark.parametrize("with_auto_ping", [False, True], ids=["no_auto_ping", "with_auto_ping"])
