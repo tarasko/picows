@@ -5,6 +5,13 @@ picows Release History
    :depth: 1
    :local:
 
+1.7.2 (2024-12-13)
+------------------
+
+* #27: Type stubs are missing return type annotations
+* #28: New logo, credits to @River-Shi
+* Fix lint warnings, more rigorous CI checks
+
 1.7.1 (2024-11-27)
 ------------------
 
