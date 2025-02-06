@@ -74,7 +74,14 @@ async def websockets_main(endpoint: str, msg: bytes, duration: int, ssl_context)
     cl_type = "plain" if ssl_context is None else "ssl"
 
     print(f"Run websockets ({websockets.__version__}) {cl_type} client")
-    async with websockets.connect(endpoint, ssl=ssl_context) as websocket:
+    async with websockets.connect(
+        endpoint,
+        ssl=ssl_context,
+        compression=None,
+        max_queue=None,
+        max_size=None,
+        ping_interval=None,
+    ) as websocket:
         await websocket.send(msg)
         start_time = time()
         cnt = 0
