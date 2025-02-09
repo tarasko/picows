@@ -51,8 +51,7 @@ class Server:
         def listener_factory(r: WSUpgradeRequest):
             return ServerClientListener(self._all_clients)
 
-        self._asyncio_server = await ws_create_server(listener_factory,
-                                                        "127.0.0.1", 9001)
+        self._asyncio_server = await ws_create_server(listener_factory, "127.0.0.1", 9001)
         for s in self._asyncio_server.sockets:
             print(f"Server started on {s.getsockname()}")
 
