@@ -1,5 +1,5 @@
 import asyncio
-from picows import ws_connect, WSFrame, WSTransport, WSListener, WSMsgType, WSCloseCode
+from picows import ws_connect, WSFrame, WSTransport, WSListener
 
 
 class ClientListener(WSListener):
