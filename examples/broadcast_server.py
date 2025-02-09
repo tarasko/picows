@@ -5,6 +5,7 @@
 
 import asyncio
 import itertools
+from typing import Optional
 from weakref import ref, ReferenceType
 
 from picows import ws_create_server, WSFrame, WSTransport, WSListener, \
@@ -34,9 +35,11 @@ class ServerClientListener(WSListener):
 
 class Server:
     _all_clients: set[ReferenceType[ServerClientListener]]
+    _asyncio_server: Optional[asyncio.Server]
 
     def __init__(self):
         self._all_clients = set()
+        self._asyncio_server = None
 
     def broadcast(self, message):
         for client_ref in self._all_clients:
@@ -48,12 +51,12 @@ class Server:
         def listener_factory(r: WSUpgradeRequest):
             return ServerClientListener(self._all_clients)
 
-        server: asyncio.Server = await ws_create_server(listener_factory,
+        self._asyncio_server = await ws_create_server(listener_factory,
                                                         "127.0.0.1", 9001)
-        for s in server.sockets:
+        for s in self._asyncio_server.sockets:
             print(f"Server started on {s.getsockname()}")
 
-        await server.serve_forever()
+        await self._asyncio_server.serve_forever()
 
 
 async def main():
