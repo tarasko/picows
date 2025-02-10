@@ -157,7 +157,7 @@ async def test_max_frame_size_violation():
     server = await picows.ws_create_server(lambda _: ServerEchoListener(),
                                            "127.0.0.1", 0,
                                            max_frame_size=max_frame_size)
-    async with ServerAsyncContext(server, shutdown_timeout=2) as server_ctx:
+    async with ServerAsyncContext(server) as server_ctx:
         async with ClientAsyncContext(ClientMsgQueue, server_ctx.plain_url,
                                       ssl_context=create_client_ssl_context(),
                                       max_frame_size=max_frame_size,
