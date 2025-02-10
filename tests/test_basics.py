@@ -92,6 +92,7 @@ class ClientMsgQueue(picows.WSListener):
             self.msg_queue.task_done()
             return item
 
+
 @pytest.fixture()
 async def client_msg_queue(echo_server):
     async with ClientAsyncContext(ClientMsgQueue, echo_server,
