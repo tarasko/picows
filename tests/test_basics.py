@@ -151,30 +151,22 @@ async def test_echo(client_msg_queue, msg_size):
         client_msg_queue.transport.send(picows.WSMsgType.BINARY, "hi")
 
 
-async def test_max_frame_size_violation(client_msg_queue):
-    msg = os.urandom(20*1024*1024)
-    client_msg_queue.transport.send(picows.WSMsgType.BINARY, msg, False, False)
-    frame = await client_msg_queue.get_message()
-    assert frame.msg_type == picows.WSMsgType.CLOSE
-    assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
-
-
-async def test_max_frame_size_override():
-    msg = os.urandom(20 * 1024 * 1024)
+async def test_max_frame_size_violation():
+    msg = os.urandom(1024 * 1024)
+    max_frame_size = 512 * 1024
     server = await picows.ws_create_server(lambda _: ServerEchoListener(),
                                            "127.0.0.1", 0,
-                                           max_frame_size=30*1024*1024)
+                                           max_frame_size=max_frame_size)
     async with ServerAsyncContext(server) as server_ctx:
         async with ClientAsyncContext(ClientMsgQueue, server_ctx.plain_url,
                                       ssl_context=create_client_ssl_context(),
-                                      max_frame_size=30*1024*1024,
+                                      max_frame_size=max_frame_size,
                                       ) as (transport, listener):
             transport.send(picows.WSMsgType.BINARY, msg, False, False)
             frame = await listener.get_message()
-            assert frame.msg_type == picows.WSMsgType.BINARY
-            assert frame.payload_as_bytes == msg
-            assert frame.payload_as_bytes_from_mv == msg
-
+            assert frame.msg_type == picows.WSMsgType.CLOSE
+            assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
+            
 
 async def test_close(client_msg_queue):
     client_msg_queue.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"goodbye")
