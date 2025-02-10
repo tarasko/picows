@@ -86,8 +86,8 @@ class ClientMsgQueue(picows.WSListener):
     def resume_writing(self):
         self.is_paused = False
 
-    async def get_message(self):
-        async with async_timeout.timeout(TIMEOUT):
+    async def get_message(self, timeout=TIMEOUT):
+        async with async_timeout.timeout(timeout):
             item = await self.msg_queue.get()
             self.msg_queue.task_done()
             return item
@@ -163,7 +163,7 @@ async def test_max_frame_size_violation():
                                       max_frame_size=max_frame_size,
                                       ) as (transport, listener):
             transport.send(picows.WSMsgType.BINARY, msg, False, False)
-            frame = await listener.get_message()
+            frame = await listener.get_message(2)
             assert frame.msg_type == picows.WSMsgType.CLOSE
             assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
 
