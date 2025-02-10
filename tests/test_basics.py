@@ -157,13 +157,13 @@ async def test_max_frame_size_violation():
     server = await picows.ws_create_server(lambda _: ServerEchoListener(),
                                            "127.0.0.1", 0,
                                            max_frame_size=max_frame_size)
-    async with ServerAsyncContext(server) as server_ctx:
+    async with ServerAsyncContext(server, shutdown_timeout=2) as server_ctx:
         async with ClientAsyncContext(ClientMsgQueue, server_ctx.plain_url,
                                       ssl_context=create_client_ssl_context(),
                                       max_frame_size=max_frame_size,
                                       ) as (transport, listener):
             transport.send(picows.WSMsgType.BINARY, msg, False, False)
-            frame = await listener.get_message(2)
+            frame = await listener.get_message(timeout=2)
             assert frame.msg_type == picows.WSMsgType.CLOSE
             assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
 
