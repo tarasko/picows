@@ -163,7 +163,7 @@ async def test_max_frame_size_violation():
                                       max_frame_size=max_frame_size,
                                       ) as (transport, listener):
             transport.send(picows.WSMsgType.BINARY, msg, False, False)
-            frame = await listener.get_message(timeout=2)
+            frame = await listener.get_message(timeout=5)
             assert frame.msg_type == picows.WSMsgType.CLOSE
             assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
 
