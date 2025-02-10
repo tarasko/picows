@@ -1,5 +1,4 @@
 import asyncio
-import http
 import weakref
 import binascii
 import logging
@@ -873,6 +872,7 @@ cdef class WSProtocol:
                  enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
                  auto_ping_strategy,
                  enable_auto_pong,
+                 max_frame_size,
                  extra_headers):
         self.transport = None
         self.listener = None
@@ -893,7 +893,7 @@ cdef class WSProtocol:
         self._upgrade_request_max_size = 16 * 1024
 
         self._websocket_key_b64 = b64encode(os.urandom(16))
-        self._max_frame_size = 1024 * 1024
+        self._max_frame_size = max_frame_size
 
         self._enable_auto_pong = enable_auto_pong
         self._enable_auto_ping = enable_auto_ping
@@ -1552,6 +1552,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                      auto_ping_reply_timeout: float=10,
                      auto_ping_strategy = WSAutoPingStrategy.PING_WHEN_IDLE,
                      enable_auto_pong: bool=True,
+                     max_frame_size: int = 10 * 1024 * 1024,
                      extra_headers: Optional[WSHeadersLike]=None,
                      **kwargs
                      ) -> Tuple[WSTransport, WSListener]:
@@ -1592,6 +1593,9 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
         * PING_PERIODICALLY - send ping at regular intervals regardless of incoming data.
     :param enable_auto_pong:
         If enabled then picows will automatically reply to incoming PING frames.
+    :param max_frame_size:
+        * Maximum allowed frame size. Disconnect will be initiated if client receives
+        a frame that is bigger than max size.
     :param extra_headers:
         Arbitrary HTTP headers to add to the handshake request.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
@@ -1621,6 +1625,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                                              enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
                                              auto_ping_strategy,
                                              enable_auto_pong,
+                                             max_frame_size,
                                              extra_headers)
 
     cdef WSProtocol ws_protocol
@@ -1645,6 +1650,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,
                            auto_ping_reply_timeout: float = 20,
                            auto_ping_strategy = WSAutoPingStrategy.PING_WHEN_IDLE,
                            enable_auto_pong: bool = True,
+                           max_frame_size: int = 10 * 1024 * 1024,
                            **kwargs
                            ) -> asyncio.Server:
     """
@@ -1704,6 +1710,9 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,
         * PING_PERIODICALLY - send ping at regular intervals regardless of incoming data.
     :param enable_auto_pong:
         If enabled then picows will automatically reply to incoming PING frames.
+    :param max_frame_size:
+        * Maximum allowed frame size. Disconnect will be initiated if server side receives
+        frame that is bigger than max size.
     :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
 
@@ -1716,6 +1725,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,
                                              enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
                                              auto_ping_strategy,
                                              enable_auto_pong,
+                                             max_frame_size,
                                              extra_headers)
 
     return await asyncio.get_running_loop().create_server(
