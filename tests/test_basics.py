@@ -166,7 +166,7 @@ async def test_max_frame_size_violation():
             frame = await listener.get_message()
             assert frame.msg_type == picows.WSMsgType.CLOSE
             assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
-            
+
 
 async def test_close(client_msg_queue):
     client_msg_queue.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"goodbye")
