@@ -152,7 +152,7 @@ async def test_echo(client_msg_queue, msg_size):
 
 
 async def test_max_frame_size_violation():
-    msg = os.urandom(256 * 1024)
+    msg = os.urandom(1024 * 1024)
     max_frame_size = 16 * 1024
     server = await picows.ws_create_server(lambda _: ServerEchoListener(),
                                            "127.0.0.1", 0,
