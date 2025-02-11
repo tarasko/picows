@@ -3,6 +3,8 @@ import base64
 import os
 import sys
 
+from aiohttp import WSMsgType
+
 import picows
 import pytest
 import async_timeout
@@ -48,6 +50,9 @@ class ServerEchoListener(picows.WSListener):
     def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
         if frame.msg_type == picows.WSMsgType.CLOSE:
             self._transport.send_close(frame.get_close_code(), frame.get_close_message())
+            self._transport.disconnect()
+        if (frame.msg_type == picows.WSMsgType.TEXT and
+                frame.get_payload_as_memoryview() == b"disconnect_me_without_close_frame"):
             self._transport.disconnect()
         else:
             self._transport.send(frame.msg_type, frame.get_payload_as_bytes(), frame.fin, frame.rsv1)
@@ -416,9 +421,8 @@ async def test_native_exc_conversion(client_msg_queue):
     if client_msg_queue.transport.is_secure:
         pytest.skip("skipped for secure connections")
 
-    # make server disconnect us
-    client_msg_queue.transport.send_close(picows.WSCloseCode.GOING_AWAY)
-    await client_msg_queue.get_message()
+    # ask server to disconnect us
+    client_msg_queue.transport.send(WSMsgType.TEXT, b"disconnect_me_without_close_frame")
     await asyncio.sleep(0.1)
     msg = os.urandom(256)
     with pytest.raises(OSError):
