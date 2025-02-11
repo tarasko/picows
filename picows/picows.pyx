@@ -488,6 +488,7 @@ cdef class WSTransport:
         self.underlying_transport = underlying_transport
         self.is_client_side = is_client_side
         self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
+        self.is_closed_for_writing = False
         self.request = None
         self.response = None #
         self.auto_ping_expect_pong = False
@@ -557,6 +558,10 @@ cdef class WSTransport:
             Some protocol extensions use it to indicate that payload 
             is compressed.        
         """
+        if self.is_closed_for_writing:
+            self._logger.info("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
+            return
+
         cdef:
             char* msg_ptr
             size_t msg_length
@@ -648,6 +653,7 @@ cdef class WSTransport:
             close_payload += close_message
 
         self.send(WSMsgType.CLOSE, close_payload)
+        self.is_closed_for_writing = True
 
     cpdef disconnect(self, bint graceful=True):
         """

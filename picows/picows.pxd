@@ -105,6 +105,7 @@ cdef class WSTransport:
         readonly object underlying_transport    #: asyncio.Transport
         readonly bint is_client_side
         readonly bint is_secure
+        readonly bint is_closed_for_writing
         readonly WSUpgradeRequest request
         readonly WSUpgradeResponse response
 
