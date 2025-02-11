@@ -29,6 +29,10 @@ from libc.stdlib cimport rand
 PICOWS_DEBUG_LL = 9
 WSHeadersLike = Union[Mapping[str, str], Iterable[Tuple[str, str]]]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
+
+# When picows would like to disconnect peer (due to protocol violation or other failures), CLOSE frame is sent first.
+# Then disconnect is scheduled with a small delay. Otherwise, some old asyncio version do not transmit CLOSE frame,
+# despite promising to do so. Even 0.0 delay seems to be enough (run in the next even loop cycle)
 DISCONNECT_AFTER_ERROR_DELAY = 0.0
 
 
@@ -489,7 +493,6 @@ cdef class WSTransport:
         self.underlying_transport = underlying_transport
         self.is_client_side = is_client_side
         self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
-        self.is_closed_for_writing = False
         self.request = None
         self.response = None #
         self.auto_ping_expect_pong = False
@@ -497,6 +500,7 @@ cdef class WSTransport:
         self.listener_proxy = None
         self._logger = logger
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
+        self._close_frame_is_sent = False
         self._disconnected_future = loop.create_future()
         self._write_buf = MemoryBuffer(1024)
         self._socket = underlying_transport.get_extra_info('socket').fileno()
@@ -559,7 +563,7 @@ cdef class WSTransport:
             Some protocol extensions use it to indicate that payload 
             is compressed.        
         """
-        if self.is_closed_for_writing:
+        if self._close_frame_is_sent:
             self._logger.info("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
             return
 
@@ -654,7 +658,7 @@ cdef class WSTransport:
             close_payload += close_message
 
         self.send(WSMsgType.CLOSE, close_payload)
-        self.is_closed_for_writing = True
+        self._close_frame_is_sent = True
 
     cpdef disconnect(self, bint graceful=True):
         """
