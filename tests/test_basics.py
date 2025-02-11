@@ -152,8 +152,8 @@ async def test_echo(client_msg_queue, msg_size):
 
 
 async def test_max_frame_size_violation():
-    msg = os.urandom(1024 * 1024)
-    max_frame_size = 512 * 1024
+    msg = os.urandom(512 * 1024)
+    max_frame_size = 16 * 1024
     server = await picows.ws_create_server(lambda _: ServerEchoListener(),
                                            "127.0.0.1", 0,
                                            max_frame_size=max_frame_size)
@@ -162,8 +162,8 @@ async def test_max_frame_size_violation():
                                       ssl_context=create_client_ssl_context(),
                                       max_frame_size=max_frame_size,
                                       ) as (transport, listener):
-            transport.send(picows.WSMsgType.BINARY, msg, False, False)
-            frame = await listener.get_message(timeout=5)
+            transport.send(picows.WSMsgType.BINARY, msg)
+            frame = await listener.get_message()
             assert frame.msg_type == picows.WSMsgType.CLOSE
             assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
 
