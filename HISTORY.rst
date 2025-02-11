@@ -12,6 +12,7 @@ picows Release History
 * #37: Add an option to ws_connect/ws_create_server to increase maximum allowed frame size
 * Change default value of max_frame_size to 10Mb
 * Allow weak references to WSTransport objects
+* Be more reliable when delivering close frames with errors sent by picows itself
 
 1.7.2 (2024-12-13)
 ------------------

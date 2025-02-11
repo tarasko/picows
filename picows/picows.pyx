@@ -29,6 +29,7 @@ from libc.stdlib cimport rand
 PICOWS_DEBUG_LL = 9
 WSHeadersLike = Union[Mapping[str, str], Iterable[Tuple[str, str]]]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
+DISCONNECT_AFTER_ERROR_DELAY = 0.0
 
 
 cdef:
@@ -1218,7 +1219,7 @@ cdef class WSProtocol:
                     # But don't wait for any tcp confirmation, use abort()
                     # because normal disconnect may hang until OS TCP/IP timeout
                     # for ACK is fired.
-                    self._loop.call_later(0.01, self.transport.underlying_transport.abort)
+                    self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.underlying_transport.abort)
                     break
         except asyncio.CancelledError:
             if self._log_debug_enabled:
@@ -1226,7 +1227,7 @@ cdef class WSProtocol:
         except:
             self._logger.exception("Auto-ping loop failed, disconnect websocket")
             self.transport.send_close(WSCloseCode.INTERNAL_ERROR, b"an exception occurred in auto-ping loop")
-            self._loop.call_later(0.01, self.transport.disconnect)
+            self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 
     cdef inline tuple _try_read_upgrade_request(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
@@ -1353,11 +1354,11 @@ cdef class WSProtocol:
         except _WSParserError as ex:
             self._logger.error("WS parser error: %s, initiate disconnect", ex.args)
             self.transport.send_close(ex.args[0], ex.args[1].encode())
-            self._loop.call_later(0.01, self.transport.disconnect)
+            self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
         except:
             self._logger.exception("WS parser failure, initiate disconnect")
             self.transport.send_close(WSCloseCode.PROTOCOL_ERROR)
-            self._loop.call_later(0.01, self.transport.disconnect)
+            self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 
     cdef inline WSFrame _get_next_frame_impl(self): #  -> Optional[WSFrame]
         """Return the next frame from the socket."""
@@ -1488,7 +1489,7 @@ cdef class WSProtocol:
         except Exception as e:
             self._logger.exception("Unhandled exception in on_ws_connected, initiate disconnect")
             self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
-            self._loop.call_later(0.01, self.transport.disconnect)
+            self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 
     cdef inline _invoke_on_ws_frame(self, WSFrame frame):
         try:
@@ -1518,7 +1519,7 @@ cdef class WSProtocol:
             if self._disconnect_on_exception:
                 self._logger.exception("Unhandled exception in on_ws_frame, initiate disconnect")
                 self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
-                self._loop.call_later(0.01, self.transport.disconnect)
+                self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
             else:
                 self._logger.exception("Unhandled exception in on_ws_frame")
 
