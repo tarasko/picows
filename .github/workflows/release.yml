@@ -31,7 +31,7 @@ jobs:
     - name: Publish source dist to github
       uses: actions/upload-artifact@v4
       with:
-        name: dist
+        name: dist-src
         path: dist/*.tar.*
 
   build-wheels-matrix:
@@ -91,7 +91,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dist
+          name: dist-${{ matrix.only }}
           path: wheelhouse/*.whl
 
 
@@ -107,10 +107,11 @@ jobs:
         fetch-depth: 5
         submodules: false
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
-        name: dist
         path: dist/
+        pattern: dist-*
+        merge-multiple: true
 
     - run: |
         ls -al dist/
