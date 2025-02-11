@@ -32,7 +32,7 @@ WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgra
 
 # When picows would like to disconnect peer (due to protocol violation or other failures), CLOSE frame is sent first.
 # Then disconnect is scheduled with a small delay. Otherwise, some old asyncio version do not transmit CLOSE frame,
-# despite promising to do so. 
+# despite promising to do so.
 DISCONNECT_AFTER_ERROR_DELAY = 0.01
 
 
