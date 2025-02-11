@@ -114,6 +114,7 @@ cdef class WSTransport:
 
         object _logger                          #: Logger
         bint _log_debug_enabled
+        bint _close_frame_is_sent
         object _disconnected_future             #: asyncio.Future
         MemoryBuffer _write_buf
         int _socket

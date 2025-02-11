@@ -1,5 +1,4 @@
 import asyncio
-import http
 import weakref
 import binascii
 import logging
@@ -30,6 +29,11 @@ from libc.stdlib cimport rand
 PICOWS_DEBUG_LL = 9
 WSHeadersLike = Union[Mapping[str, str], Iterable[Tuple[str, str]]]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
+
+# When picows would like to disconnect peer (due to protocol violation or other failures), CLOSE frame is sent first.
+# Then disconnect is scheduled with a small delay. Otherwise, some old asyncio version do not transmit CLOSE frame,
+# despite promising to do so. 
+DISCONNECT_AFTER_ERROR_DELAY = 0.01
 
 
 cdef:
@@ -496,6 +500,7 @@ cdef class WSTransport:
         self.listener_proxy = None
         self._logger = logger
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
+        self._close_frame_is_sent = False
         self._disconnected_future = loop.create_future()
         self._write_buf = MemoryBuffer(1024)
         self._socket = underlying_transport.get_extra_info('socket').fileno()
@@ -558,6 +563,10 @@ cdef class WSTransport:
             Some protocol extensions use it to indicate that payload 
             is compressed.        
         """
+        if self._close_frame_is_sent:
+            self._logger.info("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
+            return
+
         cdef:
             char* msg_ptr
             size_t msg_length
@@ -649,6 +658,7 @@ cdef class WSTransport:
             close_payload += close_message
 
         self.send(WSMsgType.CLOSE, close_payload)
+        self._close_frame_is_sent = True
 
     cpdef disconnect(self, bint graceful=True):
         """
@@ -873,6 +883,7 @@ cdef class WSProtocol:
                  enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
                  auto_ping_strategy,
                  enable_auto_pong,
+                 max_frame_size,
                  extra_headers):
         self.transport = None
         self.listener = None
@@ -893,7 +904,7 @@ cdef class WSProtocol:
         self._upgrade_request_max_size = 16 * 1024
 
         self._websocket_key_b64 = b64encode(os.urandom(16))
-        self._max_frame_size = 1024 * 1024
+        self._max_frame_size = max_frame_size
 
         self._enable_auto_pong = enable_auto_pong
         self._enable_auto_ping = enable_auto_ping
@@ -1212,15 +1223,15 @@ cdef class WSProtocol:
                     # But don't wait for any tcp confirmation, use abort()
                     # because normal disconnect may hang until OS TCP/IP timeout
                     # for ACK is fired.
-                    await sleep(0.01)
-                    self.transport.underlying_transport.abort()
+                    self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.underlying_transport.abort)
+                    break
         except asyncio.CancelledError:
             if self._log_debug_enabled:
                 self._logger.log(PICOWS_DEBUG_LL, "Auto-ping loop cancelled")
         except:
             self._logger.exception("Auto-ping loop failed, disconnect websocket")
             self.transport.send_close(WSCloseCode.INTERNAL_ERROR, b"an exception occurred in auto-ping loop")
-            self.transport.disconnect()
+            self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 
     cdef inline tuple _try_read_upgrade_request(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
@@ -1347,11 +1358,11 @@ cdef class WSProtocol:
         except _WSParserError as ex:
             self._logger.error("WS parser error: %s, initiate disconnect", ex.args)
             self.transport.send_close(ex.args[0], ex.args[1].encode())
-            self.transport.disconnect()
+            self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
         except:
             self._logger.exception("WS parser failure, initiate disconnect")
             self.transport.send_close(WSCloseCode.PROTOCOL_ERROR)
-            self.transport.disconnect()
+            self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 
     cdef inline WSFrame _get_next_frame_impl(self): #  -> Optional[WSFrame]
         """Return the next frame from the socket."""
@@ -1482,7 +1493,7 @@ cdef class WSProtocol:
         except Exception as e:
             self._logger.exception("Unhandled exception in on_ws_connected, initiate disconnect")
             self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
-            self.transport.disconnect()
+            self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 
     cdef inline _invoke_on_ws_frame(self, WSFrame frame):
         try:
@@ -1512,7 +1523,7 @@ cdef class WSProtocol:
             if self._disconnect_on_exception:
                 self._logger.exception("Unhandled exception in on_ws_frame, initiate disconnect")
                 self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
-                self.transport.disconnect()
+                self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
             else:
                 self._logger.exception("Unhandled exception in on_ws_frame")
 
@@ -1552,6 +1563,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                      auto_ping_reply_timeout: float=10,
                      auto_ping_strategy = WSAutoPingStrategy.PING_WHEN_IDLE,
                      enable_auto_pong: bool=True,
+                     max_frame_size: int = 10 * 1024 * 1024,
                      extra_headers: Optional[WSHeadersLike]=None,
                      **kwargs
                      ) -> Tuple[WSTransport, WSListener]:
@@ -1592,6 +1604,9 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
         * PING_PERIODICALLY - send ping at regular intervals regardless of incoming data.
     :param enable_auto_pong:
         If enabled then picows will automatically reply to incoming PING frames.
+    :param max_frame_size:
+        * Maximum allowed frame size. Disconnect will be initiated if client receives
+        a frame that is bigger than max size.
     :param extra_headers:
         Arbitrary HTTP headers to add to the handshake request.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
@@ -1621,6 +1636,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                                              enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
                                              auto_ping_strategy,
                                              enable_auto_pong,
+                                             max_frame_size,
                                              extra_headers)
 
     cdef WSProtocol ws_protocol
@@ -1645,6 +1661,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,
                            auto_ping_reply_timeout: float = 20,
                            auto_ping_strategy = WSAutoPingStrategy.PING_WHEN_IDLE,
                            enable_auto_pong: bool = True,
+                           max_frame_size: int = 10 * 1024 * 1024,
                            **kwargs
                            ) -> asyncio.Server:
     """
@@ -1704,6 +1721,9 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,
         * PING_PERIODICALLY - send ping at regular intervals regardless of incoming data.
     :param enable_auto_pong:
         If enabled then picows will automatically reply to incoming PING frames.
+    :param max_frame_size:
+        * Maximum allowed frame size. Disconnect will be initiated if server side receives
+        frame that is bigger than max size.
     :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
 
@@ -1716,6 +1736,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,
                                              enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
                                              auto_ping_strategy,
                                              enable_auto_pong,
+                                             max_frame_size,
                                              extra_headers)
 
     return await asyncio.get_running_loop().create_server(

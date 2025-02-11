@@ -47,11 +47,12 @@ def materialize_frame(frame: picows.WSFrame):
 
 
 class ServerAsyncContext:
-    def __init__(self, server):
+    def __init__(self, server, shutdown_timeout=TIMEOUT):
         self.server = server
         self.server_task = asyncio.create_task(server.serve_forever())
         self.plain_url = None
         self.ssl_url = None
+        self.shutdown_timeout = shutdown_timeout
 
     async def __aenter__(self):
         await self.server.__aenter__()
@@ -63,7 +64,7 @@ class ServerAsyncContext:
         self.server_task.cancel()
         await self.server.__aexit__(*exc)
         with pytest.raises(asyncio.CancelledError):
-            async with async_timeout.timeout(TIMEOUT):
+            async with async_timeout.timeout(self.shutdown_timeout):
                 await self.server_task
 
 
