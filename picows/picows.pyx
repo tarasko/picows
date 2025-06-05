@@ -498,10 +498,10 @@ cdef class WSTransport:
         self.auto_ping_expect_pong = False
         self.pong_received_at_future = None
         self.listener_proxy = None
+        self.disconnected_future = loop.create_future()
         self._logger = logger
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
         self._close_frame_is_sent = False
-        self._disconnected_future = loop.create_future()
         self._write_buf = MemoryBuffer(1024)
         self._socket = underlying_transport.get_extra_info('socket').fileno()
 
@@ -722,7 +722,7 @@ cdef class WSTransport:
         (underlying transport is closed, on_ws_disconnected has been called)
 
         """
-        await asyncio.shield(self._disconnected_future)
+        await asyncio.shield(self.disconnected_future)
 
     async def measure_roundtrip_time(self, int rounds) -> List[float]:
         """
@@ -827,15 +827,6 @@ cdef class WSTransport:
             self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", response_bytes)
         self.response = response
         self.underlying_transport.write(response_bytes)
-
-    cdef _mark_disconnected(self, exc):
-        if not self._disconnected_future.done():
-            # The server side does not allow to await on a particular client or retrieve its disconnect exception.
-            # Do not set exception on future to avoid warnings about unconsumed exception from asyncio.
-            if exc is None or not self.is_client_side:
-                self._disconnected_future.set_result(None)
-            else:
-                self._disconnected_future.set_exception(exc)
 
     cdef _try_native_write_then_transport_write(self, char* ptr, Py_ssize_t sz):
         if <size_t>self.underlying_transport.get_write_buffer_size() > 0:
@@ -1042,7 +1033,13 @@ cdef class WSProtocol:
             self.transport.pong_received_at_future.set_exception(ConnectionResetError())
             self.transport.pong_received_at_future = None
 
-        self.transport._mark_disconnected(self._disconnect_exception)
+        if not self.transport.disconnected_future.done():
+            # The server side does not allow to await on a particular client or retrieve its disconnect exception.
+            # Do not set exception on future to avoid warnings about unconsumed exception from asyncio.
+            if self._disconnect_exception is None or not self.is_client_side:
+                self.transport.disconnected_future.set_result(None)
+            else:
+                self.transport.disconnected_future.set_exception(self._disconnect_exception)
 
     def eof_received(self) -> bool:
         if self._log_debug_enabled:
@@ -1539,9 +1536,11 @@ cdef class WSProtocol:
         try:
             self.listener.on_ws_connected(self.transport)
         except Exception as exc:
-            if self._disconnect_exception is None:
+            if self.is_client_side:
+                self._logger.info("Exception from user's WSListener.on_ws_connected handler, initiate disconnect")
                 self._disconnect_exception = exc
-            self._logger.exception("Unhandled exception in on_ws_connected, initiate disconnect")
+            else:
+                self._logger.exception("Exception from user's WSListener.on_ws_connected handler, initiate disconnect")
             self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
             self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 
@@ -1571,13 +1570,19 @@ cdef class WSProtocol:
             self.listener.on_ws_frame(self.transport, frame)
         except Exception as exc:
             if self._disconnect_on_exception:
-                if self._disconnect_exception is None:
-                    self._disconnect_exception = exc
-                self._logger.exception("Unhandled exception in on_ws_frame, initiate disconnect")
+                if self.is_client_side:
+                    if self._disconnect_exception is None:
+                        self._disconnect_exception = exc
+                        self._logger.info("Exception from user's WSListener.on_ws_frame, initiate disconnect")
+                    else:
+                        self._logger.exception("Secondary exception from user WSListener.on_ws_frame")
+                else:
+                    self._logger.exception("Exception from user's WSListener.on_ws_frame, initiate disconnect")
+
                 self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
                 self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
             else:
-                self._logger.exception("Unhandled exception in on_ws_frame")
+                self._logger.exception("Unhandled exception from user WSListener.on_ws_frame")
 
     cdef inline _invoke_on_ws_disconnected(self):
         try:

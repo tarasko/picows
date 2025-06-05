@@ -111,11 +111,11 @@ cdef class WSTransport:
         bint auto_ping_expect_pong
         object pong_received_at_future
         object listener_proxy
+        object disconnected_future             #: asyncio.Future
 
         object _logger                          #: Logger
         bint _log_debug_enabled
         bint _close_frame_is_sent
-        object _disconnected_future             #: asyncio.Future
         MemoryBuffer _write_buf
         int _socket
 
@@ -130,7 +130,6 @@ cdef class WSTransport:
 
     cdef inline _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, object extra_headers)
     cdef inline _send_http_handshake_response(self, WSUpgradeResponse response, bytes accept_val)
-    cdef inline _mark_disconnected(self, exc)
     cdef inline _try_native_write_then_transport_write(self, char * ptr, Py_ssize_t sz)
 
 
