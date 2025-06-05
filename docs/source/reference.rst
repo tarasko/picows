@@ -136,6 +136,12 @@ Classes
 .. autoclass:: WSTransport
     :members:
 
+    .. note::
+
+        All `send` methods never block. The data is buffered and arranged to be sent out asynchronously in case
+        if it can't be sent immediately.
+        This behaviour is derived from the underlying `asyncio.WriteTransport.write`
+
     .. py:attribute:: underlying_transport
         :type: asyncio.Transport
 
@@ -143,7 +149,7 @@ Classes
 
         .. note::
 
-            Please don't use it to send data. Use only WSTransport.send_* methods to send frames.
+            Please don't use it to send data. Use only `WSTransport.send` methods to send frames.
 
     .. py:attribute:: request
         :type: WSUpgradeRequest
