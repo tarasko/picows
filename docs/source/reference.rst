@@ -171,7 +171,7 @@ Classes
 
         .. attention::
 
-            Message's buffer should have at least 10 bytes in front of the message pointer available for writing.
+            Message's buffer should have at least 14 bytes in front of the message pointer available for writing.
 
         :param msg_type: Message type
         :param msg_ptr: Pointer to a message payload
