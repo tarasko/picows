@@ -408,7 +408,7 @@ cdef class WSListener:
         Called after websocket handshake is complete and websocket is ready to send and receive frames.
         Initiate disconnect if exception is thrown by user handler.
         
-        * client side: the exception will transferred to and reraised by :any:`wait_disconnected`.
+        * client side: the exception will be transferred to and reraised by :any:`wait_disconnected`.
         * server side: the exception will be 'swallowed' by the library and logged at the ERROR level.
 
         :param transport: :any:`WSTransport` object      
@@ -424,7 +424,7 @@ cdef class WSListener:
         or :any:`ws_create_server`.
         In such case:
          
-        * client side: the exception will transferred to and reraised by :any:`wait_disconnected`.
+        * client side: the exception will be transferred to and reraised by :any:`wait_disconnected`.
         * server side: the exception will be 'swallowed' by the library and logged at the ERROR level.
          
         .. DANGER::
