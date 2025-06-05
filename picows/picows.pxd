@@ -119,8 +119,9 @@ cdef class WSTransport:
         MemoryBuffer _write_buf
         int _socket
 
-    cdef send_reuse_external_buffer(self, WSMsgType msg_type, char* msg_ptr, size_t msg_size, bint fin=*, bint rsv1=*)
+    cdef inline send_reuse_external_buffer(self, WSMsgType msg_type, char* msg_ptr, Py_ssize_t msg_size, bint fin=*, bint rsv1=*)
     cpdef send(self, WSMsgType msg_type, message, bint fin=*, bint rsv1=*)
+    cpdef send_reuse_external_bytearray(self, WSMsgType msg_type, bytearray buffer, Py_ssize_t msg_offset, bint fin=*, bint rsv1=*)
     cpdef send_ping(self, message=*)
     cpdef send_pong(self, message=*)
     cpdef send_close(self, WSCloseCode close_code=*, close_message=*)

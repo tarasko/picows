@@ -124,6 +124,13 @@ async def test_echo(client_msg_queue, msg_size):
     assert not frame.fin
     assert not frame.rsv1
 
+    ba = bytearray(b"1234567890123456")
+    ba += msg
+    client_msg_queue.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, ba, 16)
+    frame = await client_msg_queue.get_message()
+    assert frame.msg_type == picows.WSMsgType.BINARY
+    assert frame.payload_as_bytes == msg
+
     msg = base64.b64encode(msg)
     client_msg_queue.transport.send(picows.WSMsgType.TEXT, msg, True, True)
     frame = await client_msg_queue.get_message()
@@ -154,6 +161,16 @@ async def test_echo(client_msg_queue, msg_size):
     # Test non-bytes like send
     with pytest.raises(TypeError):
         client_msg_queue.transport.send(picows.WSMsgType.BINARY, "hi")
+
+
+async def test_send_external_bytearray_asserts(client_msg_queue):
+    with pytest.raises(AssertionError):
+        # Check assertion for msg_len >= 0
+        client_msg_queue.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, bytearray(b"HELLO"), 16)
+
+    with pytest.raises(AssertionError):
+        # Check assertion for offset to be at least 14
+        client_msg_queue.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, bytearray(b"1234567890123HELLO"), 13)
 
 
 async def test_max_frame_size_violation():

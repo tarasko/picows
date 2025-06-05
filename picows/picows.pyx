@@ -16,7 +16,7 @@ from multidict import CIMultiDict
 
 cimport cython
 from cpython.bytes cimport PyBytes_GET_SIZE, PyBytes_AS_STRING, PyBytes_FromStringAndSize, PyBytes_CheckExact
-from cpython.bytearray cimport PyByteArray_AS_STRING, PyByteArray_GET_SIZE, PyByteArray_CheckExact
+from cpython.bytearray cimport PyByteArray_AS_STRING, PyByteArray_GET_SIZE, PyByteArray_CheckExact, PyByteArray_FromStringAndSize
 from cpython.memoryview cimport PyMemoryView_FromMemory
 from cpython.mem cimport PyMem_Malloc, PyMem_Realloc, PyMem_Free
 from cpython.buffer cimport PyBUF_WRITE, PyBUF_READ, PyBUF_SIMPLE, PyObject_GetBuffer, PyBuffer_Release
@@ -211,20 +211,20 @@ cdef _raise_from_errno(int ec):
     raise exc(ec, reason)
 
 
-cdef void _mask_payload(uint8_t* input, size_t input_len, uint32_t mask) noexcept:
+cdef void _mask_payload(uint8_t* input, Py_ssize_t input_len, uint32_t mask) noexcept:
     # According to perf, _mask_payload is very fast and is not worth spending
     # any time optimizing it further.
     # But we could use here SIMD or AVX2 instruction to speed this up.
     # Also apply vector instructions only on aligned pointer
 
     cdef:
-        size_t i
+        Py_ssize_t i
         # bit operations on signed integers are implementation-specific
         # cast everything to uint
         uint64_t mask64 = (<uint64_t>mask << 32) | <uint64_t>mask
         uint8_t* mask_buf = <uint8_t*> &mask64
 
-    if sizeof(size_t) >= 8:
+    if sizeof(Py_ssize_t) >= 8:
         while input_len >= 8:
             (<uint64_t *> input)[0] ^= mask64
             input += 8
@@ -506,16 +506,23 @@ cdef class WSTransport:
         self._socket = underlying_transport.get_extra_info('socket').fileno()
 
     cdef send_reuse_external_buffer(self, WSMsgType msg_type,
-                                    char* msg_ptr, size_t msg_size,
+                                    char* msg_ptr, Py_ssize_t msg_size,
                                     bint fin=True, bint rsv1=False):
         cdef:
             uint8_t* header_ptr = <uint8_t*>msg_ptr
             uint64_t extended_payload_length_64
-            uint32_t mask = <uint32_t> rand() if self.is_client_side else 0
+            uint32_t mask = 0
             uint16_t extended_payload_length_16
             uint8_t first_byte = <uint8_t>msg_type
-            uint8_t second_byte = 0x80 if self.is_client_side else 0
-            cdef Py_ssize_t total_size = msg_size
+            uint8_t second_byte = 0
+            Py_ssize_t total_size = msg_size
+
+        if self.is_client_side:
+            mask = <uint32_t> rand()
+            second_byte = 0x80
+            total_size += 4
+            header_ptr -= 4
+            (<uint32_t*>header_ptr)[0] = mask
 
         if fin:
             first_byte |= 0x80
@@ -550,6 +557,40 @@ cdef class WSTransport:
             self.underlying_transport.write(PyBytes_FromStringAndSize(<char*>header_ptr, total_size))
         else:
             self._try_native_write_then_transport_write(<char*>header_ptr, total_size)
+
+    cpdef send_reuse_external_bytearray(self, WSMsgType msg_type,
+                                        bytearray buffer,
+                                        Py_ssize_t msg_offset,
+                                        bint fin=True, bint rsv1=False):
+        """
+        Send a frame over websocket with a message as its payload. 
+        This function does not copy message to prepare websocket frames. 
+        It reuses bytearray's memory to append websocket frame header at the front.
+        
+        :param msg_type: :any:`WSMsgType` enum value\n 
+        :param msg_offset: specifies where message begins in the bytearray. 
+            Must be at least 14 to let picows to insert websocket frame header in front of the message.
+        :param buffer: bytearray that contains message and some extra space (at least 14 bytes) in the beginning.
+            The len of the message is determined as `len(buffer) - msg_offset`         
+        :param fin: fin bit in websocket frame.
+            Indicate that the frame is the last one in the message.
+        :param rsv1: first reserved bit in websocket frame. 
+            Some protocol extensions use it to indicate that payload is compressed.        
+        """
+        assert buffer is not None, "buffer is None"
+        assert msg_offset >= 14, "buffer must have at least 14 bytes available before message starts, check msg_offset parameter"
+
+        cdef:
+            char* buffer_ptr = PyByteArray_AS_STRING(buffer)
+            Py_ssize_t buffer_size = PyByteArray_GET_SIZE(buffer)
+
+        assert buffer_size >= msg_offset, "msg_offset points beyond buffer end, msg_offset > len(buffer)"
+
+        cdef:
+            char* msg_ptr = buffer_ptr + msg_offset
+            Py_ssize_t msg_size = buffer_size - msg_offset
+
+        self.send_reuse_external_buffer(msg_type, msg_ptr, msg_size, fin, rsv1)
 
     cpdef send(self, WSMsgType msg_type, message, bint fin=True, bint rsv1=False):
         """        
