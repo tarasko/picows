@@ -1,7 +1,7 @@
 import asyncio
 from logging import getLogger, INFO, basicConfig
 
-from picows import ws_connect, WSFrame, WSTransport, WSListener, WSMsgType, WSCloseCode
+from picows import ws_connect, WSFrame, WSTransport, WSListener, WSMsgType
 
 _logger = getLogger(__name__)
 
