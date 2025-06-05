@@ -129,7 +129,6 @@ async def aiohttp_main(url: str, data: bytes, duration: int, ssl_context):
 
 
 def run_for_websockets_library(plain_url, ssl_url, ssl_context, msg, duration):
-    global NAMES, RPS
     _, rps = asyncio.run(websockets_main(plain_url, msg, duration, None))
     RPS["plain"].append(rps)
     name, rps = asyncio.run(websockets_main(ssl_url, msg, duration, ssl_context))
@@ -138,7 +137,6 @@ def run_for_websockets_library(plain_url, ssl_url, ssl_context, msg, duration):
 
 
 def run_for_aiohttp_library(plain_url, ssl_url, ssl_context, msg, duration):
-    global NAMES, RPS
     _, rps = asyncio.run(aiohttp_main(plain_url, msg, duration, None))
     RPS["plain"].append(rps)
     name, rps = asyncio.run(aiohttp_main(ssl_url, msg, duration, ssl_context))
@@ -147,7 +145,6 @@ def run_for_aiohttp_library(plain_url, ssl_url, ssl_context, msg, duration):
 
 
 def run_picows_client(plain_url, ssl_url, ssl_context, msg, duration):
-    global NAMES, RPS
     _, rps = asyncio.run(picows_main(plain_url, msg, duration, None))
     RPS["plain"].append(rps)
     name, rps = asyncio.run(picows_main(ssl_url, msg, duration, ssl_context))
@@ -156,22 +153,18 @@ def run_picows_client(plain_url, ssl_url, ssl_context, msg, duration):
 
 
 def run_picows_cython_plain_client(plain_url, ssl_url, ssl_context, msg, duration):
-    global NAMES, RPS
     print("Run picows cython plain client")
     rps = asyncio.run(picows_main_cython(plain_url, msg, duration, None))
     RPS["plain"].append(rps)
 
 
 def run_picows_cython_ssl_client(plain_url, ssl_url, ssl_context, msg, duration):
-    global NAMES, RPS
     print("Run picows cython ssl client")
     rps = asyncio.run(picows_main_cython(ssl_url, msg, duration, ssl_context))
     RPS["ssl"].append(rps)
 
 
 def run_boost_beast_client(args):
-    global NAMES, RPS
-
     print("Run boost.beast plain client")
     pr = subprocess.run([args.boost_client, b"0",
                          args.host.encode(),
