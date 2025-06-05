@@ -6,6 +6,14 @@ picows Release History
    :local:
 
 
+1.9.0 (2025-06-05)
+------------------
+
+* #47: Added WSTransport.send_use_external_bytearray to allow buffer sharing with msgspec or similar libraries
+* #45: Clarified WSTransport.send behaviour in the reference
+* #48: Re-raise exception from wait_disconnected when it is raised by user handler
+* Fixed WSTransport.send_reuse_external_buffer, it was broken for client side websockets
+
 1.8.0 (2025-02-11)
 ------------------
 
