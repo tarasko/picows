@@ -14,6 +14,11 @@ from tests.utils import create_client_ssl_context, create_server_ssl_context, \
     ServerAsyncContext, TIMEOUT, \
     materialize_frame, ClientAsyncContext
 
+
+class MyException(RuntimeError):
+    pass
+
+
 if os.name == 'nt':
     @pytest.fixture(
         params=(
@@ -354,10 +359,28 @@ async def test_custom_response_error():
             (transport, _) = await picows.ws_connect(picows.WSListener, url)
 
 
-async def test_ws_on_connected_throw():
+async def test_ws_on_connected_throw_client_side():
+    # Check that client side, initiate disconnect(no timeouts on wait_disconnected) and
+    # transfer exception to wait_disconnected
+    class ClientListener(picows.WSListener):
+        def on_ws_connected(self, transport: picows.WSTransport):
+            raise MyException("exception from client side on_ws_connected")
+
+    server = await picows.ws_create_server(lambda _: picows.WSListener(),
+                                           "127.0.0.1", 0)
+    async with ServerAsyncContext(server) as server_ctx:
+        (transport, _) = await picows.ws_connect(ClientListener, server_ctx.plain_url)
+        async with async_timeout.timeout(TIMEOUT):
+            with pytest.raises(MyException):
+                await transport.wait_disconnected()
+
+
+async def test_ws_on_connected_throw_server_side():
+    # Check that server side initiate disconnect(no timeouts on wait_disconnected) and
+    # swallow exception
     class ServerClientListener(picows.WSListener):
         def on_ws_connected(self, transport: picows.WSTransport):
-            raise RuntimeError("exception from on_ws_connected")
+            raise MyException("exception from server side on_ws_connected")
 
     server = await picows.ws_create_server(lambda _: ServerClientListener(),
                                            "127.0.0.1", 0)
@@ -369,10 +392,41 @@ async def test_ws_on_connected_throw():
 
 @pytest.mark.parametrize("disconnect_on_exception", [True, False],
                          ids=["disconnect_on_exception", "no_disconnect_on_exception"])
-async def test_ws_on_frame_throw(disconnect_on_exception):
+async def test_ws_on_frame_throw_client_side(disconnect_on_exception):
+    class ServerClientListener(picows.WSListener):
+        def on_ws_connected(self, transport: picows.WSTransport):
+            transport.send(WSMsgType.BINARY, b"Hello")
+
+    class ClientListener(picows.WSListener):
+        def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
+            raise MyException("exception from client side on_ws_frame")
+
+    server = await picows.ws_create_server(lambda _: ServerClientListener(),
+                                           "127.0.0.1",
+                                           0)
+
+    async with ServerAsyncContext(server) as server_ctx:
+        transport, listener = await picows.ws_connect(ClientListener, server_ctx.plain_url,
+                                                      disconnect_on_exception=disconnect_on_exception)
+        try:
+            if disconnect_on_exception:
+                with pytest.raises(MyException):
+                    async with async_timeout.timeout(TIMEOUT):
+                        await transport.wait_disconnected()
+            else:
+                with pytest.raises(asyncio.TimeoutError):
+                    async with async_timeout.timeout(TIMEOUT):
+                        await transport.wait_disconnected()
+        finally:
+            transport.disconnect(False)
+
+
+@pytest.mark.parametrize("disconnect_on_exception", [True, False],
+                         ids=["disconnect_on_exception", "no_disconnect_on_exception"])
+async def test_ws_on_frame_throw_server_side(disconnect_on_exception):
     class ServerClientListener(picows.WSListener):
         def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-            raise RuntimeError("exception from on_ws_frame")
+            raise MyException("exception from server side on_ws_frame")
 
     server = await picows.ws_create_server(lambda _: ServerClientListener(),
                                            "127.0.0.1",
