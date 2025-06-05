@@ -1605,8 +1605,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
     :param enable_auto_pong:
         If enabled then picows will automatically reply to incoming PING frames.
     :param max_frame_size:
-        * Maximum allowed frame size. Disconnect will be initiated if client receives
-        a frame that is bigger than max size.
+        * Maximum allowed frame size. Disconnect will be initiated if client receives a frame that is bigger than max size.
     :param extra_headers:
         Arbitrary HTTP headers to add to the handshake request.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
@@ -1722,8 +1721,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,
     :param enable_auto_pong:
         If enabled then picows will automatically reply to incoming PING frames.
     :param max_frame_size:
-        * Maximum allowed frame size. Disconnect will be initiated if server side receives
-        frame that is bigger than max size.
+        * Maximum allowed frame size. Disconnect will be initiated if server side receives frame that is bigger than max size.
     :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
 
