@@ -1582,20 +1582,20 @@ cdef class WSProtocol:
                         self._disconnect_exception = exc
                         self._logger.info("Exception from user's WSListener.on_ws_frame, initiate disconnect")
                     else:
-                        self._logger.exception("Secondary exception from user WSListener.on_ws_frame")
+                        self._logger.exception("Secondary exception from user's WSListener.on_ws_frame")
                 else:
                     self._logger.exception("Exception from user's WSListener.on_ws_frame, initiate disconnect")
 
                 self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
                 self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
             else:
-                self._logger.exception("Unhandled exception from user WSListener.on_ws_frame")
+                self._logger.exception("Unhandled exception from user's WSListener.on_ws_frame")
 
     cdef inline _invoke_on_ws_disconnected(self):
         try:
             self.listener.on_ws_disconnected(self.transport)
         except:
-            self._logger.exception("Unhandled exception in on_ws_disconnected")
+            self._logger.exception("Unhandled exception from user's on_ws_disconnected")
 
     cdef inline _shrink_buffer(self):
         if self._f_curr_frame_start_pos > 0:
