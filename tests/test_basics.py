@@ -162,6 +162,7 @@ async def test_echo(client_msg_queue, msg_size):
     with pytest.raises(TypeError):
         client_msg_queue.transport.send(picows.WSMsgType.BINARY, "hi")
 
+
 async def test_send_external_bytearray_asserts(client_msg_queue):
     with pytest.raises(AssertionError):
         # Check assertion for msg_len >= 0
@@ -170,6 +171,7 @@ async def test_send_external_bytearray_asserts(client_msg_queue):
     with pytest.raises(AssertionError):
         # Check assertion for offset to be at least 14
         client_msg_queue.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, bytearray(b"1234567890123HELLO"), 13)
+
 
 async def test_max_frame_size_violation():
     msg = os.urandom(1024 * 1024)
