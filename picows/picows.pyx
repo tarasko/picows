@@ -407,6 +407,9 @@ cdef class WSListener:
         """        
         Called after websocket handshake is complete and websocket is ready to send and receive frames.
         Initiate disconnect if exception is thrown by user handler.
+        
+        * client side: the exception will transferred to and reraised by :any:`wait_disconnected`.
+        * server side: the exception will be 'swallowed' by the library and logged at the ERROR level.
 
         :param transport: :any:`WSTransport` object      
         """
@@ -418,8 +421,12 @@ cdef class WSListener:
         
         Initiate disconnect if exception is thrown by user handler and
         `disconnect_on_exception` was set to True in :any:`ws_connect` 
-        or :any:`ws_create_server` 
-        
+        or :any:`ws_create_server`.
+        In such case:
+         
+        * client side: the exception will transferred to and reraised by :any:`wait_disconnected`.
+        * server side: the exception will be 'swallowed' by the library and logged at the ERROR level.
+         
         .. DANGER::
             WSFrame is essentially just a pointer to a chunk of memory in the receiving buffer. It does not own 
             the memory. Do NOT cache or store WSFrame object for later processing because the data may be invalidated
