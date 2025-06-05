@@ -56,7 +56,6 @@ async def picows_main(endpoint: str, msg: bytes, duration: int, ssl_context):
             self._transport.send(WSMsgType.BINARY, msg)
 
         def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
-            global result
             self._cnt += 1
 
             if time() - self._start_time >= duration:
