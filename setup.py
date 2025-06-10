@@ -4,8 +4,8 @@ from setuptools import Extension, setup
 from Cython.Build import cythonize
 
 vi = sys.version_info
-if vi < (3, 8):
-    raise RuntimeError('picows requires Python 3.8 or greater')
+if vi < (3, 9):
+    raise RuntimeError('picows requires Python 3.9 or greater')
 
 if os.name == 'nt':
     libraries = ["Ws2_32"]

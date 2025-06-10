@@ -37,7 +37,7 @@ jobs:
   mypy-checks:
     strategy:
       matrix:
-        pyver: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
+        pyver: ['3.9', '3.10', '3.11', '3.12', '3.13']
       fail-fast: false
 
     runs-on: ubuntu-latest
@@ -64,7 +64,7 @@ jobs:
   build:
     strategy:
       matrix:
-        pyver: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
+        pyver: ['3.9', '3.10', '3.11', '3.12', '3.13']
         os: [ubuntu, macos, windows]
       fail-fast: false
 
