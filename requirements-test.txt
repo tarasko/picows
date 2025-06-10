@@ -1,4 +1,4 @@
-setuptools >= 78.0
+setuptools >= 61.0
 Cython >= 3.0
 multidict
 pytest
