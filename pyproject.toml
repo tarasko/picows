@@ -4,7 +4,7 @@ description = "Ultra-fast websocket client and server for asyncio"
 authors = [{name = "Taras Kozlov", email = "tarasko.projects@gmail.com"}]
 requires-python = '>=3.9'
 readme = "README.rst"
-license = {text = "MIT License"}
+license = "MIT"
 dynamic = ["version"]
 keywords = ["websocket", "networking"]
 dependencies = ["multidict"]
@@ -12,12 +12,10 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Framework :: AsyncIO",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX",
     "Operating System :: MacOS :: MacOS X",
     "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -29,7 +27,7 @@ classifiers = [
 ]
 
 [build-system]
-requires = ["setuptools >= 61.0", "wheel", "Cython >= 3.0"]
+requires = ["setuptools >= 78.0", "wheel", "Cython >= 3.0"]
 build-backend = "setuptools.build_meta"
 
 [project.urls]
