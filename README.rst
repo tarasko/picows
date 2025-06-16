@@ -34,7 +34,7 @@ is also included for reference. All Python clients use uvloop. Please find the b
 Installation
 ============
 
-picows requires Python 3.8 or greater and is available on PyPI.
+picows requires Python 3.9 or greater and is available on PyPI.
 Use pip to install it::
 
     $ pip install picows
