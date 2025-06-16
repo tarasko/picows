@@ -7,12 +7,13 @@ from http import HTTPStatus
 # But we still have support for 3.8 where collection.abc didn't have
 # proper types yet.
 # Change this to collection.abc when 3.8 support is over.
-from typing import Final, Optional, Mapping, Iterable, Tuple, Callable, Union, Any
+from collections.abc import Callable, Mapping, Iterable
+from typing import Final, Optional, Any, Union
 from multidict import CIMultiDict
 
 
 PICOWS_DEBUG_LL: Final = 9
-WSHeadersLike = Union[Mapping[str, str], Iterable[Tuple[str, str]]]
+WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
 WSBuffer = Union[bytes, bytearray, memoryview]
 
@@ -182,7 +183,7 @@ async def ws_connect(
     enable_auto_pong: bool = True,
     extra_headers: Optional[WSHeadersLike] = None,
     **kwargs: Any
-) -> Tuple[WSTransport, WSListener]: ...
+) -> tuple[WSTransport, WSListener]: ...
 
 # TODO: In python 3.8 asyncio has a bug that it doesn't export Server,
 # so reference it directly from asyncio.base_events.

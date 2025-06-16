@@ -10,13 +10,14 @@ from http import HTTPStatus
 from base64 import b64encode, b64decode
 from hashlib import sha1
 from ssl import SSLContext
-from typing import cast, Tuple, Optional, Callable, List, Mapping, Iterable, Union
+from collections.abc import Callable, Mapping, Iterable
+from typing import cast, Optional, Final, Union
 
 from multidict import CIMultiDict
 
 cimport cython
 from cpython.bytes cimport PyBytes_GET_SIZE, PyBytes_AS_STRING, PyBytes_FromStringAndSize, PyBytes_CheckExact
-from cpython.bytearray cimport PyByteArray_AS_STRING, PyByteArray_GET_SIZE, PyByteArray_CheckExact, PyByteArray_FromStringAndSize
+from cpython.bytearray cimport PyByteArray_AS_STRING, PyByteArray_GET_SIZE, PyByteArray_CheckExact
 from cpython.memoryview cimport PyMemoryView_FromMemory
 from cpython.mem cimport PyMem_Malloc, PyMem_Realloc, PyMem_Free
 from cpython.buffer cimport PyBUF_WRITE, PyBUF_READ, PyBUF_SIMPLE, PyObject_GetBuffer, PyBuffer_Release
@@ -26,8 +27,8 @@ from libc cimport errno
 from libc.string cimport memmove, memcpy, strerror
 from libc.stdlib cimport rand
 
-PICOWS_DEBUG_LL = 9
-WSHeadersLike = Union[Mapping[str, str], Iterable[Tuple[str, str]]]
+PICOWS_DEBUG_LL: Final = 9
+WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
 
 # When picows would like to disconnect peer (due to protocol violation or other failures), CLOSE frame is sent first.
@@ -731,7 +732,7 @@ cdef class WSTransport:
         """
         await asyncio.shield(self.disconnected_future)
 
-    async def measure_roundtrip_time(self, int rounds) -> List[float]:
+    async def measure_roundtrip_time(self, int rounds) -> list[float]:
         """
         Coroutine that measures roundtrip time by running ping-pong.
 
@@ -1630,7 +1631,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                      max_frame_size: int = 10 * 1024 * 1024,
                      extra_headers: Optional[WSHeadersLike]=None,
                      **kwargs
-                     ) -> Tuple[WSTransport, WSListener]:
+                     ) -> tuple[WSTransport, WSListener]:
     """
     Open a websocket connection to a given URL.
 
