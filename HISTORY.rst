@@ -5,6 +5,10 @@ picows Release History
    :depth: 1
    :local:
 
+1.10.0 ()
+------------------
+
+* Drop python 3.8 support
 
 1.9.0 (2025-06-05)
 ------------------
