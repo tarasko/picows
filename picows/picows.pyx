@@ -10,13 +10,14 @@ from http import HTTPStatus
 from base64 import b64encode, b64decode
 from hashlib import sha1
 from ssl import SSLContext
-from typing import cast, Optional, Callable, Mapping, Iterable
+from collections.abc import Callable, Mapping, Iterable
+from typing import cast, Optional, Final
 
 from multidict import CIMultiDict
 
 cimport cython
 from cpython.bytes cimport PyBytes_GET_SIZE, PyBytes_AS_STRING, PyBytes_FromStringAndSize, PyBytes_CheckExact
-from cpython.bytearray cimport PyByteArray_AS_STRING, PyByteArray_GET_SIZE, PyByteArray_CheckExact, PyByteArray_FromStringAndSize
+from cpython.bytearray cimport PyByteArray_AS_STRING, PyByteArray_GET_SIZE, PyByteArray_CheckExact
 from cpython.memoryview cimport PyMemoryView_FromMemory
 from cpython.mem cimport PyMem_Malloc, PyMem_Realloc, PyMem_Free
 from cpython.buffer cimport PyBUF_WRITE, PyBUF_READ, PyBUF_SIMPLE, PyObject_GetBuffer, PyBuffer_Release
@@ -26,7 +27,7 @@ from libc cimport errno
 from libc.string cimport memmove, memcpy, strerror
 from libc.stdlib cimport rand
 
-PICOWS_DEBUG_LL = 9
+PICOWS_DEBUG_LL: Final = 9
 WSHeadersLike = Mapping[str, str] | Iterable[tuple[str, str]]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], WSListener | WSUpgradeResponseWithListener | None]
 

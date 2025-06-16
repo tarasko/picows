@@ -7,7 +7,8 @@ from http import HTTPStatus
 # But we still have support for 3.8 where collection.abc didn't have
 # proper types yet.
 # Change this to collection.abc when 3.8 support is over.
-from typing import Final, Optional, Mapping, Iterable, Callable, Any
+from collections.abc import Callable, Mapping, Iterable
+from typing import Final, Optional, Any
 from multidict import CIMultiDict
 
 
