@@ -7,14 +7,14 @@ from http import HTTPStatus
 # But we still have support for 3.8 where collection.abc didn't have
 # proper types yet.
 # Change this to collection.abc when 3.8 support is over.
-from typing import Final, Optional, Mapping, Iterable, Tuple, Callable, Union, Any
+from typing import Final, Optional, Mapping, Iterable, Callable, Any
 from multidict import CIMultiDict
 
 
 PICOWS_DEBUG_LL: Final = 9
-WSHeadersLike = Union[Mapping[str, str], Iterable[Tuple[str, str]]]
-WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
-WSBuffer = Union[bytes, bytearray, memoryview]
+WSHeadersLike = Mapping[str, str] | Iterable[tuple[str, str]]
+WSServerListenerFactory = Callable[[WSUpgradeRequest], WSListener | WSUpgradeResponseWithListener | None]
+WSBuffer = bytes | bytearray | memoryview
 
 
 class WSError(RuntimeError): ...
@@ -143,7 +143,7 @@ class WSUpgradeRequest:
 class WSUpgradeResponse:
     @staticmethod
     def create_error_response(
-            status: Union[int, HTTPStatus],
+            status: int | HTTPStatus,
             body: Optional[bytes]=None,
             extra_headers: Optional[WSHeadersLike]=None
     ) -> WSUpgradeResponse: ...
@@ -171,7 +171,7 @@ async def ws_connect(
     ws_listener_factory: Callable[[], WSListener],
     url: str,
     *args: Any,
-    ssl_context: Union[SSLContext, None] = None,
+    ssl_context: SSLContext | None = None,
     disconnect_on_exception: bool = True,
     websocket_handshake_timeout: float = 5,
     logger_name: str = "client",
@@ -182,7 +182,7 @@ async def ws_connect(
     enable_auto_pong: bool = True,
     extra_headers: Optional[WSHeadersLike] = None,
     **kwargs: Any
-) -> Tuple[WSTransport, WSListener]: ...
+) -> tuple[WSTransport, WSListener]: ...
 
 # TODO: In python 3.8 asyncio has a bug that it doesn't export Server,
 # so reference it directly from asyncio.base_events.
@@ -190,8 +190,8 @@ async def ws_connect(
 
 async def ws_create_server(
     ws_listener_factory: WSServerListenerFactory,
-    host: Union[str, Iterable[str], None] = None,
-    port: Union[int, None] = None,
+    host: str | Iterable[str] | None = None,
+    port: int | None = None,
     *args: Any,
     disconnect_on_exception: bool = True,
     websocket_handshake_timeout: float = 5,

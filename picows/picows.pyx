@@ -10,7 +10,7 @@ from http import HTTPStatus
 from base64 import b64encode, b64decode
 from hashlib import sha1
 from ssl import SSLContext
-from typing import cast, Tuple, Optional, Callable, List, Mapping, Iterable, Union
+from typing import cast, Optional, Callable, Mapping, Iterable
 
 from multidict import CIMultiDict
 
@@ -27,8 +27,8 @@ from libc.string cimport memmove, memcpy, strerror
 from libc.stdlib cimport rand
 
 PICOWS_DEBUG_LL = 9
-WSHeadersLike = Union[Mapping[str, str], Iterable[Tuple[str, str]]]
-WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
+WSHeadersLike = Mapping[str, str] | Iterable[tuple[str, str]]
+WSServerListenerFactory = Callable[[WSUpgradeRequest], WSListener | WSUpgradeResponseWithListener | None]
 
 # When picows would like to disconnect peer (due to protocol violation or other failures), CLOSE frame is sent first.
 # Then disconnect is scheduled with a small delay. Otherwise, some old asyncio version do not transmit CLOSE frame,
@@ -103,7 +103,7 @@ cdef class WSUpgradeRequest:
 
 cdef class WSUpgradeResponse:
     @staticmethod
-    def create_error_response(status: Union[int, HTTPStatus],
+    def create_error_response(status: int | HTTPStatus,
                               body=None,
                               extra_headers: Optional[WSHeadersLike]=None) -> WSUpgradeResponse:
         """
@@ -731,7 +731,7 @@ cdef class WSTransport:
         """
         await asyncio.shield(self.disconnected_future)
 
-    async def measure_roundtrip_time(self, int rounds) -> List[float]:
+    async def measure_roundtrip_time(self, int rounds) -> list[float]:
         """
         Coroutine that measures roundtrip time by running ping-pong.
 
@@ -1630,7 +1630,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                      max_frame_size: int = 10 * 1024 * 1024,
                      extra_headers: Optional[WSHeadersLike]=None,
                      **kwargs
-                     ) -> Tuple[WSTransport, WSListener]:
+                     ) -> tuple[WSTransport, WSListener]:
     """
     Open a websocket connection to a given URL.
 
