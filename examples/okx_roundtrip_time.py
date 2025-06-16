@@ -1,3 +1,6 @@
+# This example shows how to use WSTransport.measure_roundtrip_time
+# It may be used to check connection latency.
+
 import asyncio
 import logging
 
