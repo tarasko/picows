@@ -8,14 +8,14 @@ from http import HTTPStatus
 # proper types yet.
 # Change this to collection.abc when 3.8 support is over.
 from collections.abc import Callable, Mapping, Iterable
-from typing import Final, Optional, Any
+from typing import Final, Optional, Any, Union
 from multidict import CIMultiDict
 
 
 PICOWS_DEBUG_LL: Final = 9
-WSHeadersLike = Mapping[str, str] | Iterable[tuple[str, str]]
-WSServerListenerFactory = Callable[[WSUpgradeRequest], WSListener | WSUpgradeResponseWithListener | None]
-WSBuffer = bytes | bytearray | memoryview
+WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
+WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
+WSBuffer = Union[bytes, bytearray, memoryview]
 
 
 class WSError(RuntimeError): ...
@@ -144,7 +144,7 @@ class WSUpgradeRequest:
 class WSUpgradeResponse:
     @staticmethod
     def create_error_response(
-            status: int | HTTPStatus,
+            status: Union[int, HTTPStatus],
             body: Optional[bytes]=None,
             extra_headers: Optional[WSHeadersLike]=None
     ) -> WSUpgradeResponse: ...
@@ -172,7 +172,7 @@ async def ws_connect(
     ws_listener_factory: Callable[[], WSListener],
     url: str,
     *args: Any,
-    ssl_context: SSLContext | None = None,
+    ssl_context: Union[SSLContext, None] = None,
     disconnect_on_exception: bool = True,
     websocket_handshake_timeout: float = 5,
     logger_name: str = "client",
@@ -191,8 +191,8 @@ async def ws_connect(
 
 async def ws_create_server(
     ws_listener_factory: WSServerListenerFactory,
-    host: str | Iterable[str] | None = None,
-    port: int | None = None,
+    host: Union[str, Iterable[str], None] = None,
+    port: Union[int, None] = None,
     *args: Any,
     disconnect_on_exception: bool = True,
     websocket_handshake_timeout: float = 5,

@@ -11,7 +11,7 @@ from base64 import b64encode, b64decode
 from hashlib import sha1
 from ssl import SSLContext
 from collections.abc import Callable, Mapping, Iterable
-from typing import cast, Optional, Final
+from typing import cast, Optional, Final, Union
 
 from multidict import CIMultiDict
 
@@ -28,8 +28,8 @@ from libc.string cimport memmove, memcpy, strerror
 from libc.stdlib cimport rand
 
 PICOWS_DEBUG_LL: Final = 9
-WSHeadersLike = Mapping[str, str] | Iterable[tuple[str, str]]
-WSServerListenerFactory = Callable[[WSUpgradeRequest], WSListener | WSUpgradeResponseWithListener | None]
+WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
+WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
 
 # When picows would like to disconnect peer (due to protocol violation or other failures), CLOSE frame is sent first.
 # Then disconnect is scheduled with a small delay. Otherwise, some old asyncio version do not transmit CLOSE frame,
@@ -104,7 +104,7 @@ cdef class WSUpgradeRequest:
 
 cdef class WSUpgradeResponse:
     @staticmethod
-    def create_error_response(status: int | HTTPStatus,
+    def create_error_response(status: Union[int, HTTPStatus],
                               body=None,
                               extra_headers: Optional[WSHeadersLike]=None) -> WSUpgradeResponse:
         """
