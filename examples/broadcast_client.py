@@ -1,3 +1,6 @@
+# A simple client for broadcast_server.py
+# Just dump messages from the server
+
 import asyncio
 from picows import ws_connect, WSFrame, WSTransport, WSListener
 

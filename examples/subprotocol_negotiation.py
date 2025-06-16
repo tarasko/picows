@@ -1,3 +1,8 @@
+# This example shows how to implement subprotocol negotiation at upgrade stage.
+# In websockets this is done by sending "Sec-WebSocket-Protocol" header in HTTP Upgrade request/response.
+# picows treats "Sec-WebSocket-Protocol" as any other extra header and let user to fully define it's content both
+# at client and server sides.
+
 import asyncio
 import logging
 from http import HTTPStatus

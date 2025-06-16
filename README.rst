@@ -28,8 +28,8 @@ Implemented in Cython, it offers exceptional speed and efficiency, surpassing ot
 
 The above chart shows the performance of echo clients communicating with a server through a loopback interface using popular Python libraries. 
 `boost.beast client <https://www.boost.org/doc/libs/1_85_0/libs/beast/example/websocket/client/sync/websocket_client_sync.cpp>`_
-is also included for reference. Typically, picows is ~1.5-2 times faster than aiohttp. All Python clients use uvloop. Please find the benchmark sources 
-`here <https://github.com/tarasko/picows/blob/master/examples/echo_client_benchmark.py>`_.
+is also included for reference. All Python clients use uvloop. Please find the benchmark sources
+`here <https://github.com/tarasko/picows/blob/master/examples/benchmark.py>`_.
 
 Installation
 ============
@@ -183,7 +183,7 @@ Contributing / Building From Source
 5. Run benchmark::
 
     $ python -m examples.echo_server
-    $ python -m examples.echo_client_benchmark
+    $ python -m examples.benchmark
 
 6. Build docs::
 
