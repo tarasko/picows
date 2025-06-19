@@ -2,11 +2,6 @@ import asyncio
 from enum import Enum
 from ssl import SSLContext
 from http import HTTPStatus
-
-# TODO: Some of the imports are deprecated in the newer python versions
-# But we still have support for 3.8 where collection.abc didn't have
-# proper types yet.
-# Change this to collection.abc when 3.8 support is over.
 from collections.abc import Callable, Mapping, Iterable
 from typing import Final, Optional, Any, Union
 from multidict import CIMultiDict
