@@ -486,4 +486,3 @@ async def test_stress(client_msg_queue):
             frame = await client_msg_queue.get_message()
 
     assert not client_msg_queue.is_paused
-
