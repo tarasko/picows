@@ -860,12 +860,9 @@ cdef class WSTransport:
             self.underlying_transport.write(PyBytes_FromStringAndSize(<char*> ptr + bytes_written, sz - bytes_written))
             return
 
-        cdef int ec = picows_get_errno()
-        if ec == errno.EAGAIN or ec == EWOULDBLOCK:
-            self.underlying_transport.write(PyBytes_FromStringAndSize(<char *> ptr, sz))
-            return
-
-        _raise_from_errno(ec)
+        # In case of errors we ask asyncio to try send again.
+        # Asyncio will try and based on error code may report 'disconnected' event.
+        self.underlying_transport.write(PyBytes_FromStringAndSize(<char *> ptr, sz))
 
 
 cdef class WSProtocol:
