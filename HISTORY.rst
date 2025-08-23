@@ -5,11 +5,11 @@ picows Release History
    :depth: 1
    :local:
 
-1.10.0 ()
+1.10.0 (2025-08-23)
 ------------------
 
 * Drop python 3.8 support
-* Strip extensions on Linux and MacOS. Reduce package size
+* Strip extensions on Linux and MacOS. Reduce package's size
 
 1.9.0 (2025-06-05)
 ------------------
