@@ -180,38 +180,6 @@ cdef class WSUpgradeResponseWithListener:
         self.listener = listener
 
 
-cdef _raise_from_errno(int ec):
-    cdef str reason = strerror(ec).decode()
-
-    exc = OSError
-
-    if ec in (errno.EACCES, errno.EPERM):
-        exc = PermissionError
-    elif ec in (errno.EAGAIN, errno.EALREADY, EWOULDBLOCK):
-        exc = BlockingIOError
-    elif ec in (errno.EPIPE, ESHUTDOWN):
-        exc = BrokenPipeError
-    elif ec == errno.ECONNABORTED:
-        exc = ConnectionAbortedError
-    elif ec == errno.ECONNREFUSED:
-        exc = ConnectionRefusedError
-    elif ec == errno.ECONNRESET:
-        exc = ConnectionResetError
-    elif ec == errno.EEXIST:
-        exc = FileExistsError
-    elif ec == errno.ENOENT:
-        exc = FileNotFoundError
-    elif ec == errno.EINTR:
-        exc = InterruptedError
-    elif ec == errno.EISDIR:
-        exc = IsADirectoryError
-    elif ec == errno.ESRCH:
-        exc = ProcessLookupError
-    elif ec == errno.ETIMEDOUT:
-        exc = TimeoutError
-    raise exc(ec, reason)
-
-
 cdef void _mask_payload(uint8_t* input, Py_ssize_t input_len, uint32_t mask) noexcept:
     # According to perf, _mask_payload is very fast and is not worth spending
     # any time optimizing it further.
@@ -860,7 +828,7 @@ cdef class WSTransport:
             self.underlying_transport.write(PyBytes_FromStringAndSize(<char*> ptr + bytes_written, sz - bytes_written))
             return
 
-        # In case of errors we ask asyncio to try send again.
+        # In case of errors we ask asyncio to try sending again.
         # Asyncio will try and based on error code may report 'disconnected' event.
         self.underlying_transport.write(PyBytes_FromStringAndSize(<char *> ptr, sz))
 
