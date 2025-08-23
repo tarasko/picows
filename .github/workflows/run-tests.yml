@@ -88,6 +88,7 @@ jobs:
 
     - name: Compile Cython extensions
       run: |
+        export CFLAGS="$CFLAGS -g0"
         python setup.py build_ext --inplace
 
     - name: Run tests
