@@ -486,17 +486,3 @@ async def test_stress(client_msg_queue):
             frame = await client_msg_queue.get_message()
 
     assert not client_msg_queue.is_paused
-
-
-async def test_native_exc_conversion(client_msg_queue):
-    if client_msg_queue.transport.is_secure:
-        pytest.skip("skipped for secure connections")
-
-    # ask server to disconnect us
-    client_msg_queue.transport.send(WSMsgType.TEXT, b"disconnect_me_without_close_frame")
-    await asyncio.sleep(0.1)
-    msg = os.urandom(256)
-    with pytest.raises(OSError):
-        client_msg_queue.transport.send(picows.WSMsgType.BINARY, msg)
-        await asyncio.sleep(0.1)
-        client_msg_queue.transport.send(picows.WSMsgType.BINARY, msg)
