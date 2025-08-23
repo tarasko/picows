@@ -9,6 +9,7 @@ picows Release History
 ------------------
 
 * Drop python 3.8 support
+* Strip extensions on Linux and MacOS. Reduce package size
 
 1.9.0 (2025-06-05)
 ------------------
