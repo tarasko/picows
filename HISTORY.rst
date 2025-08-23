@@ -5,6 +5,11 @@ picows Release History
    :depth: 1
    :local:
 
+1.10.1 (2025-08-23)
+------------------
+
+* #57: fix plain WSTransport.send does not produce 'on_ws_disconnected' event in case of errors
+
 1.10.0 (2025-08-23)
 ------------------
 
