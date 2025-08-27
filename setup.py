@@ -13,25 +13,20 @@ if os.name == 'nt':
 else:
     libraries = None
 
-cython_modules = [
-    Extension(
-        "picows.picows",
-        ["picows/picows.pyx"],
-        libraries=libraries,
-    )
+pkg_extensions = [
+    Extension("picows.picows", ["picows/picows.pyx"], libraries=libraries),
 ]
 
-if os.getenv("PICOWS_BUILD_EXAMPLES") is not None:
-    cython_modules.append(
-        Extension(
-            "examples.echo_client_cython",
-            ["examples/echo_client_cython.pyx"],
-        )
-    )
+example_extensions = [
+    Extension("examples.echo_client_cython", ["examples/echo_client_cython.pyx"], libraries=libraries),
+]
+
+is_wheel = any(cmd in sys.argv for cmd in ("bdist_wheel",))
+extensions = pkg_extensions if is_wheel else (pkg_extensions + example_extensions)
 
 setup(
     ext_modules=cythonize(
-        cython_modules,
+        extensions,
         compiler_directives={
             'language_level': vi[0],
             'profile': False,
@@ -43,6 +38,7 @@ setup(
             'cdivision': True
         },
         annotate=False,
-        gdb_debug=False
+        gdb_debug=False,
     ),
+    include_package_data=True,
 )
