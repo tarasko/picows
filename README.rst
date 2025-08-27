@@ -173,7 +173,6 @@ Contributing / Building From Source
 
 4. Build inplace and run tests::
 
-    $ export PICOWS_BUILD_EXAMPLES=1
     $ python setup.py build_ext --inplace
     $ pytest -s -v
 
