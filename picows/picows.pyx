@@ -43,9 +43,6 @@ cdef:
 
 
 cdef extern from "picows_compat.h" nogil:
-    cdef int EWOULDBLOCK
-    cdef int ESHUTDOWN
-
     cdef int PLATFORM_IS_APPLE
     cdef int PLATFORM_IS_LINUX
     cdef int PLATFORM_IS_WINDOWS
@@ -59,7 +56,6 @@ cdef extern from "picows_compat.h" nogil:
     uint64_t htobe64(uint64_t)
 
     cdef ssize_t PICOWS_SOCKET_ERROR
-    int picows_get_errno()
     double picows_get_monotonic_time()
     ssize_t send(int sockfd, const void* buf, size_t len, int flags)
 
