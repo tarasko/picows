@@ -41,7 +41,7 @@ else:
     )
     def event_loop_policy(request):
         if request.param == 'asyncio':
-            return asyncio.DefaultEventLoopPolicy()
+            return None
         elif request.param == 'uvloop':
             return uvloop.EventLoopPolicy()
         else:
