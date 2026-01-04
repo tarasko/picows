@@ -1332,7 +1332,7 @@ cdef class WSProtocol:
         cdef bytes response_status_line = <bytes>lines[0]
 
         # check handshake
-        if response_status_line.decode().lower() != "http/1.1 101 switching protocols":
+        if not response_status_line.decode().lower().startswith("http/1.1 101 " ):
             raise WSError(f"cannot upgrade, invalid status in upgrade response: {response_status_line}, body: {tail}")
 
         cdef WSUpgradeResponse response = WSUpgradeResponse()
