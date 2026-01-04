@@ -5,6 +5,13 @@ picows Release History
    :depth: 1
    :local:
 
+1.10.2 (2026-01-04)
+------------------
+
+* #65: enable 3.14 builds
+* #64: allow 'HTTP/1.1 101 null' upgrade response
+
+
 1.10.1 (2025-08-23)
 ------------------
 

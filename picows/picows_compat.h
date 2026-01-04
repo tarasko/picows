@@ -62,42 +62,6 @@
     #include <winsock2.h>
     #define PICOWS_SOCKET_ERROR SOCKET_ERROR
 
-    static inline int picows_convert_wsa_error_to_errno(int ec)
-    {
-        switch(ec)
-        {
-            case WSAEWOULDBLOCK: return EWOULDBLOCK;
-            case WSAEINPROGRESS: return EINPROGRESS;
-            case WSAEALREADY: return EALREADY;
-            case WSAENOTSOCK: return ENOTSOCK;
-            case WSAEDESTADDRREQ: return EDESTADDRREQ;
-            case WSAEMSGSIZE: return EMSGSIZE;
-            case WSAEPROTOTYPE: return EPROTOTYPE;
-            case WSAENOPROTOOPT: return ENOPROTOOPT;
-            case WSAEPROTONOSUPPORT: return EPROTONOSUPPORT;
-            case WSAEAFNOSUPPORT: return EAFNOSUPPORT;
-            case WSAEADDRINUSE: return EADDRINUSE;
-            case WSAEADDRNOTAVAIL: return EADDRNOTAVAIL;
-            case WSAENETDOWN: return ENETDOWN;
-            case WSAENETUNREACH: return ENETUNREACH;
-            case WSAENETRESET: return ENETRESET;
-            case WSAECONNABORTED: return ECONNABORTED;
-            case WSAECONNRESET: return ECONNRESET;
-            case WSAENOBUFS: return ENOBUFS;
-            case WSAEISCONN: return EISCONN;
-            case WSAENOTCONN: return ENOTCONN;
-            case WSAETIMEDOUT: return ETIMEDOUT;
-            case WSAECONNREFUSED: return ECONNREFUSED;
-
-            default: return ENOTSOCK;
-        }
-    }
-
-    static inline int picows_get_errno(void)
-    {
-        return picows_convert_wsa_error_to_errno(WSAGetLastError());
-    }
-
     static inline double picows_get_monotonic_time(void)
     {
         LARGE_INTEGER frequency, counter;
@@ -111,10 +75,6 @@
     #include <time.h>
 
     #define PICOWS_SOCKET_ERROR -1
-    #define PICOWS_EAGAIN EAGAIN
-    #define PICOWS_EWOULDBLOCK EWOULDBLOCK
-
-    static inline int picows_get_errno(void) { return errno; }
 
     static inline double picows_get_monotonic_time(void)
     {

@@ -43,9 +43,6 @@ cdef:
 
 
 cdef extern from "picows_compat.h" nogil:
-    cdef int EWOULDBLOCK
-    cdef int ESHUTDOWN
-
     cdef int PLATFORM_IS_APPLE
     cdef int PLATFORM_IS_LINUX
     cdef int PLATFORM_IS_WINDOWS
@@ -59,7 +56,6 @@ cdef extern from "picows_compat.h" nogil:
     uint64_t htobe64(uint64_t)
 
     cdef ssize_t PICOWS_SOCKET_ERROR
-    int picows_get_errno()
     double picows_get_monotonic_time()
     ssize_t send(int sockfd, const void* buf, size_t len, int flags)
 
@@ -1336,7 +1332,7 @@ cdef class WSProtocol:
         cdef bytes response_status_line = <bytes>lines[0]
 
         # check handshake
-        if response_status_line.decode().lower() != "http/1.1 101 switching protocols":
+        if not response_status_line.decode().lower().startswith("http/1.1 101 " ):
             raise WSError(f"cannot upgrade, invalid status in upgrade response: {response_status_line}, body: {tail}")
 
         cdef WSUpgradeResponse response = WSUpgradeResponse()
