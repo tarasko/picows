@@ -152,8 +152,28 @@ static size_t mask_payload_64(uint8_t* input, size_t input_len, size_t start_pos
     #include <emmintrin.h>
     #include <immintrin.h>
 
+    static int has_avx512f(void) { return __builtin_cpu_supports("avx512f"); }
     static int has_avx2(void) { return __builtin_cpu_supports("avx2"); }
     static int has_sse2(void) { return __builtin_cpu_supports("sse2"); }
+
+    __attribute__((target("avx512f")))
+    static size_t mask_payload_avx512(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+    {
+        typedef __m512i int_x;
+        const size_t reg_size = 64;
+        const size_t input_len_trunc = (input_len - start_pos) & ~(reg_size - 1);
+
+        const int_x mask_x = _mm512_set1_epi32(mask);
+
+        for (size_t i = start_pos; i < start_pos + input_len_trunc; i += reg_size)
+        {
+            int_x in = _mm512_load_si512((int_x *)(input  + i));
+            int_x out = _mm512_xor_si512(in, mask_x);
+            _mm512_store_si512((int_x *)(input + i), out);
+        }
+
+        return start_pos + input_len_trunc;
+    }
 
     __attribute__((target("avx2")))
     static size_t mask_payload_avx2(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
@@ -195,7 +215,9 @@ static size_t mask_payload_64(uint8_t* input, size_t input_len, size_t start_pos
 
     static mask_payload_fn get_mask_payload_fn()
     {
-        if (has_avx2())
+        if (has_avx512f())
+            return &mask_payload_avx512;
+        else if (has_avx2())
             return &mask_payload_avx2;
         else if (has_sse2())
             return &mask_payload_sse2;
@@ -205,7 +227,9 @@ static size_t mask_payload_64(uint8_t* input, size_t input_len, size_t start_pos
 
     static size_t get_mask_payload_alignment()
     {
-        if (has_avx2())
+        if (has_avx512f())
+            return 64;
+        else if (has_avx2())
             return 32;
         else if (has_sse2())
             return 16;
