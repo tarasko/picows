@@ -239,7 +239,7 @@ static size_t mask_payload_64(uint8_t* input, size_t input_len, size_t start_pos
 #else
     static mask_payload_fn get_mask_payload_fn()
     {
-        return &_mask_payload_64;
+        return &mask_payload_64;
     }
 
     static size_t get_mask_payload_alignment()
