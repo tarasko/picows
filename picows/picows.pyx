@@ -204,7 +204,7 @@ cdef void _mask_payload(uint8_t* input, Py_ssize_t input_len, uint32_t mask) noe
         input[i] ^= mask_buf[i]
 
 
-cdef _unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, size_t* msg_size_out):
+cdef _unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* msg_size_out):
     cdef Py_buffer msg_buffer
 
     if PyBytes_CheckExact(bytes_like_obj):
@@ -241,7 +241,7 @@ cdef class WSFrame:
         
         This method does not cache results. Payload is copied and a new bytes object is created every time this method is called.
         """
-        return PyBytes_FromStringAndSize(self.payload_ptr, <Py_ssize_t>self.payload_size)
+        return PyBytes_FromStringAndSize(self.payload_ptr, self.payload_size)
 
     cpdef str get_payload_as_utf8_text(self):
         """
@@ -251,7 +251,7 @@ cdef class WSFrame:
         
         This method does not cache results. Payload is copied and a new str object is created every time this method is called.
         """
-        return PyUnicode_FromStringAndSize(self.payload_ptr, <Py_ssize_t>self.payload_size)
+        return PyUnicode_FromStringAndSize(self.payload_ptr, self.payload_size)
 
     cpdef str get_payload_as_ascii_text(self):
         """
@@ -582,7 +582,7 @@ cdef class WSTransport:
 
         cdef:
             char* msg_ptr
-            size_t msg_length
+            Py_ssize_t msg_length
 
         if message is None:
             msg_ptr = b""
@@ -801,7 +801,7 @@ cdef class WSTransport:
         self.underlying_transport.write(response_bytes)
 
     cdef _try_native_write_then_transport_write(self, char* ptr, Py_ssize_t sz):
-        if <size_t>self.underlying_transport.get_write_buffer_size() > 0:
+        if <Py_ssize_t>self.underlying_transport.get_write_buffer_size() > 0:
             self.underlying_transport.write(PyBytes_FromStringAndSize(ptr, sz))
             return
 
@@ -851,7 +851,7 @@ cdef class WSProtocol:
         Py_ssize_t _upgrade_request_max_size
 
         bytes _websocket_key_b64
-        size_t _max_frame_size
+        Py_ssize_t _max_frame_size
 
         bint _enable_auto_pong
         bint _enable_auto_ping
@@ -867,11 +867,11 @@ cdef class WSProtocol:
         # Once the frame is finished WSFrame is created and returned
         WSParserState _state
         MemoryBuffer _buffer
-        size_t _f_new_data_start_pos
-        size_t _f_curr_state_start_pos
-        size_t _f_curr_frame_start_pos
-        uint64_t _f_payload_length
-        size_t _f_payload_start_pos
+        Py_ssize_t _f_new_data_start_pos
+        Py_ssize_t _f_curr_state_start_pos
+        Py_ssize_t _f_curr_frame_start_pos
+        Py_ssize_t _f_payload_length
+        Py_ssize_t _f_payload_start_pos
         WSMsgType _f_msg_type
         uint32_t _f_mask
         uint8_t _f_fin
@@ -1026,25 +1026,35 @@ cdef class WSProtocol:
         if self.listener is not None:
             self.listener.resume_writing()
 
-    # Uncommenting the following code to try out non-buffered protocol
+    # uvloop and asyncio use different checks to detect BufferedProtocol
     #
-    # def data_received(self, data):
-    #     cdef:
-    #         char* ptr
-    #         size_t sz
+    # uvloop looks at the presence of get_buffer attribute and check that
+    # user type is not derived from asyncio.Protocol.
     #
-    #     _unpack_bytes_like(data, &ptr, &sz)
+    # asyncio expect user protocol to actually derive from asyncio.BufferedProtocol.
+    # Unfortunately Cython extension types are not allowed to derive pure python types.
+    # It is possible make a pure python wrapper around cython type but this will result in
+    # extra dictionary lookup everytime get_buffer, buffer_updated are called
     #
-    #     # Leave some space for simd parsers like simdjson, they require extra
-    #     # space beyond normal data to make sure that vector reads
-    #     # don't cause access violation
-    #     if self._buffer.size - self._f_new_data_start_pos < (sz + 64):
-    #         self._buffer.resize(self._f_new_data_start_pos + sz + 64)
-    #
-    #     memcpy(self._buffer.data + self._f_new_data_start_pos, ptr, sz)
-    #     self._f_new_data_start_pos += sz
-    #
-    #     self._process_new_data()
+    # So for the time being I implemented both data_received, and (get_buffer, buffer_updated).
+    # uvloop will use (get_buffer, buffer_updated) and asyncio will use data_received
+    def data_received(self, data):
+        cdef:
+            char* ptr
+            Py_ssize_t sz
+
+        _unpack_bytes_like(data, &ptr, &sz)
+
+        # Leave some space for simd parsers like simdjson, they require extra
+        # space beyond normal data to make sure that vector reads
+        # don't cause access violation
+        if self._buffer.size - self._f_new_data_start_pos < (sz + 64):
+            self._buffer.resize(self._f_new_data_start_pos + sz + 64)
+
+        memcpy(self._buffer.data + self._f_new_data_start_pos, ptr, sz)
+        self._f_new_data_start_pos += sz
+
+        self._process_new_data()
 
     def get_buffer(self, Py_ssize_t size_hint):
         cdef Py_ssize_t sz = size_hint + 1024
@@ -1398,7 +1408,7 @@ cdef class WSProtocol:
             if rsv2 or rsv3:
                 mem_dump = PyBytes_FromStringAndSize(
                     self._buffer.data + self._f_curr_state_start_pos,
-                    max(self._f_new_data_start_pos - self._f_curr_state_start_pos, <size_t>64)
+                    max(self._f_new_data_start_pos - self._f_curr_state_start_pos, 64)
                 )
                 raise _WSParserError(
                     WSCloseCode.PROTOCOL_ERROR,
