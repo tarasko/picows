@@ -29,6 +29,14 @@
     #define PLATFORM_IS_LINUX 0
 #endif
 
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+  #define ARCH_X86
+#endif
+
+#if defined(__aarch64__) || defined(__arm__) || defined(_M_ARM) || defined(_M_ARM64)
+  #define ARCH_ARM
+#endif
+
 #if defined(__linux__)
     #include <arpa/inet.h>
     #include <endian.h>
@@ -81,5 +89,137 @@
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
         return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+    }
+#endif
+
+typedef size_t (*mask_payload_fn)(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask);
+
+static inline size_t rotate_right(size_t value, size_t bytes)
+{
+    size_t bits = (bytes % 4) * 8;
+    return (value >> bits) | (value << (32 - bits));
+}
+
+static inline size_t mask_payload_32(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+{
+    typedef uint64_t int_x;
+    const size_t reg_size = 4;
+    const size_t input_len_trunc = (input_len - start_pos) & ~(reg_size - 1);
+
+    const int_x mask_x = mask;
+
+    for (size_t i = start_pos; i < start_pos + input_len_trunc; i += reg_size)
+        *(int_x*)(input + i) ^= mask_x;
+
+    return start_pos + input_len_trunc;
+}
+
+static inline size_t mask_payload_1(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+{
+    uint8_t* mask_ptr = (uint8_t*)&mask;
+
+    for (size_t i = start_pos, k = 0; i < input_len; i += 1, k += 1)
+        input[i] ^= mask_ptr[k % 4];
+
+    return input_len;
+}
+
+static inline size_t mask_misaligned(uint8_t* input, size_t input_len, uint32_t mask, size_t alignment)
+{
+    size_t ptr_value = (size_t)input;
+    size_t misalignment = fmin(alignment - (ptr_value % alignment), input_len);
+
+    mask_payload_1(input, misalignment, 0, mask);
+
+    return misalignment;
+}
+
+static size_t mask_payload_64(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+{
+    typedef uint64_t int_x;
+    const size_t reg_size = 8;
+    const size_t input_len_trunc = (input_len - start_pos) & ~(reg_size - 1);
+
+    const int_x mask_x = ((int_x)mask << 32) | (int_x)mask;
+
+    for (size_t i = start_pos; i < start_pos + input_len_trunc; i += reg_size)
+        *(int_x*)(input + i) ^= mask_x;
+
+    return start_pos + input_len_trunc;
+}
+
+#if defined(ARCH_X86) && (defined(__GNUC__) || defined(__clang__))
+    #include <emmintrin.h>
+    #include <immintrin.h>
+
+    static int has_avx2(void) { return __builtin_cpu_supports("avx2"); }
+    static int has_sse2(void) { return __builtin_cpu_supports("sse2"); }
+
+    __attribute__((target("avx2")))
+    static size_t mask_payload_avx2(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+    {
+        typedef __m256i int_x;
+        const size_t reg_size = 32;
+        const size_t input_len_trunc = (input_len - start_pos) & ~(reg_size - 1);
+
+        const int_x mask_x = _mm256_set1_epi32(mask);
+
+        for (size_t i = start_pos; i < start_pos + input_len_trunc; i += reg_size)
+        {
+            int_x in = _mm256_load_si256((int_x *)(input  + i));
+            int_x out = _mm256_xor_si256(in, mask_x);
+            _mm256_store_si256((int_x *)(input + i), out);
+        }
+
+        return start_pos + input_len_trunc;
+    }
+
+    __attribute__((target("sse2")))
+    static size_t mask_payload_sse2(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+    {
+        typedef __m128i int_x;
+        const size_t reg_size = 16;
+        const size_t input_len_trunc = (input_len - start_pos) & ~(reg_size - 1);
+
+        const int_x mask_x = _mm_set1_epi32(mask);
+
+        for (size_t i = start_pos; i < start_pos + input_len_trunc; i += reg_size)
+        {
+            int_x in = _mm_load_si128((int_x *)(input  + i));
+            int_x out = _mm_xor_si128(in, mask_x);
+            _mm_store_si128((int_x *)(input + i), out);
+        }
+
+        return start_pos + input_len_trunc;
+    }
+
+    static mask_payload_fn get_mask_payload_fn()
+    {
+        if (has_avx2())
+            return &mask_payload_avx2;
+        else if (has_sse2())
+            return &mask_payload_sse2;
+        else
+            return &mask_payload_64;
+    }
+
+    static size_t get_mask_payload_alignment()
+    {
+        if (has_avx2())
+            return 32;
+        else if (has_sse2())
+            return 16;
+        else
+            return 8;
+    }
+#else
+    static mask_payload_fn get_mask_payload_fn()
+    {
+        return &_mask_payload_64;
+    }
+
+    static size_t get_mask_payload_alignment()
+    {
+        return 8;
     }
 #endif
