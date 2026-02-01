@@ -73,6 +73,8 @@
     error byte order not supported
 #endif
 
+#define PICOWS_MIN(a, b) ((a) < (b) ? (a) : (b))
+
 #ifdef __WINDOWS__
 
     #include <winsock2.h>
@@ -135,7 +137,7 @@ static inline size_t mask_payload_1(uint8_t* input, size_t input_len, size_t sta
 static inline size_t mask_misaligned(uint8_t* input, size_t input_len, uint32_t mask, size_t alignment)
 {
     size_t ptr_value = (size_t)input;
-    size_t misalignment = fmin(alignment - (ptr_value % alignment), input_len);
+    size_t misalignment = PICOWS_MIN(alignment - (ptr_value % alignment), input_len);
 
     mask_payload_1(input, misalignment, 0, mask);
 
