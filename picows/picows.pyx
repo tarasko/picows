@@ -1026,57 +1026,49 @@ cdef class WSProtocol:
         if self.listener is not None:
             self.listener.resume_writing()
 
-    def data_received(self, data):
-        cdef:
-            char* ptr
-            size_t sz
-
-        _unpack_bytes_like(data, &ptr, &sz)
-
-        # Leave some space for simd parsers like simdjson, they require extra
-        # space beyond normal data to make sure that vector reads
-        # don't cause access violation
-        if self._buffer.size - self._f_new_data_start_pos < (sz + 64):
-            self._buffer.resize(self._f_new_data_start_pos + sz + 64)
-
-        memcpy(self._buffer.data + self._f_new_data_start_pos, ptr, sz)
-        self._f_new_data_start_pos += sz
-
-        self._process_new_data()
-
-    # Benchmark and profiler showed that buffered protocol is actually slower
-    # than normal. There are additional costs of 2 python calls
-    # (get_buffer, buffer_updated) comparing to a single data_received.
-    # Also extra costs are related to creating memoryview and getting buffer
-    # out of it.
+    # Uncommenting the following code to try out non-buffered protocol
     #
-    # Uncommenting the following code will make uvloop to think that WSProtocol
-    # implements BufferedProtocol. uvloop will use get_buffer/buffer_updated
-    # instead of data_received.
+    # def data_received(self, data):
+    #     cdef:
+    #         char* ptr
+    #         size_t sz
     #
-    # def get_buffer(self, Py_ssize_t size_hint):
-    #     cdef Py_ssize_t sz = size_hint + 1024
-    #     if self._buffer.size - self._f_new_data_start_pos < sz:
-    #         self._buffer.resize(self._f_new_data_start_pos + sz)
+    #     _unpack_bytes_like(data, &ptr, &sz)
     #
-    #     if self._log_debug_enabled:
-    #         self._logger.log(PICOWS_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
-    #                          size_hint,
-    #                          self._buffer.size - self._f_new_data_start_pos,
-    #                          self._buffer.size,
-    #                          self._buffer.capacity)
+    #     # Leave some space for simd parsers like simdjson, they require extra
+    #     # space beyond normal data to make sure that vector reads
+    #     # don't cause access violation
+    #     if self._buffer.size - self._f_new_data_start_pos < (sz + 64):
+    #         self._buffer.resize(self._f_new_data_start_pos + sz + 64)
     #
-    #     return PyMemoryView_FromMemory(
-    #         self._buffer.data + self._f_new_data_start_pos,
-    #         self._buffer.size - self._f_new_data_start_pos,
-    #         PyBUF_WRITE)
+    #     memcpy(self._buffer.data + self._f_new_data_start_pos, ptr, sz)
+    #     self._f_new_data_start_pos += sz
     #
-    # def buffer_updated(self, Py_ssize_t nbytes):
-    #     if self._log_debug_enabled:
-    #         self._logger.log(PICOWS_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
-    #                          self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)
-    #     self._f_new_data_start_pos += nbytes
     #     self._process_new_data()
+
+    def get_buffer(self, Py_ssize_t size_hint):
+        cdef Py_ssize_t sz = size_hint + 1024
+        if self._buffer.size - self._f_new_data_start_pos < sz:
+            self._buffer.resize(self._f_new_data_start_pos + sz)
+
+        if self._log_debug_enabled:
+            self._logger.log(PICOWS_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
+                             size_hint,
+                             self._buffer.size - self._f_new_data_start_pos,
+                             self._buffer.size,
+                             self._buffer.capacity)
+
+        return PyMemoryView_FromMemory(
+            self._buffer.data + self._f_new_data_start_pos,
+            self._buffer.size - self._f_new_data_start_pos,
+            PyBUF_WRITE)
+
+    def buffer_updated(self, Py_ssize_t nbytes):
+        if self._log_debug_enabled:
+            self._logger.log(PICOWS_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
+                             self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)
+        self._f_new_data_start_pos += nbytes
+        self._process_new_data()
 
     async def wait_until_handshake_complete(self):
         await asyncio.shield(self._handshake_complete_future)
