@@ -238,7 +238,7 @@ static size_t mask_payload_64(uint8_t* input, size_t input_len, size_t start_pos
     }
 #elif defined(__ARM_NEON)
     #include <arm_neon.h>
-    
+
     static size_t mask_payload_neon(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
     {
         typedef uint8x16_t int_x;
@@ -249,9 +249,9 @@ static size_t mask_payload_64(uint8_t* input, size_t input_len, size_t start_pos
 
         for (size_t i = start_pos; i < start_pos + input_len_trunc; i += reg_size)
         {
-            int_x in = vld1q_u8((int_x *)(input  + i));
+            int_x in = vld1q_u8(input  + i);
             int_x out = veorq_u8(in, mask_x);
-            vst1q_u8((int_x *)(input + i), out);
+            vst1q_u8(input + i, out);
         }
 
         return start_pos + input_len_trunc;
