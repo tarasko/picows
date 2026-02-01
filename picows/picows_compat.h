@@ -237,6 +237,8 @@ static size_t mask_payload_64(uint8_t* input, size_t input_len, size_t start_pos
             return 8;
     }
 #elif defined(__ARM_NEON)
+    #include <arm_neon.h>
+    
     static size_t mask_payload_neon(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
     {
         typedef uint8x16_t int_x;
