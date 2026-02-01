@@ -69,11 +69,6 @@ cdef extern from "picows_compat.h" nogil:
     size_t get_mask_payload_alignment()
 
 
-cdef:
-    mask_payload_fn mask_payload_fast = get_mask_payload_fn()
-    size_t mask_payload_alignment = get_mask_payload_alignment()
-
-
 class WSError(RuntimeError):
     """
     Thrown by :any:`ws_connect` on any kind of handshake errors.
@@ -188,6 +183,11 @@ cdef class WSUpgradeResponseWithListener:
 
         self.response = response
         self.listener = listener
+
+
+cdef:
+    mask_payload_fn mask_payload_fast = get_mask_payload_fn()
+    size_t mask_payload_alignment = get_mask_payload_alignment()
 
 
 cdef void _mask_payload(uint8_t* input, size_t input_len, uint32_t mask) noexcept:
