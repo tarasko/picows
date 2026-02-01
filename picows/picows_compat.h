@@ -37,6 +37,14 @@
   #define ARCH_ARM
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+  #define MAYBE_UNUSED __attribute__((unused))
+#elif defined(_MSC_VER)
+  #define MAYBE_UNUSED
+#else
+  #define MAYBE_UNUSED
+#endif
+
 #if defined(__linux__)
     #include <arpa/inet.h>
     #include <endian.h>
@@ -134,6 +142,7 @@ static inline size_t mask_misaligned(uint8_t* input, size_t input_len, uint32_t 
     return misalignment;
 }
 
+MAYBE_UNUSED
 static size_t mask_payload_64(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
 {
     typedef uint64_t int_x;
