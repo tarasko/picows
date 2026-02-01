@@ -118,9 +118,10 @@ async def client_msg_queue(echo_server):
         await transport.wait_disconnected()
 
 
-@pytest.mark.parametrize("msg_size", [0, 1, 2, 3, 4, 5, 6, 7, 8, 64, 256 * 1024])
+@pytest.mark.parametrize("msg_size", [0, 1, 2, 3, 4, 5, 6, 7, 8, 29, 64, 256 * 1024])
 async def test_echo(client_msg_queue, msg_size):
-    msg = os.urandom(msg_size)
+    msg = (b"ABCDEFGHIKLMNOPQ" * (int(msg_size / 16) + 1))[:msg_size]
+
     client_msg_queue.transport.send(picows.WSMsgType.BINARY, msg, False, False)
     frame = await client_msg_queue.get_message()
     assert frame.msg_type == picows.WSMsgType.BINARY

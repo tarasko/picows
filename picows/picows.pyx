@@ -59,6 +59,15 @@ cdef extern from "picows_compat.h" nogil:
     double picows_get_monotonic_time()
     ssize_t send(int sockfd, const void* buf, size_t len, int flags)
 
+    ctypedef size_t(*mask_payload_fn)(uint8_t*, size_t, size_t, uint32_t)
+
+    size_t rotate_right(size_t value, size_t bytes)
+    size_t mask_misaligned(uint8_t* input, size_t input_len, uint32_t mask, size_t alignment)
+    size_t mask_payload_32(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+    size_t mask_payload_1(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+    mask_payload_fn get_mask_payload_fn()
+    size_t get_mask_payload_alignment()
+
 
 class WSError(RuntimeError):
     """
@@ -176,32 +185,23 @@ cdef class WSUpgradeResponseWithListener:
         self.listener = listener
 
 
-cdef void _mask_payload(uint8_t* input, Py_ssize_t input_len, uint32_t mask) noexcept:
-    # According to perf, _mask_payload is very fast and is not worth spending
-    # any time optimizing it further.
-    # But we could use here SIMD or AVX2 instruction to speed this up.
-    # Also apply vector instructions only on aligned pointer
+cdef:
+    mask_payload_fn mask_payload_fast = get_mask_payload_fn()
+    size_t mask_payload_alignment = get_mask_payload_alignment()
 
-    cdef:
-        Py_ssize_t i
-        # bit operations on signed integers are implementation-specific
-        # cast everything to uint
-        uint64_t mask64 = (<uint64_t>mask << 32) | <uint64_t>mask
-        uint8_t* mask_buf = <uint8_t*> &mask64
 
-    if sizeof(Py_ssize_t) >= 8:
-        while input_len >= 8:
-            (<uint64_t *> input)[0] ^= mask64
-            input += 8
-            input_len -= 8
+cdef void _mask_payload(uint8_t* input, size_t input_len, uint32_t mask) noexcept:
+    cdef size_t i = mask_misaligned(input, input_len, mask, mask_payload_alignment)
+    cdef size_t rotated_mask = rotate_right(mask, i)
 
-    while input_len >= 4:
-        (<uint32_t *> input)[0] ^= mask
-        input += 4
-        input_len -= 4
+    if i < input_len:
+        i = mask_payload_fast(input, input_len, i, rotated_mask)
 
-    for i in range(0, input_len):
-        input[i] ^= mask_buf[i]
+    if i < input_len:
+        i = mask_payload_32(input, input_len, i, rotated_mask)
+
+    if i < input_len:
+        mask_payload_1(input, input_len, i, rotated_mask)
 
 
 cdef _unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* msg_size_out):
