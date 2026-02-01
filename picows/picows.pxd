@@ -82,8 +82,8 @@ cdef class WSUpgradeResponseWithListener:
 cdef class WSFrame:
     cdef:
         char* payload_ptr
-        size_t payload_size
-        readonly size_t tail_size
+        Py_ssize_t payload_size
+        readonly Py_ssize_t tail_size
         readonly WSMsgType msg_type
         readonly uint8_t fin
         readonly uint8_t rsv1
