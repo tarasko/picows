@@ -261,7 +261,7 @@ static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, u
 
     static apply_mask_fn get_apply_mask_fast_fn()
     {
-        return &mask_payload_neon;
+        return &apply_mask_neon;
     }
 
     static size_t get_apply_mask_fast_alignment()
@@ -271,7 +271,7 @@ static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, u
 #else
     static apply_mask_fn get_apply_mask_fast_fn()
     {
-        return &mask_payload_64;
+        return &apply_mask_8;
     }
 
     static size_t get_apply_mask_fast_alignment()
