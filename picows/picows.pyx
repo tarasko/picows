@@ -4,7 +4,6 @@ import binascii
 import logging
 import os
 import socket
-import struct
 import urllib.parse
 from http import HTTPStatus
 from base64 import b64encode, b64decode
@@ -213,6 +212,9 @@ cdef _unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* m
     elif PyByteArray_CheckExact(bytes_like_obj):
         msg_ptr_out[0] = PyByteArray_AS_STRING(bytes_like_obj)
         msg_size_out[0] = PyByteArray_GET_SIZE(bytes_like_obj)
+    elif bytes_like_obj is None:
+        msg_ptr_out[0] = NULL
+        msg_size_out[0] = 0
     else:
         PyObject_GetBuffer(bytes_like_obj, &msg_buffer, PyBUF_SIMPLE)
         msg_ptr_out[0] = <char*>msg_buffer.buf
@@ -565,11 +567,7 @@ cdef class WSTransport:
             char* msg_ptr
             Py_ssize_t msg_length
 
-        if message is None:
-            msg_ptr = b""
-            msg_length = 0
-        else:
-            _unpack_bytes_like(message, &msg_ptr, &msg_length)
+        _unpack_bytes_like(message, &msg_ptr, &msg_length)
 
         # We can potentially do better here by combining memcpy memory traversal
         # with masking. Still people who wants maximum performance should use
@@ -608,11 +606,17 @@ cdef class WSTransport:
         if self.underlying_transport.is_closing():
             return
 
-        cdef bytes close_payload = struct.pack("!H", <uint16_t>close_code)
-        if close_message is not None:
-            close_payload += close_message
+        cdef:
+            char* msg_ptr
+            Py_ssize_t msg_length
 
-        self.send(WSMsgType.CLOSE, close_payload)
+        _unpack_bytes_like(close_message, &msg_ptr, &msg_length)
+
+        self._write_buf.resize(msg_length + 2 + 16)
+        (<uint16_t*>(self._write_buf.data + 16))[0] = htons(<uint16_t>close_code)
+        memcpy(self._write_buf.data + 2 + 16, msg_ptr, msg_length)
+
+        self.send_reuse_external_buffer(WSMsgType.CLOSE, self._write_buf.data + 16, msg_length + 2, True, False)
         self._close_frame_is_sent = True
 
     cpdef disconnect(self, bint graceful=True):
