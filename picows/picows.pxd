@@ -48,11 +48,7 @@ cdef class MemoryBuffer:
         char* data
 
     cdef inline _reserve(self, Py_ssize_t target_size)
-    cdef inline void clear(self) noexcept
-    cdef inline push_back(self, uint8_t byte)
-    cdef inline append(self, const char* ptr, Py_ssize_t sz)
     cdef inline resize(self, Py_ssize_t new_size)
-    cdef inline add_padding(self, Py_ssize_t alignment)
 
 
 cdef class WSUpgradeRequest:

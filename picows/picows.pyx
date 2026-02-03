@@ -329,35 +329,10 @@ cdef class MemoryBuffer:
         self.data = data
         self.capacity = new_capacity
 
-    cdef void clear(self) noexcept:
-        self.size = 0
-
-    cdef push_back(self, uint8_t byte):
-        cdef Py_ssize_t target_size = self.size + 1
-        if target_size > self.capacity:
-            self._reserve(target_size)
-
-        self.data[self.size] = <char>byte
-        self.size = target_size
-
-    cdef append(self, const char* ptr, Py_ssize_t sz):
-        cdef Py_ssize_t target_size = self.size + sz
-        if target_size > self.capacity:
-            self._reserve(target_size)
-
-        memcpy(self.data + self.size, ptr, sz)
-        self.size = target_size
-
     cdef resize(self, Py_ssize_t new_size):
         if new_size > self.capacity:
             self._reserve(new_size)
         self.size = new_size
-
-    cdef add_padding(self, Py_ssize_t alignment):
-        cdef Py_ssize_t target_size = self.size + (alignment - self.size % alignment)
-        if target_size > self.capacity:
-            self._reserve(target_size)
-        self.size = target_size
 
 
 cdef class WSListener:
