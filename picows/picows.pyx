@@ -59,14 +59,14 @@ cdef extern from "picows_compat.h" nogil:
     double picows_get_monotonic_time()
     ssize_t send(int sockfd, const void* buf, size_t len, int flags)
 
-    ctypedef size_t(*mask_payload_fn)(uint8_t*, size_t, size_t, uint32_t)
+    ctypedef size_t(*apply_mask_fn)(uint8_t*, size_t, size_t, uint32_t)
 
-    size_t rotate_right(size_t value, size_t bytes)
-    size_t mask_misaligned(uint8_t* input, size_t input_len, uint32_t mask, size_t alignment)
-    size_t mask_payload_32(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
-    size_t mask_payload_1(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
-    mask_payload_fn get_mask_payload_fn()
-    size_t get_mask_payload_alignment()
+    size_t rotate_right(uint32_t value, size_t num_bytes)
+    size_t mask_misaligned_bytes_at_front(uint8_t* input, size_t input_len, uint32_t mask, size_t alignment)
+    size_t apply_mask_4(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+    size_t apply_mask_1(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+    apply_mask_fn get_apply_mask_fast_fn()
+    size_t get_apply_mask_fast_alignment()
 
 
 class WSError(RuntimeError):
@@ -186,22 +186,22 @@ cdef class WSUpgradeResponseWithListener:
 
 
 cdef:
-    mask_payload_fn mask_payload_fast = get_mask_payload_fn()
-    size_t mask_payload_alignment = get_mask_payload_alignment()
+    apply_mask_fn apply_mask_fast = get_apply_mask_fast_fn()
+    size_t apply_mask_fast_alignment = get_apply_mask_fast_alignment()
 
 
 cdef void _mask_payload(uint8_t* input, size_t input_len, uint32_t mask) noexcept:
-    cdef size_t i = mask_misaligned(input, input_len, mask, mask_payload_alignment)
-    cdef size_t rotated_mask = rotate_right(mask, i)
+    cdef size_t curr_pos = mask_misaligned_bytes_at_front(input, input_len, mask, apply_mask_fast_alignment)
+    cdef size_t rotated_mask = rotate_right(mask, curr_pos)
 
-    if i < input_len:
-        i = mask_payload_fast(input, input_len, i, rotated_mask)
+    if curr_pos < input_len:
+        curr_pos = apply_mask_fast(input, input_len, curr_pos, rotated_mask)
 
-    if i < input_len:
-        i = mask_payload_32(input, input_len, i, rotated_mask)
+    if curr_pos < input_len:
+        curr_pos = apply_mask_4(input, input_len, curr_pos, rotated_mask)
 
-    if i < input_len:
-        mask_payload_1(input, input_len, i, rotated_mask)
+    if curr_pos < input_len:
+        apply_mask_1(input, input_len, curr_pos, rotated_mask)
 
 
 cdef _unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* msg_size_out):
