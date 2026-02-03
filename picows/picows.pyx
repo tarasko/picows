@@ -953,9 +953,9 @@ cdef class WSProtocol:
         if hasattr(socket, "TCP_QUICKACK"):
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK, 1)
 
-        # self._logger.getLogger add child logger to the global loggers dict.
-        # These child logger never get deleted after connection is lost
-        # Therefore do not use getLogger, create and setup loggers manually
+        # self._logger.getLogger adds child logger to the global loggers dict.
+        # These child loggers never get deleted after connections are lost
+        # Therefore do not use getLogger, create and setup child loggers manually
         child_logger = logging.Logger(f"{self._logger.name}.{sock.fileno()}", logging.NOTSET)
         child_logger.parent = self._logger
         child_logger.propagate = True
