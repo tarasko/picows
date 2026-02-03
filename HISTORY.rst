@@ -5,6 +5,12 @@ picows Release History
    :depth: 1
    :local:
 
+1.11.0 ()
+
+* #72: fixed possible memory leak due to never deleted child loggers
+* Added faster versions of _mask_payload using sse2/avx2/avx512/neon intrinsics
+* Switched to using BufferedProtocol for uvloop
+
 1.10.2 (2026-01-04)
 ------------------
 
