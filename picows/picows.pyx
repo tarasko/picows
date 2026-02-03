@@ -953,7 +953,13 @@ cdef class WSProtocol:
         if hasattr(socket, "TCP_QUICKACK"):
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK, 1)
 
-        self._logger = self._logger.getChild(str(sock.fileno()))
+        # self._logger.getLogger add child logger to the global loggers dict.
+        # These child logger never get deleted after connection is lost
+        # Therefore do not use getLogger, create and setup loggers manually
+        child_logger = logging.Logger(f"{self._logger.name}.{sock.fileno()}", logging.NOTSET)
+        child_logger.parent = self._logger
+        child_logger.propagate = True
+        self._logger = child_logger
 
         quickack = sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK) if hasattr(socket, "TCP_QUICKACK") else False
 
