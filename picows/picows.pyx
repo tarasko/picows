@@ -541,7 +541,13 @@ cdef class WSTransport:
 
     cpdef send(self, WSMsgType msg_type, message, bint fin=True, bint rsv1=False):
         """        
-        Send a frame over websocket with a message as its payload.        
+        Send a frame over websocket with a message as its payload.
+        
+        Please note that this function has to copy the whole message into 
+        library's write buffer in order to be able to prepend websocket 
+        frame header and mask content. If you want to avoid copying please use
+        :any:`WSTransport.send_reuse_external_bytearray` or 
+        :any:`WSTransport.send_reuse_external_buffer`.
 
         :param msg_type: :any:`WSMsgType` enum value\n 
         :param message: an optional bytes-like object
@@ -565,8 +571,13 @@ cdef class WSTransport:
         else:
             _unpack_bytes_like(message, &msg_ptr, &msg_length)
 
+        # We can potentially do better here by combining memcpy memory traversal
+        # with masking. Still people who wants maximum performance should use
+        # send_reuse_external_bytearray instead of send to avoid memory copying
+        # at all
         self._write_buf.resize(msg_length + 16)
         memcpy(self._write_buf.data + 16, msg_ptr, msg_length)
+
         self.send_reuse_external_buffer(msg_type, self._write_buf.data + 16, msg_length, fin, rsv1)
 
     cpdef send_ping(self, message=None):
