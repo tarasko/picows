@@ -545,8 +545,8 @@ cdef class WSTransport:
         
         Please note that this function has to copy the whole message into 
         library's write buffer in order to be able to prepend websocket 
-        frame header and mask content. If you want to avoid copying please use
-        :any:`WSTransport.send_reuse_external_bytearray` or 
+        frame header and apply mask to the whole message. If you want to avoid 
+        copying please use :any:`WSTransport.send_reuse_external_bytearray` or 
         :any:`WSTransport.send_reuse_external_buffer`.
 
         :param msg_type: :any:`WSMsgType` enum value\n 
