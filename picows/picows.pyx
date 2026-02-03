@@ -590,53 +590,9 @@ cdef class WSTransport:
         else:
             _unpack_bytes_like(message, &msg_ptr, &msg_length)
 
-        cdef:
-            uint8_t first_byte = <uint8_t>msg_type
-            uint8_t second_byte = 0x80 if self.is_client_side else 0
-            uint32_t mask = <uint32_t>rand() if self.is_client_side else 0
-            uint16_t extended_payload_length_16
-            uint64_t extended_payload_length_64
-            Py_ssize_t payload_start_idx
-
-        if fin:
-            first_byte |= 0x80
-
-        if rsv1:
-            first_byte |= 0x40
-
-        self._write_buf.clear()
-        self._write_buf.push_back(first_byte)
-
-        if msg_length < 126:
-            second_byte |= <uint8_t>msg_length
-            self._write_buf.push_back(second_byte)
-        elif msg_length < (1 << 16):
-            second_byte |= 126
-            self._write_buf.push_back(second_byte)
-            extended_payload_length_16 = htons(<uint16_t>msg_length)
-            self._write_buf.append(<const char*>&extended_payload_length_16, 2)
-        else:
-            second_byte |= 127
-            extended_payload_length_64 = htobe64(<uint64_t>msg_length)
-            self._write_buf.push_back(second_byte)
-            self._write_buf.append(<const char*>&extended_payload_length_64, 8)
-
-        cdef Py_ssize_t frame_size
-
-        if self.is_client_side:
-            self._write_buf.append(<const char*>&mask, 4)
-            payload_start_idx = self._write_buf.size
-            self._write_buf.append(msg_ptr, msg_length)
-            frame_size = self._write_buf.size
-            _mask_payload(<uint8_t*>self._write_buf.data + payload_start_idx, msg_length, mask)
-        else:
-            self._write_buf.append(msg_ptr, msg_length)
-            frame_size = self._write_buf.size
-
-        if self.is_secure:
-            self.underlying_transport.write(PyBytes_FromStringAndSize(self._write_buf.data, frame_size))
-        else:
-            self._try_native_write_then_transport_write(self._write_buf.data, frame_size)
+        self._write_buf.resize(msg_length + 16)
+        memcpy(self._write_buf.data + 16, msg_ptr, msg_length)
+        self.send_reuse_external_buffer(msg_type, self._write_buf.data + 16, msg_length, fin, rsv1)
 
     cpdef send_ping(self, message=None):
         """
