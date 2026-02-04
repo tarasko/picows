@@ -457,6 +457,10 @@ cdef class WSTransport:
     cdef send_reuse_external_buffer(self, WSMsgType msg_type,
                                     char* msg_ptr, Py_ssize_t msg_size,
                                     bint fin=True, bint rsv1=False):
+        if self._close_frame_is_sent:
+            self._logger.info("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
+            return
+
         cdef:
             uint8_t* header_ptr = <uint8_t*>msg_ptr
             uint64_t extended_payload_length_64
@@ -559,10 +563,6 @@ cdef class WSTransport:
             Some protocol extensions use it to indicate that payload 
             is compressed.        
         """
-        if self._close_frame_is_sent:
-            self._logger.info("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
-            return
-
         cdef:
             char* msg_ptr
             Py_ssize_t msg_length
