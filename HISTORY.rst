@@ -5,7 +5,8 @@ picows Release History
    :depth: 1
    :local:
 
-1.11.0 ()
+1.11.0 (2026-02-04)
+------------------
 
 * #72: fixed possible memory leak due to never deleted child loggers
 * Added faster versions of _mask_payload using sse2/avx2/avx512/neon intrinsics
