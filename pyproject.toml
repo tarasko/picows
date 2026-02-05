@@ -57,4 +57,4 @@ strict = true
 # This flag is automatically passed when extensions are built
 # Add -g0 to negate -g.
 # This only affects our release builds when we are using cibuildwheel
-environment = "CFLAGS='-g0'"
+environment = "CFLAGS='$CFLAGS -g0'"

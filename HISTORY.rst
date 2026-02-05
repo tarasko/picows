@@ -5,6 +5,11 @@ picows Release History
    :depth: 1
    :local:
 
+1.11.1 (2026-02-05)
+------------------
+
+* Fix accidentally disabled -O2 optimization flag (somehow picows was still faster than any other library)
+
 1.11.0 (2026-02-04)
 ------------------
 
