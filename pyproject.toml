@@ -51,11 +51,3 @@ asyncio_default_fixture_loop_scope = "function"
 files = "picows"
 ignore_missing_imports = true
 strict = true
-
-[tool.cibuildwheel]
-# Python that is used by github workers is build with -g flag
-# This flag is automatically passed when extensions are built
-# Add -g0 to negate -g.
-# This only affects our release builds when we are using cibuildwheel
-environment-linux = 'CFLAGS="-O2 -g0 -DNDEBUG"'
-environment-macos = 'CFLAGS="-O2 -g0 -DNDEBUG"'
