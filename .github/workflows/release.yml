@@ -78,8 +78,8 @@ jobs:
       # So also add -O2 and -NDEBUG
 
       PIP_DISABLE_PIP_VERSION_CHECK: 1
-      CIBW_ENVIRONMENT_LINUX: CFLAGS="-O2 -g0 -DNDEBUG"
-      CIBW_ENVIRONMENT_MACOS: CFLAGS="-O2 -g0 -DNDEBUG"
+      CIBW_ENVIRONMENT_LINUX: CFLAGS="$CFLAGS -O2 -g0 -DNDEBUG"
+      CIBW_ENVIRONMENT_MACOS: CFLAGS="$CFLAGS -O2 -g0 -DNDEBUG"
 
     steps:
       - uses: actions/checkout@v4
