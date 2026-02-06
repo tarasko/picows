@@ -27,8 +27,8 @@ Implemented in Cython, it offers exceptional speed and efficiency, surpassing ot
 
 
 The above chart shows the performance of echo clients communicating with a server through a loopback interface using popular Python libraries. 
-`boost.beast client <https://www.boost.org/doc/libs/1_85_0/libs/beast/example/websocket/client/sync/websocket_client_sync.cpp>`_
-is also included for reference. All Python clients use uvloop. You can find benchmark sources and more results
+`boost.beast client <https://www.boost.org/library/latest/beast/>`_
+is also included for reference. You can find benchmark sources and more results
 `here <https://github.com/tarasko/picows/blob/master/examples/benchmark.py>`_.
 
 Installation
@@ -179,12 +179,7 @@ Contributing / Building From Source
     # Run specific test with picows debug logs enabled
     $ pytest -s -v -k test_client_handshake_timeout[uvloop-plain] --log-cli-level 9
 
-5. Run benchmark::
-
-    $ python -m examples.echo_server
-    $ python -m examples.benchmark
-
-6. Build docs::
+5. Build docs::
 
     $ make -C docs clean html
 
