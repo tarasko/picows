@@ -1,54 +1,32 @@
-# Simple websocket echo server for both plain and ssl connections.
-
 import asyncio
-import os
-import pathlib
-import ssl
-from logging import getLogger, INFO, basicConfig
-
-from picows import WSFrame, WSTransport, ws_create_server, WSListener, WSMsgType, WSUpgradeRequest
-
-_logger = getLogger(__name__)
+from picows import ws_create_server, WSFrame, WSTransport, WSListener, \
+    WSMsgType, WSUpgradeRequest
 
 
 class ServerClientListener(WSListener):
     def on_ws_connected(self, transport: WSTransport):
-        self._transport = transport
+        print("New client connected")
 
     def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
-        self._transport.send(frame.msg_type, frame.get_payload_as_bytes(), frame.fin, frame.rsv1)
         if frame.msg_type == WSMsgType.CLOSE:
-            self._transport.disconnect()
+            transport.send_close(frame.get_close_code(), frame.get_close_message())
+            transport.disconnect()
+        else:
+            transport.send(frame.msg_type, frame.get_payload_as_bytes())
 
 
-async def async_main():
+async def main():
     def listener_factory(r: WSUpgradeRequest):
+        # Routing can be implemented here by analyzing request content
         return ServerClientListener()
 
-    plain_server = await ws_create_server(listener_factory,
-                                          "127.0.0.1", 9001,
-                                          websocket_handshake_timeout=0.5)
-    _logger.info("Server started on %s", plain_server.sockets[0].getsockname())
+    server: asyncio.Server = await ws_create_server(listener_factory,
+                                                    "127.0.0.1", 9001)
+    for s in server.sockets:
+        print(f"Server started on {s.getsockname()}")
 
-    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    ssl_context.load_cert_chain(pathlib.Path(__file__).parent.parent / "tests" / "picows_test.crt",
-                                pathlib.Path(__file__).parent.parent / "tests" / "picows_test.key")
-    ssl_context.check_hostname = False
-    ssl_context.hostname_checks_common_name = False
-    ssl_context.verify_mode = ssl.CERT_NONE
-    ssl_server = await ws_create_server(listener_factory,
-                                        "127.0.0.1", 9002,
-                                        ssl=ssl_context,
-                                        websocket_handshake_timeout=0.5)
-    _logger.info("Server started on %s", ssl_server.sockets[0].getsockname())
-
-    await asyncio.gather(plain_server.serve_forever(), ssl_server.serve_forever())
+    await server.serve_forever()
 
 
 if __name__ == '__main__':
-    if os.name != 'nt':
-        import uvloop
-        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-
-    basicConfig(level=INFO)
-    asyncio.run(async_main())
+    asyncio.run(main())
