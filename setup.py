@@ -29,6 +29,7 @@ setup(
         extensions,
         compiler_directives={
             'language_level': vi[0],
+            'freethreading_compatible': True,
             'profile': False,
             'nonecheck': False,
             'boundscheck': False,
