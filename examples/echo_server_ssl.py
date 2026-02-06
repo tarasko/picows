@@ -1,7 +1,6 @@
 # Simple websocket echo server for both plain and ssl connections.
 
 import asyncio
-import os
 import pathlib
 import ssl
 from logging import getLogger, INFO, basicConfig
