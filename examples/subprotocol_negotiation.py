@@ -25,6 +25,9 @@ class OCPPClientListener(WSListener):
 async def main():
     def server_client_factory(request: WSUpgradeRequest):
         if "ocpp2.1" in request.headers["Sec-WebSocket-Protocol"]:
+            # ocpp2.1 has been requested by client.
+            # Server replies with  Sec-WebSocket-Protocol: ocpp2.1 extra header
+            # and agrees to requested subprotocol
             return WSUpgradeResponseWithListener(
                 WSUpgradeResponse.create_101_response(extra_headers={"Sec-WebSocket-Protocol": "ocpp2.1"}),
                 OCPPServerClientListener())
