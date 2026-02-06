@@ -3,8 +3,6 @@ import base64
 import os
 import sys
 
-from aiohttp import WSMsgType
-
 import picows
 import pytest
 import async_timeout
@@ -396,7 +394,7 @@ async def test_ws_on_connected_throw_server_side():
 async def test_ws_on_frame_throw_client_side(disconnect_on_exception):
     class ServerClientListener(picows.WSListener):
         def on_ws_connected(self, transport: picows.WSTransport):
-            transport.send(WSMsgType.BINARY, b"Hello")
+            transport.send(picows.WSMsgType.BINARY, b"Hello")
 
     class ClientListener(picows.WSListener):
         def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
