@@ -21,14 +21,14 @@ Introduction
 **picows** is a high-performance python library designed for building asyncio WebSocket clients and servers.
 Implemented in Cython, it offers exceptional speed and efficiency, surpassing other popular WebSocket python libraries.
 
-.. image:: https://raw.githubusercontent.com/tarasko/picows/master/docs/source/_static/picows_benchmark.png
-    :target: https://github.com/tarasko/picows/blob/master/docs/source/_static/picows_benchmark.png?raw=true
+.. image:: https://raw.githubusercontent.com/tarasko/websocket-benchmark/master/results/benchmark-256.png
+    :target: https://github.com/tarasko/websocket-benchmark/blob/master
     :align: center
 
 
 The above chart shows the performance of echo clients communicating with a server through a loopback interface using popular Python libraries. 
 `boost.beast client <https://www.boost.org/doc/libs/1_85_0/libs/beast/example/websocket/client/sync/websocket_client_sync.cpp>`_
-is also included for reference. All Python clients use uvloop. Please find the benchmark sources
+is also included for reference. All Python clients use uvloop. You can find benchmark sources and more results
 `here <https://github.com/tarasko/picows/blob/master/examples/benchmark.py>`_.
 
 Installation
