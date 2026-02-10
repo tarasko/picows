@@ -301,8 +301,12 @@ async def test_client_extra_headers(extra_headers):
 
 async def test_route_not_found():
     server = await picows.ws_create_server(lambda _: None, "127.0.0.1", 0)
+
+    def exc_check(exc):
+        return exc.response.status == 404
+
     async with ServerAsyncContext(server) as server_ctx:
-        with pytest.raises(picows.WSError, match="404 Not Found"):
+        with pytest.raises(picows.WSError, match="status 101", check=exc_check):
             (_, client) = await picows.ws_connect(picows.WSListener, server_ctx.plain_url)
 
 
@@ -311,8 +315,12 @@ async def test_server_internal_error():
         raise RuntimeError("oops")
 
     server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
+
+    def exc_check(exc):
+        return exc.response.status == 500 and b"oops" in exc.raw_body
+
     async with ServerAsyncContext(server) as server_ctx:
-        with pytest.raises(picows.WSError, match="500 Internal Server Error"):
+        with pytest.raises(picows.WSError, match="status 101", check=exc_check):
             (_, client) = await picows.ws_connect(picows.WSListener, server_ctx.plain_url)
 
 
@@ -351,10 +359,13 @@ async def test_custom_response_error():
         return picows.WSUpgradeResponseWithListener(
             picows.WSUpgradeResponse.create_error_response(HTTPStatus.NOT_FOUND, b"blablabla"), None)
 
+    def exc_check(exc):
+        return exc.response.status == HTTPStatus.NOT_FOUND and b"blablabla" in exc.raw_body
+
     server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
     async with ServerAsyncContext(server):
         url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
-        with pytest.raises(picows.WSError, match="blablabla"):
+        with pytest.raises(picows.WSError, match="status 101", check=exc_check):
             (transport, _) = await picows.ws_connect(picows.WSListener, url)
 
 

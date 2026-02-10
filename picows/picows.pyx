@@ -72,7 +72,18 @@ class WSError(RuntimeError):
     """
     Thrown by :any:`ws_connect` on any kind of handshake errors.
     """
-    pass
+    raw_header: Optional[bytes]
+    raw_body: Optional[bytes]
+    response: Optional[WSUpgradeResponse]
+
+    def __init__(self, str description,
+                 bytes raw_header=None,
+                 bytes raw_body=None,
+                 WSUpgradeResponse response=None):
+        super().__init__(description)
+        self.raw_header = raw_header
+        self.raw_body = raw_body
+        self.response = response
 
 
 class _WSParserError(RuntimeError):
@@ -1285,9 +1296,11 @@ cdef class WSProtocol:
         cdef list lines = <list>raw_headers.split(b"\r\n")
         cdef bytes response_status_line = <bytes>lines[0]
 
+        cdef str response_status_line_str = response_status_line.decode().lower()
+
         # check handshake
-        if not response_status_line.decode().lower().startswith("http/1.1 101 " ):
-            raise WSError(f"cannot upgrade, invalid status in upgrade response: {response_status_line}, body: {tail}")
+        if not response_status_line_str.startswith("http/1.1 " ):
+            raise WSError(f"cannot upgrade, unknown protocol (expected HTTP/1.1) in upgrade response: {response_status_line_str}", raw_headers, tail)
 
         cdef WSUpgradeResponse response = WSUpgradeResponse()
         cdef bytes status_code
@@ -1301,15 +1314,26 @@ cdef class WSProtocol:
             name, value = <list>line.split(b":", 1)
             response.headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
 
+        if response.status != HTTPStatus.SWITCHING_PROTOCOLS:
+            raise WSError(f"expected upgrade response with status 101 Switching Protocols, but received {response.status}", raw_headers, tail, response)
+
+        if response.headers.get("transfer-encoding") == "chunked":
+            raise WSError(f"101 response cannot have Transfer-Encoding but it has", raw_headers, tail, response)
+
+        cdef Py_ssize_t content_length = int(response.headers.get("content-length", "0"))
+
+        if content_length != 0:
+            raise WSError(f"101 response has non-zero Content-Length, but it can't have body", raw_headers, tail, response)
+
         connection_value = response.headers.get("connection")
         connection_value = connection_value if connection_value is None else connection_value.lower()
         if connection_value != "upgrade":
-            raise WSError(f"cannot upgrade, invalid connection header: {response.headers['connection']}")
+            raise WSError(f"cannot upgrade, invalid connection header: {response.headers['connection']}", raw_headers, tail, response)
 
         r_key = response.headers.get("sec-websocket-accept")
         match = b64encode(sha1(self._websocket_key_b64 + _WS_KEY).digest()).decode()
         if r_key != match:
-            raise WSError(f"cannot upgrade, invalid sec-websocket-accept response")
+            raise WSError(f"cannot upgrade, invalid sec-websocket-accept response", raw_headers, tail, response)
 
         memmove(self._buffer.data, self._buffer.data + len(raw_headers) + 4, self._buffer.size - len(raw_headers) - 4)
         self._f_new_data_start_pos = len(tail)
