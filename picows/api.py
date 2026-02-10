@@ -107,7 +107,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
     parsed_url = parse_url(url)
 
     while True:
-        if parsed_url.secure == "wss":
+        if parsed_url.secure:
             ssl = ssl_context if ssl_context is not None else True
         else:
             ssl = None
