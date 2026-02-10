@@ -5,7 +5,8 @@ import async_timeout
 import pytest
 
 import picows
-from tests.utils import ServerAsyncContext, get_server_port
+from tests.test_basics import ClientMsgQueue
+from tests.utils import ServerAsyncContext, get_server_port, ClientAsyncContext
 
 
 class ServerEchoListener(picows.WSListener):
@@ -49,25 +50,15 @@ async def test_redirect_chain():
 
     url = f"ws://127.0.0.1:{get_server_port(redirect_2_server)}"
 
-    class ClientListener(picows.WSListener):
-        def __init__(self):
-            self.msg_fut = asyncio.get_running_loop().create_future()
-
-        def on_ws_connected(self, transport):
-            transport.send(picows.WSMsgType.TEXT, b"hello")
-
-        def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-            if frame.msg_type == picows.WSMsgType.TEXT and frame.get_payload_as_memoryview() == b"hello":
-                self.msg_fut.set_result(True)
-                transport.disconnect()
-
     async with ServerAsyncContext(final_server), ServerAsyncContext(redirect_1_server), ServerAsyncContext(redirect_2_server):
-        (transport, listener) = await picows.ws_connect(ClientListener, url)
-        async with async_timeout.timeout(1.0):
-            await listener.msg_fut
+        listener: ClientMsgQueue
+        async with ClientAsyncContext(ClientMsgQueue, url) as (transport, listener):
+            transport.send(picows.WSMsgType.TEXT, b"hello")
+            msg = await listener.get_message()
+            assert msg.payload_as_ascii_text == "hello"
 
         with pytest.raises(picows.WSError, match="status 101"):
-            await picows.ws_connect(ClientListener, url, max_redirects=0)
+            await picows.ws_connect(ClientMsgQueue, url, max_redirects=0)
 
         with pytest.raises(picows.WSError, match="status 101"):
-            await picows.ws_connect(ClientListener, url, max_redirects=1)
+            await picows.ws_connect(ClientMsgQueue, url, max_redirects=1)

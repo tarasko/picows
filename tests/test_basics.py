@@ -10,7 +10,7 @@ import async_timeout
 from http import HTTPStatus
 from tests.utils import create_client_ssl_context, create_server_ssl_context, \
     ServerAsyncContext, TIMEOUT, \
-    materialize_frame, ClientAsyncContext
+    materialize_frame, ClientAsyncContext, get_server_port
 
 
 class MyException(RuntimeError):
@@ -218,7 +218,7 @@ async def test_server_handshake_timeout():
         # Give some time for server to start
         await asyncio.sleep(0.1)
 
-        client_reader, client_writer = await asyncio.open_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        client_reader, client_writer = await asyncio.open_connection("127.0.0.1", get_server_port(server))
         assert not client_reader.at_eof()
         await asyncio.sleep(0.2)
         assert client_reader.at_eof()
@@ -257,7 +257,7 @@ async def test_request_path_and_params(request_path):
     server = await picows.ws_create_server(listener_factory,
                                            "127.0.0.1", 0, websocket_handshake_timeout=0.1)
     async with ServerAsyncContext(server):
-        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}{request_path}"
+        url = f"ws://127.0.0.1:{get_server_port(server)}{request_path}"
         (transport, _) = await picows.ws_connect(picows.WSListener, url)
         transport.disconnect()
 
@@ -289,7 +289,7 @@ async def test_client_extra_headers(extra_headers):
                                            "127.0.0.1", 0,
                                            websocket_handshake_timeout=0.1)
     async with ServerAsyncContext(server):
-        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+        url = f"ws://127.0.0.1:{get_server_port(server)}/"
         (transport, _) = await picows.ws_connect(picows.WSListener, url, extra_headers=extra_headers)
         transport.disconnect()
 
@@ -329,7 +329,7 @@ async def test_server_bad_request():
                                            "127.0.0.1", 0)
 
     async with ServerAsyncContext(server):
-        r, w = await asyncio.open_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        r, w = await asyncio.open_connection("127.0.0.1", get_server_port(server))
 
         w.write(b"zzzz\r\nasdfasdf\r\n\r\n")
         resp_header = await r.readuntil(b"\r\n\r\n")
@@ -347,7 +347,7 @@ async def test_custom_response():
 
     server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
     async with ServerAsyncContext(server):
-        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+        url = f"ws://127.0.0.1:{get_server_port(server)}/"
         (transport, _) = await picows.ws_connect(picows.WSListener, url)
         transport.disconnect()
 
@@ -364,7 +364,7 @@ async def test_custom_response_error():
 
     server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
     async with ServerAsyncContext(server):
-        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+        url = f"ws://127.0.0.1:{get_server_port(server)}/"
         with pytest.raises(picows.WSError, match="status 101", check=exc_check):
             (transport, _) = await picows.ws_connect(picows.WSListener, url)
 

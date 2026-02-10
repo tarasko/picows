@@ -1,15 +1,18 @@
-from .picows import (
+from .types import (
     WSError,
+    WSUpgradeRequest,
+    WSUpgradeResponse,
+    WSUpgradeResponseWithListener,
+    PICOWS_DEBUG_LL
+)
+
+from .picows import (
     WSMsgType,
     WSCloseCode,
     WSAutoPingStrategy,
     WSFrame,
     WSTransport,
     WSListener,
-    WSUpgradeRequest,
-    WSUpgradeResponse,
-    WSUpgradeResponseWithListener,
-    PICOWS_DEBUG_LL
 )
 
 from .api import (

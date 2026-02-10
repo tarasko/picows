@@ -1,6 +1,7 @@
 import asyncio
 import pathlib
 import ssl
+from typing import Union
 
 import async_timeout
 import pytest
@@ -37,7 +38,7 @@ class CloseFrame:
         self.rsv1 = frame.rsv1
 
 
-def materialize_frame(frame: picows.WSFrame):
+def materialize_frame(frame: picows.WSFrame) -> Union[TextFrame, CloseFrame, BinaryFrame]:
     if frame.msg_type == picows.WSMsgType.TEXT:
         return TextFrame(frame)
     elif frame.msg_type == picows.WSMsgType.CLOSE:

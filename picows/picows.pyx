@@ -7,8 +7,6 @@ import socket
 from http import HTTPStatus
 from base64 import b64encode, b64decode
 from hashlib import sha1
-from collections.abc import Mapping, Iterable
-from typing import cast, Optional, Final, Union
 
 from multidict import CIMultiDict
 
@@ -21,11 +19,12 @@ from cpython.buffer cimport PyBUF_WRITE, PyBUF_READ, PyBUF_SIMPLE, PyObject_GetB
 from cpython.unicode cimport PyUnicode_FromStringAndSize, PyUnicode_DecodeASCII
 
 from libc cimport errno
-from libc.string cimport memmove, memcpy, strerror
+from libc.string cimport memmove, memcpy
 from libc.stdlib cimport rand
 
-PICOWS_DEBUG_LL: Final = 9
-WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
+from .types import (PICOWS_DEBUG_LL, WSUpgradeRequest, WSUpgradeResponse,
+                    WSUpgradeResponseWithListener,
+                    WSError, _WSParserError, add_extra_headers)
 
 # When picows would like to disconnect peer (due to protocol violation or other failures), CLOSE frame is sent first.
 # Then disconnect is scheduled with a small delay. Otherwise, some old asyncio versions do not transmit CLOSE frame,
@@ -63,159 +62,6 @@ cdef extern from "picows_compat.h" nogil:
     size_t apply_mask_1(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
     apply_mask_fn get_apply_mask_fast_fn()
     size_t get_apply_mask_fast_alignment()
-
-
-class WSError(RuntimeError):
-    """
-    Thrown by :any:`ws_connect` on any kind of handshake errors.
-    """
-    raw_header: Optional[bytes]
-    raw_body: Optional[bytes]
-    response: Optional[WSUpgradeResponse]
-
-    def __init__(self, str description,
-                 bytes raw_header=None,
-                 bytes raw_body=None,
-                 WSUpgradeResponse response=None):
-        super().__init__(description)
-        self.raw_header = raw_header
-        self.raw_body = raw_body
-        self.response = response
-
-
-class _WSParserError(RuntimeError):
-    """
-    WebSocket protocol parser error.
-
-    Used internally by the parser to notify what kind of close code we should
-    send before disconnect.
-    """
-
-    def __init__(self, WSCloseCode code, str message) -> None:
-        self.code = code
-        super().__init__(code, message)
-
-    def __str__(self) -> str:
-        return cast(str, self.args[1])
-
-
-cdef _add_extra_headers(object ci_multi_dict, object extra_headers):
-    if extra_headers:
-        sequence = extra_headers.items() if hasattr(extra_headers,
-                                                    "items") else extra_headers
-        for k, v in sequence:
-            if not isinstance(k, str) or not isinstance(v, str):
-                raise TypeError("extra_headers key/value must be str types")
-
-            ci_multi_dict.add(k, v)
-
-
-cdef class WSUpgradeRequest:
-    pass
-
-
-cdef class WSUpgradeResponse:
-    @staticmethod
-    def create_error_response(status: Union[int, HTTPStatus],
-                              body=None,
-                              extra_headers: Optional[WSHeadersLike]=None) -> WSUpgradeResponse:
-        """
-        Create upgrade response with error.
-
-        :param status: int status code or http.HTTPStatus enum value
-        :param body: optional bytes-like response body
-        :param extra_headers: optional additional headers
-        :return: a new WSUpgradeResponse object
-        """
-        if status < 400:
-            raise ValueError(
-                f"invalid error response code {status}, can be only >=400")
-
-        cdef WSUpgradeResponse response = WSUpgradeResponse()
-        response.version = b"HTTP/1.1"
-        response.status = HTTPStatus(status)
-        response.headers = CIMultiDict()
-        response.body = body
-
-        _add_extra_headers(response.headers, extra_headers)
-
-        return response
-
-    @staticmethod
-    def create_redirect_response(status: Union[int, HTTPStatus],
-                                 location: str,
-                                 extra_headers: Optional[WSHeadersLike]=None) -> WSUpgradeResponse:
-        """
-        Create upgrade response with error.
-
-        :param status: int status code or http.HTTPStatus enum value
-        :param body: optional bytes-like response body
-        :param extra_headers: optional additional headers
-        :return: a new WSUpgradeResponse object
-        """
-        if status < 300 or status > 399:
-            raise ValueError(
-                f"invalid redirect response code {status}, can be only 3xx")
-
-        cdef WSUpgradeResponse response = WSUpgradeResponse()
-        response.version = b"HTTP/1.1"
-        response.status = HTTPStatus(status)
-        response.headers = CIMultiDict()
-        response.headers["Location"] = location
-
-        _add_extra_headers(response.headers, extra_headers)
-
-        return response
-
-    @staticmethod
-    def create_101_response(extra_headers: Optional[WSHeadersLike]=None) -> WSUpgradeResponse:
-        """
-        Create 101 Switching Protocols response.
-
-        :param extra_headers: optional additional headers
-        :return: a new WSUpgradeResponse object
-        """
-        cdef WSUpgradeResponse response = WSUpgradeResponse()
-        response.version = b"HTTP/1.1"
-        response.status = HTTPStatus.SWITCHING_PROTOCOLS
-        response.headers = CIMultiDict()
-        response.body = None
-
-        _add_extra_headers(response.headers, extra_headers)
-
-        response.headers["Connection"] = "upgrade"
-        response.headers["Upgrade"] = "websocket"
-        return response
-
-    cdef bytearray to_bytes(self):
-        cdef bytearray response_bytes = bytearray()
-        response_bytes += b"%b %d %b\r\n" % (self.version, self.status.value, self.status.phrase.encode())
-
-        if self.body:
-            if "Content-Type" not in self.headers:
-                self.headers.add("Content-Type", "text/plain")
-            self.headers.add("Content-Length", f"{len(self.body):d}")
-
-        for k, v in self.headers.items():
-            response_bytes += f"{k}: {v}\r\n".encode()
-
-        response_bytes += b"\r\n"
-        if self.body:
-            response_bytes += self.body
-
-        return response_bytes
-
-
-cdef class WSUpgradeResponseWithListener:
-    def __init__(self, WSUpgradeResponse response, WSListener listener):
-        if response.status == 101 and listener is None:
-            raise ValueError(f"listener cannot be None for 101 Switching Protocols response")
-
-        if response.status >= 400 and listener is not None:
-            raise ValueError(f"listener must be None for error response")
-
-        self.response = response
-        self.listener = listener
 
 
 cdef:
@@ -737,9 +583,8 @@ cdef class WSTransport:
                                  "notify_user_specific_pong_received() for PONG(idle timeout), reset expect_pong")
 
     cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, object extra_headers):
-        cdef WSUpgradeRequest request = WSUpgradeRequest()
-        cdef bytearray headers_str = bytearray()
 
+        request = WSUpgradeRequest()
         request.method = b"GET"
         request.path = ws_path
         request.version = b"HTTP/1.1"
@@ -750,26 +595,20 @@ cdef class WSTransport:
             ("Sec-WebSocket-Version", "13"),
             ("Sec-WebSocket-Key", websocket_key_b64.decode()),
         ])
+        add_extra_headers(request.headers, extra_headers)
 
-        if extra_headers:
-            sequence = extra_headers.items() \
-                if hasattr(extra_headers, "items") else extra_headers
-            for k, v in sequence:
-                request.headers.add(k, v)
-
-        for k, v in request.headers.items():
-            headers_str += f"{k}: {v}\r\n".encode()
+        headers = "\r\n".join(f"{k}: {v}" for k, v in request.headers.items()).encode()
 
         initial_handshake = (b"%b %b %b\r\n"
-                             b"%b"
-                             b"\r\n" % (request.method, request.path, request.version, headers_str))
+                             b"%b\r\n"
+                             b"\r\n" % (request.method, request.path, request.version, headers))
 
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "Send upgrade request: %s", initial_handshake)
         self.request = request
         self.underlying_transport.write(initial_handshake)
 
-    cdef _send_http_handshake_response(self, WSUpgradeResponse response, bytes accept_val):
+    cdef _send_http_handshake_response(self, response, bytes accept_val):
         if accept_val is not None:
             response.headers["Sec-WebSocket-Accept"] = accept_val.decode()
 
@@ -1099,7 +938,7 @@ cdef class WSProtocol:
         self._shrink_buffer()
 
     cdef inline _negotiate(self):
-        cdef WSUpgradeResponse response = None
+        response = None
 
         if self.is_client_side:
             try:
@@ -1135,8 +974,8 @@ cdef class WSProtocol:
             try:
                 listener_or_response_with_listener = listener_factory(upgrade_request)
                 if isinstance(listener_or_response_with_listener, WSUpgradeResponseWithListener):
-                    self.listener = (<WSUpgradeResponseWithListener>listener_or_response_with_listener).listener
-                    response = (<WSUpgradeResponseWithListener>listener_or_response_with_listener).response
+                    self.listener = listener_or_response_with_listener.listener
+                    response = listener_or_response_with_listener.response
                 elif isinstance(listener_or_response_with_listener, WSListener):
                     self.listener = listener_or_response_with_listener
                     response = WSUpgradeResponse.create_101_response()
@@ -1293,7 +1132,7 @@ cdef class WSProtocol:
         cdef bytes accept_val = b64encode(sha1(<bytes>key.encode() + _WS_KEY).digest())
 
         cdef list status_line_parts = response_status_line.split(b" ")
-        cdef WSUpgradeRequest upgrade_request = <WSUpgradeRequest>WSUpgradeRequest.__new__(WSUpgradeRequest)
+        upgrade_request = WSUpgradeRequest()
         upgrade_request.method = <bytes>status_line_parts[0]
         upgrade_request.path = <bytes>status_line_parts[1]
         upgrade_request.version = <bytes>status_line_parts[2]
@@ -1307,7 +1146,7 @@ cdef class WSProtocol:
 
         return upgrade_request, accept_val
 
-    cdef inline WSUpgradeResponse _try_read_and_process_upgrade_response(self):
+    cdef inline object _try_read_and_process_upgrade_response(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
         cdef list data_parts = <list>data.split(b"\r\n\r\n", 1)
         if len(data_parts) < 2:
@@ -1325,8 +1164,8 @@ cdef class WSProtocol:
         if not response_status_line_str.startswith("http/1.1 " ):
             raise WSError(f"cannot upgrade, unknown protocol (expected HTTP/1.1) in upgrade response: {response_status_line_str}", raw_headers, tail)
 
-        cdef WSUpgradeResponse response = WSUpgradeResponse()
         cdef bytes status_code
+        response = WSUpgradeResponse()
         response.version, status_code, status_phrase = response_status_line.split(b" ", 2)
         response.status = HTTPStatus(int(status_code.decode()))
 

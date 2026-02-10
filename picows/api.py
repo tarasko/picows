@@ -3,9 +3,10 @@ import urllib.parse
 from ssl import SSLContext
 from typing import Callable, Optional, Union
 
-from .picows import (WSListener, WSTransport, WSHeadersLike, WSAutoPingStrategy,
-                     WSProtocol,
-                     WSUpgradeRequest, WSUpgradeResponseWithListener, WSError)
+from .types import (WSHeadersLike, WSUpgradeRequest,
+                    WSUpgradeResponseWithListener, WSError)
+from .picows import (WSListener, WSTransport, WSAutoPingStrategy,
+                     WSProtocol)
 from .url import parse_url, ParsedURL
 
 
