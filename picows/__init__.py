@@ -9,11 +9,13 @@ from .picows import (
     WSUpgradeRequest,
     WSUpgradeResponse,
     WSUpgradeResponseWithListener,
-    ws_connect,
-    ws_create_server,
     PICOWS_DEBUG_LL
 )
 
+from .picows_py_api import (
+    ws_connect,
+    ws_create_server
+)
 
 __all__ = [
     'WSError',
