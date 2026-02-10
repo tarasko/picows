@@ -5,7 +5,35 @@ from typing import Callable, Optional, Union
 
 from .picows import (WSListener, WSTransport, WSHeadersLike, WSAutoPingStrategy,
                      WSProtocol,
-                     WSUpgradeRequest, WSUpgradeResponseWithListener)
+                     WSUpgradeRequest, WSUpgradeResponseWithListener, WSError)
+from .url import parse_url, ParsedURL
+
+
+def process_redirect(exc, old_parsed_url, max_redirects):
+    if max_redirects <= 0:
+        return exc
+    if exc.response is None:
+        return exc
+    if exc.response.status not in (301, 302, 303, 307, 308):
+        return exc
+
+    location = exc.response.headers.get("Location")
+
+    if location is None:
+        return WSError("received redirect HTTP response without Location header",
+                      exc.raw_headers, exc.raw_body, exc.response)
+
+    url = urllib.parse.urljoin(old_parsed_url.url, location)
+    parsed_url = parse_url(url)
+
+    if old_parsed_url.secure and not parsed_url.secure:
+        return WSError(
+            f"cannot follow redirect to non-secure URL {parsed_url.url}",
+            exc.raw_header, exc.raw_body, exc.response)
+
+
+
+    return parsed_url
 
 
 async def ws_connect(ws_listener_factory: Callable[[], WSListener],
@@ -22,17 +50,18 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                      enable_auto_pong: bool=True,
                      max_frame_size: int = 10 * 1024 * 1024,
                      extra_headers: Optional[WSHeadersLike]=None,
+                     max_redirects: int = 5,
                      **kwargs
                      ) -> tuple[WSTransport, WSListener]:
     """
-    Open a websocket connection to a given URL.
+    Open a websocket connection to a given ParsedURL.
 
     This function forwards its `kwargs` directly to
     `asyncio.loop.create_connection <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.create_connection>`_
 
     :param ws_listener_factory:
         A parameterless factory function that returns a user handler. User handler has to derive from :any:`WSListener`.
-    :param url: Destination URL
+    :param url: Destination ParsedURL
     :param ssl_context: optional SSLContext to override default one when wss scheme is used
     :param disconnect_on_exception:
         Indicates whether the client should initiate disconnect on any exception
@@ -65,6 +94,8 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
         * Maximum allowed frame size. Disconnect will be initiated if client receives a frame that is bigger than max size.
     :param extra_headers:
         Arbitrary HTTP headers to add to the handshake request.
+    :param max_redirects:
+        * How many times we can follow HTTP redirects. Set to 0 in order to disable redirects.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
 
@@ -73,43 +104,44 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
     assert "all_errors" not in kwargs, "explicit 'all_errors' argument for loop.create_connection is not supported"
     assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), "invalid value of auto_ping_strategy parameter"
 
-    url_parts = urllib.parse.urlparse(url, allow_fragments=False)
+    parsed_url = parse_url(url)
 
-    if url_parts.scheme == "wss":
-        ssl = ssl_context if ssl_context is not None else True
-        port = url_parts.port or 443
-    elif url_parts.scheme == "ws":
-        ssl = None
-        port = url_parts.port or 80
-    else:
-        raise ValueError(f"invalid url scheme: {url}")
+    while True:
+        if parsed_url.secure == "wss":
+            ssl = ssl_context if ssl_context is not None else True
+        else:
+            ssl = None
 
-    path_plus_query = url_parts.path
-    if url_parts.query:
-        path_plus_query += "?" + url_parts.query
+        def ws_protocol_factory():
+            return WSProtocol(
+                parsed_url.netloc,
+                parsed_url.resource_name,
+                True,
+                ws_listener_factory,
+                logger_name,
+                disconnect_on_exception,
+                websocket_handshake_timeout,
+                enable_auto_ping,
+                auto_ping_idle_timeout,
+                auto_ping_reply_timeout,
+                auto_ping_strategy,
+                enable_auto_pong,
+                max_frame_size,
+                extra_headers)
 
-    def ws_protocol_factory():
-        return WSProtocol(
-            url_parts.netloc,
-            path_plus_query,
-            True,
-            ws_listener_factory,
-            logger_name,
-            disconnect_on_exception,
-            websocket_handshake_timeout,
-            enable_auto_ping,
-            auto_ping_idle_timeout,
-            auto_ping_reply_timeout,
-            auto_ping_strategy,
-            enable_auto_pong,
-            max_frame_size,
-            extra_headers)
+        try:
+            (_, ws_protocol) = await asyncio.get_running_loop().create_connection(
+                ws_protocol_factory, parsed_url.host, parsed_url.port, ssl=ssl, **kwargs)
 
-    (_, ws_protocol) = await asyncio.get_running_loop().create_connection(
-        ws_protocol_factory, url_parts.hostname, port, ssl=ssl, **kwargs)
-
-    await ws_protocol.wait_until_handshake_complete()
-    return ws_protocol.transport, ws_protocol.listener
+            await ws_protocol.wait_until_handshake_complete()
+            return ws_protocol.transport, ws_protocol.listener
+        except WSError as exc:
+            parsed_url_or_exc = process_redirect(exc, parsed_url, max_redirects)
+            if isinstance(parsed_url_or_exc, ParsedURL):
+                parsed_url = parsed_url_or_exc
+                max_redirects -= 1
+            else:
+                raise parsed_url_or_exc
 
 
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]

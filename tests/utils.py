@@ -99,3 +99,7 @@ def create_client_ssl_context():
     ssl_context.hostname_checks_common_name = False
     ssl_context.verify_mode = ssl.CERT_NONE
     return ssl_context
+
+
+def get_server_port(server: asyncio.Server):
+    return server.sockets[0].getsockname()[1]

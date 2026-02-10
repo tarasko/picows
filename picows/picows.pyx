@@ -4,12 +4,10 @@ import binascii
 import logging
 import os
 import socket
-import urllib.parse
 from http import HTTPStatus
 from base64 import b64encode, b64decode
 from hashlib import sha1
-from ssl import SSLContext
-from collections.abc import Callable, Mapping, Iterable
+from collections.abc import Mapping, Iterable
 from typing import cast, Optional, Final, Union
 
 from multidict import CIMultiDict
@@ -30,7 +28,7 @@ PICOWS_DEBUG_LL: Final = 9
 WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
 
 # When picows would like to disconnect peer (due to protocol violation or other failures), CLOSE frame is sent first.
-# Then disconnect is scheduled with a small delay. Otherwise, some old asyncio version do not transmit CLOSE frame,
+# Then disconnect is scheduled with a small delay. Otherwise, some old asyncio versions do not transmit CLOSE frame,
 # despite promising to do so.
 DISCONNECT_AFTER_ERROR_DELAY = 0.01
 
@@ -138,6 +136,32 @@ cdef class WSUpgradeResponse:
         response.status = HTTPStatus(status)
         response.headers = CIMultiDict()
         response.body = body
+
+        _add_extra_headers(response.headers, extra_headers)
+
+        return response
+
+    @staticmethod
+    def create_redirect_response(status: Union[int, HTTPStatus],
+                                 location: str,
+                                 extra_headers: Optional[WSHeadersLike]=None) -> WSUpgradeResponse:
+        """
+        Create upgrade response with error.
+
+        :param status: int status code or http.HTTPStatus enum value
+        :param body: optional bytes-like response body
+        :param extra_headers: optional additional headers
+        :return: a new WSUpgradeResponse object
+        """
+        if status < 300 or status > 399:
+            raise ValueError(
+                f"invalid redirect response code {status}, can be only 3xx")
+
+        cdef WSUpgradeResponse response = WSUpgradeResponse()
+        response.version = b"HTTP/1.1"
+        response.status = HTTPStatus(status)
+        response.headers = CIMultiDict()
+        response.headers["Location"] = location
 
         _add_extra_headers(response.headers, extra_headers)
 

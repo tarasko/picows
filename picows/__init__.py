@@ -12,7 +12,7 @@ from .picows import (
     PICOWS_DEBUG_LL
 )
 
-from .picows_py_api import (
+from .api import (
     ws_connect,
     ws_create_server
 )

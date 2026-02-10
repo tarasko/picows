@@ -13,7 +13,10 @@ WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgra
 WSBuffer = Union[bytes, bytearray, memoryview]
 
 
-class WSError(RuntimeError): ...
+class WSError(RuntimeError):
+    raw_header: Optional[bytes]
+    raw_body: Optional[bytes]
+    response: Optional[WSUpgradeResponse]
 
 
 class WSMsgType(Enum):
@@ -149,6 +152,12 @@ class WSUpgradeResponse:
             extra_headers: Optional[WSHeadersLike]=None
     ) -> WSUpgradeResponse: ...
 
+    @staticmethod
+    def create_redirect_response(
+            status: Union[int, HTTPStatus],
+            location: str,
+            extra_headers: Optional[WSHeadersLike]=None) -> WSUpgradeResponse: ...
+
     @property
     def version(self) -> bytes: ...
 
@@ -177,6 +186,7 @@ async def ws_connect(
     auto_ping_strategy: WSAutoPingStrategy = ...,
     enable_auto_pong: bool = True,
     extra_headers: Optional[WSHeadersLike] = None,
+    max_redirects: int = 5,
     **kwargs: Any
 ) -> tuple[WSTransport, WSListener]: ...
 
