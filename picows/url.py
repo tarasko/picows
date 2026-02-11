@@ -108,7 +108,4 @@ def parse_url(url: str) -> ParsedURL:
             username = urllib.parse.quote(username, safe=DELIMS)
             password = urllib.parse.quote(password, safe=DELIMS)
 
-    if username is not None or password is not None:
-        raise WSInvalidURL(url, "basic authentication method is not currently supported")
-
     return ParsedURL(url, secure, netloc, host, port, path, query, username, password)

@@ -11,25 +11,25 @@ from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: igno
 from .url import parse_url, ParsedURL
 
 
-def process_redirect(exc: WSError, old_parsed_url: ParsedURL, max_redirects: int) -> Union[Exception, ParsedURL]:
+def process_redirect(exc: WSError, old_parsed_url: ParsedURL, max_redirects: int) -> ParsedURL:
     if max_redirects <= 0:
-        return exc
+        raise exc
     if exc.response is None:
-        return exc
+        raise exc
     if exc.response.status not in (301, 302, 303, 307, 308):
-        return exc
+        raise exc
 
     location = exc.response.headers.get("Location")
 
     if location is None:
-        return WSError("received redirect HTTP response without Location header",
-                       exc.raw_header, exc.raw_body, exc.response)
+        raise WSError("received redirect HTTP response without Location header",
+                       exc.raw_header, exc.raw_body, exc.response) from exc
 
     url = urllib.parse.urljoin(old_parsed_url.url, location)
     parsed_url = parse_url(url)
 
     if old_parsed_url.secure and not parsed_url.secure:
-        return WSError(
+        raise WSError(
             f"cannot follow redirect to non-secure URL {parsed_url.url}",
             exc.raw_header, exc.raw_body, exc.response)
 
@@ -112,6 +112,9 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
     parsed_url = parse_url(url)
 
     while True:
+        if parsed_url.username is not None or parsed_url.password is not None:
+            logger.warning("Basic authentication was requested in URL, but it is not currently supported, ignore username and password")
+
         if parsed_url.secure:
             ssl = ssl_context if ssl_context is not None else True
         else:
@@ -142,13 +145,10 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
             return ws_protocol.transport, ws_protocol.listener
         except WSError as exc:
             parsed_url_or_exc = process_redirect(exc, parsed_url, max_redirects)
-            if isinstance(parsed_url_or_exc, ParsedURL):
-                logger.info("%s replied with HTTP redirect to %s, (status = %s)",
-                            parsed_url.url, parsed_url_or_exc.url, exc.response.status) # type: ignore [union-attr]
-                parsed_url = parsed_url_or_exc
-                max_redirects -= 1
-            else:
-                raise parsed_url_or_exc
+            logger.info("%s replied with HTTP redirect to %s, (status = %s)",
+                        parsed_url.url, parsed_url_or_exc.url, exc.response.status) # type: ignore [union-attr]
+            parsed_url = parsed_url_or_exc
+            max_redirects -= 1
 
 
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
