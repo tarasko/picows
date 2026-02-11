@@ -2,23 +2,7 @@ from http import HTTPStatus
 import pytest
 
 import picows
-from tests.test_basics import ClientMsgQueue
-from tests.utils import ServerAsyncContext, get_server_port, ClientAsyncContext
-
-
-class ServerEchoListener(picows.WSListener):
-    def on_ws_connected(self, transport: picows.WSTransport):
-        self._transport = transport
-
-    def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-        if frame.msg_type == picows.WSMsgType.CLOSE:
-            self._transport.send_close(frame.get_close_code(), frame.get_close_message())
-            self._transport.disconnect()
-        if (frame.msg_type == picows.WSMsgType.TEXT and
-                frame.get_payload_as_memoryview() == b"disconnect_me_without_close_frame"):
-            self._transport.disconnect()
-        else:
-            self._transport.send(frame.msg_type, frame.get_payload_as_bytes(), frame.fin, frame.rsv1)
+from tests.utils import ClientMsgQueue, ServerEchoListener, ServerAsyncContext, ClientAsyncContext, get_server_port
 
 
 async def test_redirect_chain():

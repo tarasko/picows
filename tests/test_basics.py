@@ -9,8 +9,7 @@ import async_timeout
 
 from http import HTTPStatus
 from tests.utils import create_client_ssl_context, create_server_ssl_context, \
-    ServerAsyncContext, TIMEOUT, \
-    materialize_frame, ClientAsyncContext, get_server_port
+    TIMEOUT, ClientMsgQueue, ServerEchoListener, ClientAsyncContext, ServerAsyncContext, get_server_port
 
 
 class MyException(RuntimeError):
@@ -46,21 +45,6 @@ else:
             assert False, "unknown loop"
 
 
-class ServerEchoListener(picows.WSListener):
-    def on_ws_connected(self, transport: picows.WSTransport):
-        self._transport = transport
-
-    def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-        if frame.msg_type == picows.WSMsgType.CLOSE:
-            self._transport.send_close(frame.get_close_code(), frame.get_close_message())
-            self._transport.disconnect()
-        if (frame.msg_type == picows.WSMsgType.TEXT and
-                frame.get_payload_as_memoryview() == b"disconnect_me_without_close_frame"):
-            self._transport.disconnect()
-        else:
-            self._transport.send(frame.msg_type, frame.get_payload_as_bytes(), frame.fin, frame.rsv1)
-
-
 @pytest.fixture(params=["plain", "ssl"])
 async def echo_server(request):
     use_ssl = request.param == "ssl"
@@ -73,32 +57,6 @@ async def echo_server(request):
 
     async with ServerAsyncContext(server) as server_ctx:
         yield server_ctx.ssl_url if use_ssl else server_ctx.plain_url
-
-
-class ClientMsgQueue(picows.WSListener):
-    transport: picows.WSTransport
-    msg_queue: asyncio.Queue
-    is_paused: bool
-
-    def on_ws_connected(self, transport: picows.WSTransport):
-        self.transport = transport
-        self.msg_queue = asyncio.Queue()
-        self.is_paused = False
-
-    def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-        self.msg_queue.put_nowait(materialize_frame(frame))
-
-    def pause_writing(self):
-        self.is_paused = True
-
-    def resume_writing(self):
-        self.is_paused = False
-
-    async def get_message(self, timeout=TIMEOUT):
-        async with async_timeout.timeout(timeout):
-            item = await self.msg_queue.get()
-            self.msg_queue.task_done()
-            return item
 
 
 @pytest.fixture()
