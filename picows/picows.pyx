@@ -307,6 +307,8 @@ cdef class WSListener:
     cpdef pause_writing(self):
         """
         Called when the underlying transport’s buffer goes over the high watermark.
+        This is a purely informative callback. You can ignore it and just keep writing.
+        The data will be queued and eventually send anyway.
         """
         pass
 
