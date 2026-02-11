@@ -5,12 +5,13 @@ picows Release History
    :depth: 1
    :local:
 
-1.12.0 ()
+1.12.0 (2026-02-11)
+------------------
 
 * #71: add support for HTTP redirects
 * Following discussion #68 added raw_header, raw_body and response attributes to WSError exception.
 * Added additional checks for URL and WSInvalidURL exception
-* Some non-latency critical code has been "de-cythonized", for better debugging experience.
+* Some non-latency critical code has been "de-cythonized" for better debugging experience.
 * WSUpgradeRequest, WSUpgradeResponse, WSUpgradeResponseWithListener moved to a pure python module
 
 1.11.1 (2026-02-05)
