@@ -85,6 +85,7 @@ cdef class WSTransport:
         object listener_proxy
         object disconnected_future             #: asyncio.Future
 
+        object _loop
         object _logger                          #: Logger
         bint _log_debug_enabled
         bint _close_frame_is_sent

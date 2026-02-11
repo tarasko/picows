@@ -328,6 +328,7 @@ cdef class WSTransport:
         self.pong_received_at_future = None
         self.listener_proxy = None
         self.disconnected_future = loop.create_future()
+        self._loop = loop
         self._logger = logger
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
         self._close_frame_is_sent = False
@@ -535,7 +536,7 @@ cdef class WSTransport:
         cdef int i
         cdef list results = []
         cdef object shield = asyncio.shield
-        cdef object create_future = asyncio.get_running_loop().create_future
+        cdef object create_future = self._loop.create_future
 
         # If auto-ping is enabled and currently waiting for pong then
         # wait until we receive it and only then proceed with our own pings
@@ -703,7 +704,7 @@ cdef class WSProtocol:
                  str ws_path,
                  bint is_client_side,
                  ws_listener_factory,
-                 str logger_name,
+                 logger,
                  bint disconnect_on_exception,
                  websocket_handshake_timeout,
                  enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
@@ -717,7 +718,7 @@ cdef class WSProtocol:
         self._listener_factory = ws_listener_factory
         self._host_port = host_port.encode() if host_port is not None else None
         self._ws_path = ws_path.encode() if ws_path else b"/"
-        self._logger = logging.getLogger(f"picows.{logger_name}")
+        self._logger = logger
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
         self.is_client_side = is_client_side
         self._disconnect_on_exception = disconnect_on_exception

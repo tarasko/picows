@@ -1,5 +1,6 @@
 import asyncio
 import urllib.parse
+from logging import getLogger
 from ssl import SSLContext
 from typing import Callable, Optional, Union
 
@@ -107,6 +108,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
     assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), \
         "invalid value of auto_ping_strategy parameter"
 
+    logger = getLogger(f"picows.{logger_name}")
     parsed_url = parse_url(url)
 
     while True:
@@ -121,7 +123,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                 parsed_url.resource_name,
                 True,
                 ws_listener_factory,
-                logger_name,
+                logger,
                 disconnect_on_exception,
                 websocket_handshake_timeout,
                 enable_auto_ping,
@@ -141,6 +143,8 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
         except WSError as exc:
             parsed_url_or_exc = process_redirect(exc, parsed_url, max_redirects)
             if isinstance(parsed_url_or_exc, ParsedURL):
+                logger.info("%s redirect to %s",
+                            parsed_url.url, parsed_url_or_exc.url)
                 parsed_url = parsed_url_or_exc
                 max_redirects -= 1
             else:
@@ -235,7 +239,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
             None,           # ws_path
             False,          # is_client_side
             ws_listener_factory,
-            logger_name,
+            getLogger(f"picows.{logger_name}"),
             disconnect_on_exception,
             websocket_handshake_timeout,
             enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
