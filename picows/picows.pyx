@@ -4,13 +4,9 @@ import binascii
 import logging
 import os
 import socket
-import urllib.parse
 from http import HTTPStatus
 from base64 import b64encode, b64decode
 from hashlib import sha1
-from ssl import SSLContext
-from collections.abc import Callable, Mapping, Iterable
-from typing import cast, Optional, Final, Union
 
 from multidict import CIMultiDict
 
@@ -23,15 +19,15 @@ from cpython.buffer cimport PyBUF_WRITE, PyBUF_READ, PyBUF_SIMPLE, PyObject_GetB
 from cpython.unicode cimport PyUnicode_FromStringAndSize, PyUnicode_DecodeASCII
 
 from libc cimport errno
-from libc.string cimport memmove, memcpy, strerror
+from libc.string cimport memmove, memcpy
 from libc.stdlib cimport rand
 
-PICOWS_DEBUG_LL: Final = 9
-WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
-WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
+from .types import (PICOWS_DEBUG_LL, WSUpgradeRequest, WSUpgradeResponse,
+                    WSUpgradeResponseWithListener,
+                    WSError, _WSParserError, add_extra_headers)
 
 # When picows would like to disconnect peer (due to protocol violation or other failures), CLOSE frame is sent first.
-# Then disconnect is scheduled with a small delay. Otherwise, some old asyncio version do not transmit CLOSE frame,
+# Then disconnect is scheduled with a small delay. Otherwise, some old asyncio versions do not transmit CLOSE frame,
 # despite promising to do so.
 DISCONNECT_AFTER_ERROR_DELAY = 0.01
 
@@ -66,122 +62,6 @@ cdef extern from "picows_compat.h" nogil:
     size_t apply_mask_1(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
     apply_mask_fn get_apply_mask_fast_fn()
     size_t get_apply_mask_fast_alignment()
-
-
-class WSError(RuntimeError):
-    """
-    Thrown by :any:`ws_connect` on any kind of handshake errors.
-    """
-    pass
-
-
-class _WSParserError(RuntimeError):
-    """
-    WebSocket protocol parser error.
-
-    Used internally by the parser to notify what kind of close code we should
-    send before disconnect.
-    """
-
-    def __init__(self, WSCloseCode code, str message) -> None:
-        self.code = code
-        super().__init__(code, message)
-
-    def __str__(self) -> str:
-        return cast(str, self.args[1])
-
-
-cdef _add_extra_headers(object ci_multi_dict, object extra_headers):
-    if extra_headers:
-        sequence = extra_headers.items() if hasattr(extra_headers,
-                                                    "items") else extra_headers
-        for k, v in sequence:
-            if not isinstance(k, str) or not isinstance(v, str):
-                raise TypeError("extra_headers key/value must be str types")
-
-            ci_multi_dict.add(k, v)
-
-
-cdef class WSUpgradeRequest:
-    pass
-
-
-cdef class WSUpgradeResponse:
-    @staticmethod
-    def create_error_response(status: Union[int, HTTPStatus],
-                              body=None,
-                              extra_headers: Optional[WSHeadersLike]=None) -> WSUpgradeResponse:
-        """
-        Create upgrade response with error.
-
-        :param status: int status code or http.HTTPStatus enum value
-        :param body: optional bytes-like response body
-        :param extra_headers: optional additional headers
-        :return: a new WSUpgradeResponse object
-        """
-        if status < 400:
-            raise ValueError(
-                f"invalid error response code {status}, can be only >=400")
-
-        cdef WSUpgradeResponse response = WSUpgradeResponse()
-        response.version = b"HTTP/1.1"
-        response.status = HTTPStatus(status)
-        response.headers = CIMultiDict()
-        response.body = body
-
-        _add_extra_headers(response.headers, extra_headers)
-
-        return response
-
-    @staticmethod
-    def create_101_response(extra_headers: Optional[WSHeadersLike]=None) -> WSUpgradeResponse:
-        """
-        Create 101 Switching Protocols response.
-
-        :param extra_headers: optional additional headers
-        :return: a new WSUpgradeResponse object
-        """
-        cdef WSUpgradeResponse response = WSUpgradeResponse()
-        response.version = b"HTTP/1.1"
-        response.status = HTTPStatus.SWITCHING_PROTOCOLS
-        response.headers = CIMultiDict()
-        response.body = None
-
-        _add_extra_headers(response.headers, extra_headers)
-
-        response.headers["Connection"] = "upgrade"
-        response.headers["Upgrade"] = "websocket"
-        return response
-
-    cdef bytearray to_bytes(self):
-        cdef bytearray response_bytes = bytearray()
-        response_bytes += b"%b %d %b\r\n" % (self.version, self.status.value, self.status.phrase.encode())
-
-        if self.body:
-            if "Content-Type" not in self.headers:
-                self.headers.add("Content-Type", "text/plain")
-            self.headers.add("Content-Length", f"{len(self.body):d}")
-
-        for k, v in self.headers.items():
-            response_bytes += f"{k}: {v}\r\n".encode()
-
-        response_bytes += b"\r\n"
-        if self.body:
-            response_bytes += self.body
-
-        return response_bytes
-
-
-cdef class WSUpgradeResponseWithListener:
-    def __init__(self, WSUpgradeResponse response, WSListener listener):
-        if response.status == 101 and listener is None:
-            raise ValueError(f"listener cannot be None for 101 Switching Protocols response")
-
-        if response.status >= 400 and listener is not None:
-            raise ValueError(f"listener must be None for error response")
-
-        self.response = response
-        self.listener = listener
 
 
 cdef:
@@ -427,6 +307,8 @@ cdef class WSListener:
     cpdef pause_writing(self):
         """
         Called when the underlying transport’s buffer goes over the high watermark.
+        This is a purely informative callback. You can ignore it and just keep writing.
+        The data will be queued and eventually send anyway.
         """
         pass
 
@@ -448,6 +330,7 @@ cdef class WSTransport:
         self.pong_received_at_future = None
         self.listener_proxy = None
         self.disconnected_future = loop.create_future()
+        self._loop = loop
         self._logger = logger
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
         self._close_frame_is_sent = False
@@ -655,7 +538,7 @@ cdef class WSTransport:
         cdef int i
         cdef list results = []
         cdef object shield = asyncio.shield
-        cdef object create_future = asyncio.get_running_loop().create_future
+        cdef object create_future = self._loop.create_future
 
         # If auto-ping is enabled and currently waiting for pong then
         # wait until we receive it and only then proceed with our own pings
@@ -703,9 +586,8 @@ cdef class WSTransport:
                                  "notify_user_specific_pong_received() for PONG(idle timeout), reset expect_pong")
 
     cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, object extra_headers):
-        cdef WSUpgradeRequest request = WSUpgradeRequest()
-        cdef bytearray headers_str = bytearray()
 
+        request = WSUpgradeRequest()
         request.method = b"GET"
         request.path = ws_path
         request.version = b"HTTP/1.1"
@@ -716,26 +598,20 @@ cdef class WSTransport:
             ("Sec-WebSocket-Version", "13"),
             ("Sec-WebSocket-Key", websocket_key_b64.decode()),
         ])
+        add_extra_headers(request.headers, extra_headers)
 
-        if extra_headers:
-            sequence = extra_headers.items() \
-                if hasattr(extra_headers, "items") else extra_headers
-            for k, v in sequence:
-                request.headers.add(k, v)
-
-        for k, v in request.headers.items():
-            headers_str += f"{k}: {v}\r\n".encode()
+        headers = "\r\n".join(f"{k}: {v}" for k, v in request.headers.items()).encode()
 
         initial_handshake = (b"%b %b %b\r\n"
-                             b"%b"
-                             b"\r\n" % (request.method, request.path, request.version, headers_str))
+                             b"%b\r\n"
+                             b"\r\n" % (request.method, request.path, request.version, headers))
 
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "Send upgrade request: %s", initial_handshake)
         self.request = request
         self.underlying_transport.write(initial_handshake)
 
-    cdef _send_http_handshake_response(self, WSUpgradeResponse response, bytes accept_val):
+    cdef _send_http_handshake_response(self, response, bytes accept_val):
         if accept_val is not None:
             response.headers["Sec-WebSocket-Accept"] = accept_val.decode()
 
@@ -777,8 +653,8 @@ cdef class WSTransport:
 
 cdef class WSProtocol:
     cdef:
-        WSTransport transport
-        WSListener listener
+        readonly WSTransport transport
+        readonly WSListener listener
 
         object _listener_factory
         bytes _host_port
@@ -830,7 +706,7 @@ cdef class WSProtocol:
                  str ws_path,
                  bint is_client_side,
                  ws_listener_factory,
-                 str logger_name,
+                 logger,
                  bint disconnect_on_exception,
                  websocket_handshake_timeout,
                  enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
@@ -844,7 +720,7 @@ cdef class WSProtocol:
         self._listener_factory = ws_listener_factory
         self._host_port = host_port.encode() if host_port is not None else None
         self._ws_path = ws_path.encode() if ws_path else b"/"
-        self._logger = logging.getLogger(f"picows.{logger_name}")
+        self._logger = logger
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
         self.is_client_side = is_client_side
         self._disconnect_on_exception = disconnect_on_exception
@@ -1065,7 +941,7 @@ cdef class WSProtocol:
         self._shrink_buffer()
 
     cdef inline _negotiate(self):
-        cdef WSUpgradeResponse response = None
+        response = None
 
         if self.is_client_side:
             try:
@@ -1101,8 +977,8 @@ cdef class WSProtocol:
             try:
                 listener_or_response_with_listener = listener_factory(upgrade_request)
                 if isinstance(listener_or_response_with_listener, WSUpgradeResponseWithListener):
-                    self.listener = (<WSUpgradeResponseWithListener>listener_or_response_with_listener).listener
-                    response = (<WSUpgradeResponseWithListener>listener_or_response_with_listener).response
+                    self.listener = listener_or_response_with_listener.listener
+                    response = listener_or_response_with_listener.response
                 elif isinstance(listener_or_response_with_listener, WSListener):
                     self.listener = listener_or_response_with_listener
                     response = WSUpgradeResponse.create_101_response()
@@ -1259,7 +1135,7 @@ cdef class WSProtocol:
         cdef bytes accept_val = b64encode(sha1(<bytes>key.encode() + _WS_KEY).digest())
 
         cdef list status_line_parts = response_status_line.split(b" ")
-        cdef WSUpgradeRequest upgrade_request = <WSUpgradeRequest>WSUpgradeRequest.__new__(WSUpgradeRequest)
+        upgrade_request = WSUpgradeRequest()
         upgrade_request.method = <bytes>status_line_parts[0]
         upgrade_request.path = <bytes>status_line_parts[1]
         upgrade_request.version = <bytes>status_line_parts[2]
@@ -1273,7 +1149,7 @@ cdef class WSProtocol:
 
         return upgrade_request, accept_val
 
-    cdef inline WSUpgradeResponse _try_read_and_process_upgrade_response(self):
+    cdef inline object _try_read_and_process_upgrade_response(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
         cdef list data_parts = <list>data.split(b"\r\n\r\n", 1)
         if len(data_parts) < 2:
@@ -1285,12 +1161,14 @@ cdef class WSProtocol:
         cdef list lines = <list>raw_headers.split(b"\r\n")
         cdef bytes response_status_line = <bytes>lines[0]
 
-        # check handshake
-        if not response_status_line.decode().lower().startswith("http/1.1 101 " ):
-            raise WSError(f"cannot upgrade, invalid status in upgrade response: {response_status_line}, body: {tail}")
+        cdef str response_status_line_str = response_status_line.decode().lower()
 
-        cdef WSUpgradeResponse response = WSUpgradeResponse()
+        # check handshake
+        if not response_status_line_str.startswith("http/1.1 " ):
+            raise WSError(f"cannot upgrade, unknown protocol (expected HTTP/1.1) in upgrade response: {response_status_line_str}", raw_headers, tail)
+
         cdef bytes status_code
+        response = WSUpgradeResponse()
         response.version, status_code, status_phrase = response_status_line.split(b" ", 2)
         response.status = HTTPStatus(int(status_code.decode()))
 
@@ -1301,15 +1179,26 @@ cdef class WSProtocol:
             name, value = <list>line.split(b":", 1)
             response.headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
 
+        if response.status != HTTPStatus.SWITCHING_PROTOCOLS:
+            raise WSError(f"expected upgrade response with status 101 Switching Protocols, but received {response.status}", raw_headers, tail, response)
+
+        if response.headers.get("transfer-encoding") == "chunked":
+            raise WSError(f"101 response cannot have Transfer-Encoding but it has", raw_headers, tail, response)
+
+        cdef Py_ssize_t content_length = int(response.headers.get("content-length", "0"))
+
+        if content_length != 0:
+            raise WSError(f"101 response has non-zero Content-Length, but it can't have body", raw_headers, tail, response)
+
         connection_value = response.headers.get("connection")
         connection_value = connection_value if connection_value is None else connection_value.lower()
         if connection_value != "upgrade":
-            raise WSError(f"cannot upgrade, invalid connection header: {response.headers['connection']}")
+            raise WSError(f"cannot upgrade, invalid connection header: {response.headers['connection']}", raw_headers, tail, response)
 
         r_key = response.headers.get("sec-websocket-accept")
         match = b64encode(sha1(self._websocket_key_b64 + _WS_KEY).digest()).decode()
         if r_key != match:
-            raise WSError(f"cannot upgrade, invalid sec-websocket-accept response")
+            raise WSError(f"cannot upgrade, invalid sec-websocket-accept response", raw_headers, tail, response)
 
         memmove(self._buffer.data, self._buffer.data + len(raw_headers) + 4, self._buffer.size - len(raw_headers) - 4)
         self._f_new_data_start_pos = len(tail)
@@ -1529,196 +1418,3 @@ cdef class WSProtocol:
         if not self._handshake_complete_future.done():
             self._handshake_complete_future.set_exception(asyncio.TimeoutError("websocket handshake timeout"))
         self.transport.disconnect()
-
-
-async def ws_connect(ws_listener_factory: Callable[[], WSListener],
-                     str url: str,
-                     *,
-                     ssl_context: Optional[SSLContext]=None,
-                     bint disconnect_on_exception: bool=True,
-                     websocket_handshake_timeout=5,
-                     logger_name: str="client",
-                     enable_auto_ping: bool = False,
-                     auto_ping_idle_timeout: float=10,
-                     auto_ping_reply_timeout: float=10,
-                     auto_ping_strategy = WSAutoPingStrategy.PING_WHEN_IDLE,
-                     enable_auto_pong: bool=True,
-                     max_frame_size: int = 10 * 1024 * 1024,
-                     extra_headers: Optional[WSHeadersLike]=None,
-                     **kwargs
-                     ) -> tuple[WSTransport, WSListener]:
-    """
-    Open a websocket connection to a given URL.
-
-    This function forwards its `kwargs` directly to
-    `asyncio.loop.create_connection <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.create_connection>`_
-
-    :param ws_listener_factory:
-        A parameterless factory function that returns a user handler. User handler has to derive from :any:`WSListener`.
-    :param url: Destination URL
-    :param ssl_context: optional SSLContext to override default one when wss scheme is used
-    :param disconnect_on_exception:
-        Indicates whether the client should initiate disconnect on any exception
-        thrown from WSListener.on_ws_frame callbacks
-    :param websocket_handshake_timeout:
-        is the time in seconds to wait for the websocket client to receive websocket handshake response before aborting the connection.
-    :param logger_name:
-        picows will use `picows.<logger_name>` logger to do all the logging.
-    :param enable_auto_ping:
-        Enable detection of a stale connection by periodically pinging remote peer.
-
-        .. note::
-            This does NOT enable automatic replies to incoming `ping` requests.
-            enable_auto_pong argument controls it.
-    :param auto_ping_idle_timeout:
-        * when auto_ping_strategy == PING_WHEN_IDLE
-            how long to wait before sending `ping` request when there is no incoming data.
-        * when auto_ping_strategy == PING_PERIODICALLY
-            how often to send ping
-    :param auto_ping_reply_timeout:
-        how long to wait for a `pong` reply before shutting down connection.
-    :param auto_ping_strategy:
-        An :any:`WSAutoPingStrategy` enum value:
-
-        * PING_WHEN_IDLE - ping only if there is no new incoming data.
-        * PING_PERIODICALLY - send ping at regular intervals regardless of incoming data.
-    :param enable_auto_pong:
-        If enabled then picows will automatically reply to incoming PING frames.
-    :param max_frame_size:
-        * Maximum allowed frame size. Disconnect will be initiated if client receives a frame that is bigger than max size.
-    :param extra_headers:
-        Arbitrary HTTP headers to add to the handshake request.
-    :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
-    """
-
-    assert "ssl" not in kwargs, "explicit 'ssl' argument for loop.create_connection is not supported"
-    assert "sock" not in kwargs, "explicit 'sock' argument for loop.create_connection is not supported"
-    assert "all_errors" not in kwargs, "explicit 'all_errors' argument for loop.create_connection is not supported"
-    assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), "invalid value of auto_ping_strategy parameter"
-
-    url_parts = urllib.parse.urlparse(url, allow_fragments=False)
-
-    if url_parts.scheme == "wss":
-        ssl = ssl_context if ssl_context is not None else True
-        port = url_parts.port or 443
-    elif url_parts.scheme == "ws":
-        ssl = None
-        port = url_parts.port or 80
-    else:
-        raise ValueError(f"invalid url scheme: {url}")
-
-    path_plus_query = url_parts.path
-    if url_parts.query:
-        path_plus_query += "?" + url_parts.query
-    ws_protocol_factory = lambda: WSProtocol(url_parts.netloc, path_plus_query, True, ws_listener_factory,
-                                             logger_name, disconnect_on_exception, websocket_handshake_timeout,
-                                             enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
-                                             auto_ping_strategy,
-                                             enable_auto_pong,
-                                             max_frame_size,
-                                             extra_headers)
-
-    cdef WSProtocol ws_protocol
-
-    (_, ws_protocol) = await asyncio.get_running_loop().create_connection(
-        ws_protocol_factory, url_parts.hostname, port, ssl=ssl, **kwargs)
-
-    await ws_protocol.wait_until_handshake_complete()
-
-    return ws_protocol.transport, ws_protocol.listener
-
-
-async def ws_create_server(ws_listener_factory: WSServerListenerFactory,
-                           host=None,
-                           port=None,
-                           *,
-                           bint disconnect_on_exception: bool=True,
-                           websocket_handshake_timeout=5,
-                           str logger_name: str="server",
-                           enable_auto_ping: bool = False,
-                           auto_ping_idle_timeout: float = 20,
-                           auto_ping_reply_timeout: float = 20,
-                           auto_ping_strategy = WSAutoPingStrategy.PING_WHEN_IDLE,
-                           enable_auto_pong: bool = True,
-                           max_frame_size: int = 10 * 1024 * 1024,
-                           **kwargs
-                           ) -> asyncio.Server:
-    """
-    Create a websocket server listening on TCP port of the host address.
-    This function forwards its `kwargs` directly to
-    `asyncio.loop.create_server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.create_server>`_
-
-    It has a few extra parameters to control the behaviour of websocket
-
-    :param ws_listener_factory:
-        A factory function that accepts WSUpgradeRequest object and returns one of:
-
-        * User handler object. A standard 101 response will be sent to the client.
-        * WSUpgradeResponseWithListener object. This allows to send a custom response with extra headers and an optional body.
-        * None. In such case 404 Not Found response will be sent and the client will be disconnected.
-
-        The user handler must derive from WSListener and is responsible for
-        processing incoming data.
-
-        The factory function acts as a router. :any:`WSUpgradeRequest` contains the
-        requested path and headers. Different user listeners may be returned
-        depending on the path and other conditions.
-    :param host:
-        The host parameter can be set to several types which determine where the server would be listening:
-
-        * If host is a string, the TCP server is bound to a single network interface specified by host.
-        * If host is a sequence of strings, the TCP server is bound to all network interfaces specified by the sequence.
-        * If host is an empty string or None, all interfaces are assumed and a list of multiple sockets will be returned (most likely one for IPv4 and another one for IPv6).
-    :param port: specify which port the server should listen on.
-        If 0 or None (the default), a random unused port will be selected
-        (note that if host resolves to multiple network interfaces,
-        a different random port will be selected for each interface).
-    :param disconnect_on_exception:
-        Indicates whether the client should initiate disconnect on any exception
-        thrown by WSListener.on_ws_frame callback
-    :param websocket_handshake_timeout:
-        is the time in seconds to wait for the websocket server to receive websocket handshake request before aborting the connection.
-    :param logger_name:
-        picows will use `picows.<logger_name>` logger to do all the logging.
-    :param enable_auto_ping:
-        Enable detection of a stale connection by periodically pinging remote peer.
-
-        .. note::
-            This does NOT enable automatic replies to incoming `ping` requests.
-            enable_auto_pong argument controls it.
-    :param auto_ping_idle_timeout:
-        * when auto_ping_strategy == PING_WHEN_IDLE
-            how long to wait before sending `ping` request when there is no incoming data.
-        * when auto_ping_strategy == PING_PERIODICALLY
-            how often to send ping
-    :param auto_ping_reply_timeout:
-        how long to wait for a `pong` reply before shutting down connection.
-    :param auto_ping_strategy:
-        An :any:`WSAutoPingStrategy` enum value:
-
-        * PING_WHEN_IDLE - ping only if there is no new incoming data.
-        * PING_PERIODICALLY - send ping at regular intervals regardless of incoming data.
-    :param enable_auto_pong:
-        If enabled then picows will automatically reply to incoming PING frames.
-    :param max_frame_size:
-        * Maximum allowed frame size. Disconnect will be initiated if server side receives frame that is bigger than max size.
-    :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
-    """
-
-    extra_headers = None
-
-    assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), "invalid value of auto_ping_strategy parameter"
-
-    ws_protocol_factory = lambda: WSProtocol(None, None, False, ws_listener_factory, logger_name,
-                                             disconnect_on_exception, websocket_handshake_timeout,
-                                             enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,
-                                             auto_ping_strategy,
-                                             enable_auto_pong,
-                                             max_frame_size,
-                                             extra_headers)
-
-    return await asyncio.get_running_loop().create_server(
-        ws_protocol_factory,
-        host=host,
-        port=port,
-        **kwargs)

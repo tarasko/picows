@@ -9,8 +9,7 @@ import async_timeout
 
 from http import HTTPStatus
 from tests.utils import create_client_ssl_context, create_server_ssl_context, \
-    ServerAsyncContext, TIMEOUT, \
-    materialize_frame, ClientAsyncContext
+    TIMEOUT, ClientMsgQueue, ServerEchoListener, ClientAsyncContext, ServerAsyncContext, get_server_port
 
 
 class MyException(RuntimeError):
@@ -46,21 +45,6 @@ else:
             assert False, "unknown loop"
 
 
-class ServerEchoListener(picows.WSListener):
-    def on_ws_connected(self, transport: picows.WSTransport):
-        self._transport = transport
-
-    def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-        if frame.msg_type == picows.WSMsgType.CLOSE:
-            self._transport.send_close(frame.get_close_code(), frame.get_close_message())
-            self._transport.disconnect()
-        if (frame.msg_type == picows.WSMsgType.TEXT and
-                frame.get_payload_as_memoryview() == b"disconnect_me_without_close_frame"):
-            self._transport.disconnect()
-        else:
-            self._transport.send(frame.msg_type, frame.get_payload_as_bytes(), frame.fin, frame.rsv1)
-
-
 @pytest.fixture(params=["plain", "ssl"])
 async def echo_server(request):
     use_ssl = request.param == "ssl"
@@ -73,32 +57,6 @@ async def echo_server(request):
 
     async with ServerAsyncContext(server) as server_ctx:
         yield server_ctx.ssl_url if use_ssl else server_ctx.plain_url
-
-
-class ClientMsgQueue(picows.WSListener):
-    transport: picows.WSTransport
-    msg_queue: asyncio.Queue
-    is_paused: bool
-
-    def on_ws_connected(self, transport: picows.WSTransport):
-        self.transport = transport
-        self.msg_queue = asyncio.Queue()
-        self.is_paused = False
-
-    def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-        self.msg_queue.put_nowait(materialize_frame(frame))
-
-    def pause_writing(self):
-        self.is_paused = True
-
-    def resume_writing(self):
-        self.is_paused = False
-
-    async def get_message(self, timeout=TIMEOUT):
-        async with async_timeout.timeout(timeout):
-            item = await self.msg_queue.get()
-            self.msg_queue.task_done()
-            return item
 
 
 @pytest.fixture()
@@ -218,7 +176,7 @@ async def test_server_handshake_timeout():
         # Give some time for server to start
         await asyncio.sleep(0.1)
 
-        client_reader, client_writer = await asyncio.open_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        client_reader, client_writer = await asyncio.open_connection("127.0.0.1", get_server_port(server))
         assert not client_reader.at_eof()
         await asyncio.sleep(0.2)
         assert client_reader.at_eof()
@@ -257,7 +215,7 @@ async def test_request_path_and_params(request_path):
     server = await picows.ws_create_server(listener_factory,
                                            "127.0.0.1", 0, websocket_handshake_timeout=0.1)
     async with ServerAsyncContext(server):
-        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}{request_path}"
+        url = f"ws://127.0.0.1:{get_server_port(server)}{request_path}"
         (transport, _) = await picows.ws_connect(picows.WSListener, url)
         transport.disconnect()
 
@@ -289,7 +247,7 @@ async def test_client_extra_headers(extra_headers):
                                            "127.0.0.1", 0,
                                            websocket_handshake_timeout=0.1)
     async with ServerAsyncContext(server):
-        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+        url = f"ws://127.0.0.1:{get_server_port(server)}/"
         (transport, _) = await picows.ws_connect(picows.WSListener, url, extra_headers=extra_headers)
         transport.disconnect()
 
@@ -301,8 +259,12 @@ async def test_client_extra_headers(extra_headers):
 
 async def test_route_not_found():
     server = await picows.ws_create_server(lambda _: None, "127.0.0.1", 0)
+
+    def exc_check(exc):
+        return exc.response.status == 404
+
     async with ServerAsyncContext(server) as server_ctx:
-        with pytest.raises(picows.WSError, match="404 Not Found"):
+        with pytest.raises(picows.WSError, match="status 101", check=exc_check):
             (_, client) = await picows.ws_connect(picows.WSListener, server_ctx.plain_url)
 
 
@@ -311,8 +273,12 @@ async def test_server_internal_error():
         raise RuntimeError("oops")
 
     server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
+
+    def exc_check(exc):
+        return exc.response.status == 500 and b"oops" in exc.raw_body
+
     async with ServerAsyncContext(server) as server_ctx:
-        with pytest.raises(picows.WSError, match="500 Internal Server Error"):
+        with pytest.raises(picows.WSError, match="status 101", check=exc_check):
             (_, client) = await picows.ws_connect(picows.WSListener, server_ctx.plain_url)
 
 
@@ -321,7 +287,7 @@ async def test_server_bad_request():
                                            "127.0.0.1", 0)
 
     async with ServerAsyncContext(server):
-        r, w = await asyncio.open_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+        r, w = await asyncio.open_connection("127.0.0.1", get_server_port(server))
 
         w.write(b"zzzz\r\nasdfasdf\r\n\r\n")
         resp_header = await r.readuntil(b"\r\n\r\n")
@@ -339,7 +305,7 @@ async def test_custom_response():
 
     server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
     async with ServerAsyncContext(server):
-        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+        url = f"ws://127.0.0.1:{get_server_port(server)}/"
         (transport, _) = await picows.ws_connect(picows.WSListener, url)
         transport.disconnect()
 
@@ -351,10 +317,13 @@ async def test_custom_response_error():
         return picows.WSUpgradeResponseWithListener(
             picows.WSUpgradeResponse.create_error_response(HTTPStatus.NOT_FOUND, b"blablabla"), None)
 
+    def exc_check(exc):
+        return exc.response.status == HTTPStatus.NOT_FOUND and b"blablabla" in exc.raw_body
+
     server = await picows.ws_create_server(factory_listener, "127.0.0.1", 0)
     async with ServerAsyncContext(server):
-        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
-        with pytest.raises(picows.WSError, match="blablabla"):
+        url = f"ws://127.0.0.1:{get_server_port(server)}/"
+        with pytest.raises(picows.WSError, match="status 101", check=exc_check):
             (transport, _) = await picows.ws_connect(picows.WSListener, url)
 
 

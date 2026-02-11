@@ -19,20 +19,20 @@ Introduction
 **picows** is a high-performance python library designed for building asyncio WebSocket clients and servers.
 Implemented in Cython, it offers exceptional speed and efficiency, surpassing other popular WebSocket python libraries.
 
-.. image:: https://raw.githubusercontent.com/tarasko/picows/master/docs/source/_static/picows_benchmark.png
-    :target: https://github.com/tarasko/picows/blob/master/docs/source/_static/picows_benchmark.png?raw=true
+.. image:: https://raw.githubusercontent.com/tarasko/websocket-benchmark/master/results/benchmark-256.png
+    :target: https://github.com/tarasko/websocket-benchmark/blob/master
     :align: center
 
 
 The above chart shows the performance of echo clients communicating with a server through a loopback interface using popular Python libraries.
-`boost.beast client <https://www.boost.org/doc/libs/1_85_0/libs/beast/example/websocket/client/sync/websocket_client_sync.cpp>`_
-is also included for reference. Typically, picows is ~1.5-2 times faster than aiohttp. All Python clients use uvloop. Please find the benchmark sources
-`here <https://github.com/tarasko/picows/blob/master/examples/echo_client_benchmark.py>`_.
+`boost.beast client <https://www.boost.org/library/latest/beast/>`_
+is also included for reference. You can find benchmark sources and more results
+`here <https://github.com/tarasko/websocket-benchmark>`_.
 
 Installation
 ============
 
-picows requires Python 3.8 or greater and is available on PyPI.
+picows requires Python 3.9 or greater and is available on PyPI.
 Use pip to install it::
 
     $ pip install picows
@@ -48,7 +48,6 @@ Connects to an echo server, sends a message and disconnect upon reply.
 .. code-block:: python
 
     import asyncio
-    import uvloop
     from picows import ws_connect, WSFrame, WSTransport, WSListener, WSMsgType, WSCloseCode
 
     class ClientListener(WSListener):
@@ -61,14 +60,11 @@ Connects to an echo server, sends a message and disconnect upon reply.
             transport.send_close(WSCloseCode.OK)
             transport.disconnect()
 
-
     async def main(url):
         (_, client) = await ws_connect(ClientListener, url)
         await client.transport.wait_disconnected()
 
-
     if __name__ == '__main__':
-        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
         asyncio.run(main("ws://127.0.0.1:9001"))
 
 This prints:
@@ -83,7 +79,6 @@ Echo server
 .. code-block:: python
 
     import asyncio
-    import uvloop
     from picows import ws_create_server, WSFrame, WSTransport, WSListener, WSMsgType, WSUpgradeRequest
 
     class ServerClientListener(WSListener):
@@ -111,5 +106,4 @@ Echo server
         await server.serve_forever()
 
     if __name__ == '__main__':
-      asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
       asyncio.run(main())

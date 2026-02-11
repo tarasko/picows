@@ -51,30 +51,6 @@ cdef class MemoryBuffer:
     cdef inline resize(self, Py_ssize_t new_size)
 
 
-cdef class WSUpgradeRequest:
-    cdef:
-        readonly bytes method
-        readonly bytes path
-        readonly bytes version
-        readonly object headers     # CIMultiDict[istr, str]
-
-
-cdef class WSUpgradeResponse:
-    cdef:
-        readonly bytes version
-        readonly object status      # HTTPStatus
-        readonly object headers     # CIMultiDict[istr, str]
-        readonly bytes body
-
-    cdef bytearray to_bytes(self)
-
-
-cdef class WSUpgradeResponseWithListener:
-    cdef:
-        readonly WSUpgradeResponse response
-        readonly WSListener listener
-
-
 cdef class WSFrame:
     cdef:
         char* payload_ptr
@@ -101,14 +77,15 @@ cdef class WSTransport:
         readonly object underlying_transport    #: asyncio.Transport
         readonly bint is_client_side
         readonly bint is_secure
-        readonly WSUpgradeRequest request
-        readonly WSUpgradeResponse response
+        readonly object request                 #: WSUpgradeRequest
+        readonly object response                #: WSUpgradeResponse
 
         bint auto_ping_expect_pong
         object pong_received_at_future
         object listener_proxy
         object disconnected_future             #: asyncio.Future
 
+        object _loop
         object _logger                          #: Logger
         bint _log_debug_enabled
         bint _close_frame_is_sent
@@ -125,8 +102,8 @@ cdef class WSTransport:
     cpdef notify_user_specific_pong_received(self)
 
     cdef inline _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, object extra_headers)
-    cdef inline _send_http_handshake_response(self, WSUpgradeResponse response, bytes accept_val)
-    cdef inline _try_native_write_then_transport_write(self, char * ptr, Py_ssize_t sz)
+    cdef inline _send_http_handshake_response(self, response, bytes accept_val)
+    cdef inline _try_native_write_then_transport_write(self, char* ptr, Py_ssize_t sz)
 
 
 cdef class WSListener:
