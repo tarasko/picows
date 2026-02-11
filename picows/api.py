@@ -5,7 +5,7 @@ from typing import Callable, Optional, Union
 
 from .types import (WSHeadersLike, WSUpgradeRequest,
                     WSUpgradeResponseWithListener, WSError)
-from .picows import (WSListener, WSTransport, WSAutoPingStrategy,
+from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: ignore [attr-defined]
                      WSProtocol)
 from .url import parse_url, ParsedURL
 
@@ -35,7 +35,7 @@ def process_redirect(exc: WSError, old_parsed_url: ParsedURL, max_redirects: int
     return parsed_url
 
 
-async def ws_connect(ws_listener_factory: Callable[[], WSListener],
+async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: ignore [no-untyped-def]
                      url: str,
                      *,
                      ssl_context: Optional[SSLContext] = None,
@@ -150,7 +150,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
 
 
-async def ws_create_server(ws_listener_factory: WSServerListenerFactory,
+async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        # type: ignore [no-untyped-def]
                            host=None,
                            port=None,
                            *,
