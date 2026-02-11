@@ -13,6 +13,7 @@ picows Release History
 * Added additional checks for URL and WSInvalidURL exception
 * Some non-latency critical code has been "de-cythonized" for better debugging experience.
 * WSUpgradeRequest, WSUpgradeResponse, WSUpgradeResponseWithListener moved to a pure python module
+* Mark picows extension module freethreading compatible
 
 1.11.1 (2026-02-05)
 ------------------
