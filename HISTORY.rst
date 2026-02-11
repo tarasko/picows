@@ -5,6 +5,13 @@ picows Release History
    :depth: 1
    :local:
 
+1.12.0 ()
+
+* #71: add support for HTTP redirects
+* Added additional checks for URL and WSInvalidURL exception
+* Some non-latency critical code has been "de-cythonized", for better debugging experience.
+* WSUpgradeRequest, WSUpgradeResponse, WSUpgradeResponseWithListener moved to a pure python module
+
 1.11.1 (2026-02-05)
 ------------------
 
@@ -22,7 +29,6 @@ picows Release History
 
 * #65: enable 3.14 builds
 * #64: allow 'HTTP/1.1 101 null' upgrade response
-
 
 1.10.1 (2025-08-23)
 ------------------
