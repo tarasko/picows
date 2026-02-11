@@ -122,6 +122,9 @@ class WSUpgradeResponse:
 
 
 class WSUpgradeResponseWithListener:
+    """
+    Bind :any:`WSUpgradeResponse` and :any:`WSListener` objects together..
+    """
     __slots__ = ("response", "listener")
 
     def __init__(self, response: WSUpgradeResponse, listener: Any):

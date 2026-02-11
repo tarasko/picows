@@ -15,6 +15,10 @@ from .picows import (
     WSListener,
 )
 
+from .url import (
+    WSInvalidURL
+)
+
 from .api import (
     ws_connect,
     ws_create_server

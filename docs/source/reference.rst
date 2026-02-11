@@ -15,6 +15,9 @@ Classes
 .. autoclass:: WSError
     :members:
 
+.. autoclass:: WSInvalidURL
+    :members:
+
 .. autoclass:: WSFrame
     :members:
 
@@ -127,8 +130,6 @@ Classes
 
 .. autoclass:: WSUpgradeResponseWithListener
     :members:
-
-    .. py:method:: __init__(response: WSUpgradeResponse, listener: Optional[WSListener])
 
 .. autoclass:: WSListener
     :members:
