@@ -1,5 +1,6 @@
 import dataclasses
 import urllib.parse
+from typing import Optional
 
 from .types import WSError
 
@@ -12,7 +13,7 @@ class WSInvalidURL(WSError):
     Raised when connecting to a URL that isn't a valid WebSocket URL.
     """
     def __init__(self, url: str, msg: str) -> None:
-        super().__init__(f"{self.url} isn't a valid URL: {self.msg}")
+        super().__init__(f"{url} isn't a valid URL: {msg}")
         self.url = url
         self.msg = msg
 
@@ -42,8 +43,8 @@ class ParsedURL:
     port: int
     path: str
     query: str
-    username: str | None = None
-    password: str | None = None
+    username: Optional[str] = None
+    password: Optional[str] = None
 
     @property
     def resource_name(self) -> str:
@@ -56,11 +57,11 @@ class ParsedURL:
         return resource_name
 
     @property
-    def user_info(self) -> tuple[str, str] | None:
+    def user_info(self) -> Optional[tuple[str, str]]:
         if self.username is None:
             return None
         assert self.password is not None
-        return (self.username, self.password)
+        return self.username, self.password
 
 
 def parse_url(url: str) -> ParsedURL:
