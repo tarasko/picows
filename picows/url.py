@@ -1,42 +1,35 @@
-from __future__ import annotations
-
 import dataclasses
 import urllib.parse
 
+from .types import WSError
 
 # All characters from the gen-delims and sub-delims sets in RFC 3987.
 DELIMS = ":/?#[]@!$&'()*+,;="
 
 
-class WSInvalidURL(ValueError):
+class WSInvalidURL(WSError):
     """
-    Raised when connecting to a ParsedURL that isn't a valid WebSocket ParsedURL.
+    Raised when connecting to a URL that isn't a valid WebSocket URL.
     """
-
-    uri: str
-    msg: str
-
-    def __init__(self, uri: str, msg: str) -> None:
-        self.uri = uri
+    def __init__(self, url: str, msg: str) -> None:
+        super().__init__(f"{self.url} isn't a valid URL: {self.msg}")
+        self.url = url
         self.msg = msg
-
-    def __str__(self) -> str:
-        return f"{self.uri} isn't a valid ParsedURL: {self.msg}"
 
 
 @dataclasses.dataclass
 class ParsedURL:
     """
-    Websocket ParsedURL.
+    Websocket URL.
 
     Attributes:
-        secure: :obj:`True` for a ``wss`` ParsedURL, :obj:`False` for a ``ws`` ParsedURL.
+        secure: :obj:`True` for a ``wss`` ParsedURL, :obj:`False` for a ``ws`` URL.
         host: Normalized to lower case.
         port: Always set even if it's the default.
         path: May be empty.
-        query: May be empty if the ParsedURL doesn't include a query component.
-        username: Available when the ParsedURL contains `User Information`_.
-        password: Available when the ParsedURL contains `User Information`_.
+        query: May be empty if the URL doesn't include a query component.
+        username: Available when the URL contains `User Information`_.
+        password: Available when the URL contains `User Information`_.
 
     .. _User Information: https://datatracker.ietf.org/doc/html/rfc3986#section-3.2.1
 
@@ -72,10 +65,10 @@ class ParsedURL:
 
 def parse_url(url: str) -> ParsedURL:
     """
-    Parse and validate a WebSocket ParsedURL.
+    Parse and validate a WebSocket URL.
 
     Args:
-        url: WebSocket ParsedURL.
+        url: WebSocket URL.
 
     Returns:
         Parsed WebSocket ParsedURL.
