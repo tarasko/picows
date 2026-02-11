@@ -11,7 +11,7 @@ from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: igno
 from .url import parse_url, ParsedURL
 
 
-def process_redirect(exc: WSError, old_parsed_url: ParsedURL, max_redirects: int) -> ParsedURL:
+def _maybe_handle_redirect(exc: WSError, old_parsed_url: ParsedURL, max_redirects: int) -> ParsedURL:
     if max_redirects <= 0:
         raise exc
     if exc.response is None:
@@ -144,10 +144,10 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
             await ws_protocol.wait_until_handshake_complete()
             return ws_protocol.transport, ws_protocol.listener
         except WSError as exc:
-            parsed_url_or_exc = process_redirect(exc, parsed_url, max_redirects)
+            new_parsed_url = _maybe_handle_redirect(exc, parsed_url, max_redirects)
             logger.info("%s replied with HTTP redirect to %s, (status = %s)",
-                        parsed_url.url, parsed_url_or_exc.url, exc.response.status) # type: ignore [union-attr]
-            parsed_url = parsed_url_or_exc
+                        parsed_url.url, new_parsed_url.url, exc.response.status) # type: ignore [union-attr]
+            parsed_url = new_parsed_url
             max_redirects -= 1
 
 

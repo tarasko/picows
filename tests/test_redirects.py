@@ -5,7 +5,7 @@ from multidict import CIMultiDict
 
 import picows
 from picows import WSUpgradeResponse
-from picows.api import process_redirect
+from picows.api import _maybe_handle_redirect
 from picows.url import parse_url
 from tests.utils import ClientMsgQueue, ServerEchoListener, ServerAsyncContext, ClientAsyncContext, get_server_port
 
@@ -57,7 +57,7 @@ async def test_redirect_location():
 
     # Test empty response in exception
     with pytest.raises(picows.WSError, match="initial redirect"):
-        process_redirect(exc, parsed_url, 1)
+        _maybe_handle_redirect(exc, parsed_url, 1)
 
     response = WSUpgradeResponse()
     response.version = b"HTTP/1.1"
@@ -69,35 +69,35 @@ async def test_redirect_location():
 
     # Test no Location header
     with pytest.raises(picows.WSError, match="without Location header"):
-        process_redirect(exc, parsed_url, 1)
+        _maybe_handle_redirect(exc, parsed_url, 1)
 
     response.headers["Location"] = "/new_rel_path"
 
     # Check that redirect are done when max_redirects=0
     with pytest.raises(picows.WSError, match="initial redirect"):
-        process_redirect(exc, parsed_url, 0)
+        _maybe_handle_redirect(exc, parsed_url, 0)
 
-    new_parsed_url = process_redirect(exc, parsed_url, 1)
+    new_parsed_url = _maybe_handle_redirect(exc, parsed_url, 1)
     assert new_parsed_url.url == "ws://test_login:test_pws@my.domain.org/new_rel_path"
 
     # Rel path completely replaces previous path
     # This is how urllib.parse.urljoin behaves. But I wonder if it is according to RFC?
     response.headers["Location"] = "new_rel_path"
-    new_parsed_url = process_redirect(exc, parsed_url, 1)
+    new_parsed_url = _maybe_handle_redirect(exc, parsed_url, 1)
     assert new_parsed_url.url == "ws://test_login:test_pws@my.domain.org/new_rel_path"
 
     response.headers["Location"] = "new_rel_path?param=val2"
-    new_parsed_url = process_redirect(exc, parsed_url, 1)
+    new_parsed_url = _maybe_handle_redirect(exc, parsed_url, 1)
     assert new_parsed_url.url == "ws://test_login:test_pws@my.domain.org/new_rel_path?param=val2"
 
     # Test abs location
     response.headers["Location"] = "ws://my.domain.org:8080/"
-    new_parsed_url = process_redirect(exc, parsed_url, 1)
+    new_parsed_url = _maybe_handle_redirect(exc, parsed_url, 1)
     assert new_parsed_url.url == "ws://my.domain.org:8080/"
 
     # Test TLS upgrade
     response.headers["Location"] = "wss://my.domain.org:8080/"
-    new_parsed_url = process_redirect(exc, parsed_url, 1)
+    new_parsed_url = _maybe_handle_redirect(exc, parsed_url, 1)
     assert new_parsed_url.url == "wss://my.domain.org:8080/"
     assert new_parsed_url.secure
 
@@ -107,5 +107,5 @@ async def test_redirect_location():
     response.headers["Location"] = "ws://my.domain.org:8080/"
 
     with pytest.raises(picows.WSError, match="non-secure URL"):
-        process_redirect(exc, parsed_url, 1)
+        _maybe_handle_redirect(exc, parsed_url, 1)
 
