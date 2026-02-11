@@ -1,13 +1,13 @@
 from http import HTTPStatus
-from typing import Union, Optional, Mapping, Iterable, Final, cast
+from typing import Union, Optional, Mapping, Iterable, Final, cast, Any
 
-from multidict import CIMultiDict, istr
+from multidict import CIMultiDict
 
 PICOWS_DEBUG_LL: Final = 9
 WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
 
 
-def add_extra_headers(headers, extra_headers: WSHeadersLike):
+def add_extra_headers(headers: CIMultiDict[str], extra_headers: Optional[WSHeadersLike]) -> None:
     if extra_headers:
         sequence = extra_headers.items() if hasattr(extra_headers,
                                                     "items") else extra_headers
@@ -19,22 +19,24 @@ def add_extra_headers(headers, extra_headers: WSHeadersLike):
 
 
 class WSUpgradeRequest:
+    __slots__ = ("method", "path", "version", "headers")
     method  : bytes
     path    : bytes
     version : bytes
-    headers : CIMultiDict[istr, str]
+    headers : CIMultiDict[str]
 
 
 class WSUpgradeResponse:
+    __slots__ = ("version", "status", "headers", "body")
     version : bytes
     status  : HTTPStatus
-    headers : CIMultiDict[istr, str]
+    headers : CIMultiDict[str]
     body    : Optional[bytes]
 
     @staticmethod
     def create_error_response(status: Union[int, HTTPStatus],
-                              body=None,
-                              extra_headers: Optional[WSHeadersLike]=None):
+                              body: Optional[bytes] = None,
+                              extra_headers: Optional[WSHeadersLike] = None) -> Any:
         """
         Create upgrade response with error.
 
@@ -59,7 +61,7 @@ class WSUpgradeResponse:
     @staticmethod
     def create_redirect_response(status: Union[int, HTTPStatus],
                                  location: str,
-                                 extra_headers: Optional[WSHeadersLike]=None):
+                                 extra_headers: Optional[WSHeadersLike] = None) -> Any:
         """
         Create upgrade response with error.
 
@@ -83,7 +85,7 @@ class WSUpgradeResponse:
         return self
 
     @staticmethod
-    def create_101_response(extra_headers: Optional[WSHeadersLike]=None):
+    def create_101_response(extra_headers: Optional[WSHeadersLike] = None) -> Any:
         """
         Create 101 Switching Protocols response.
 
@@ -122,12 +124,12 @@ class WSUpgradeResponse:
 class WSUpgradeResponseWithListener:
     __slots__ = ("response", "listener")
 
-    def __init__(self, response: WSUpgradeResponse, listener):
+    def __init__(self, response: WSUpgradeResponse, listener: Any):
         if response.status == 101 and listener is None:
-            raise ValueError(f"listener cannot be None for 101 Switching Protocols response")
+            raise ValueError("listener cannot be None for 101 Switching Protocols response")
 
         if response.status >= 400 and listener is not None:
-            raise ValueError(f"listener must be None for error response")
+            raise ValueError("listener must be None for error response")
 
         self.response = response
         self.listener = listener
@@ -141,10 +143,10 @@ class WSError(RuntimeError):
     raw_body: Optional[bytes]
     response: Optional[WSUpgradeResponse]
 
-    def __init__(self, description,
-                 raw_header: Optional[bytes]=None,
-                 raw_body: Optional[bytes]=None,
-                 response: Optional[WSUpgradeResponse]=None):
+    def __init__(self, description: str,
+                 raw_header: Optional[bytes] = None,
+                 raw_body: Optional[bytes] = None,
+                 response: Optional[WSUpgradeResponse] = None):
         super().__init__(description)
         self.raw_header = raw_header
         self.raw_body = raw_body
@@ -159,10 +161,9 @@ class _WSParserError(RuntimeError):
     send before disconnect.
     """
 
-    def __init__(self, code, message):
+    def __init__(self, code: Any, message: Any):
         self.code = code
         super().__init__(code, message)
 
     def __str__(self) -> str:
         return cast(str, self.args[1])
-

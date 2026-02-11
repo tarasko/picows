@@ -81,7 +81,7 @@ def parse_url(url: str) -> ParsedURL:
         Parsed WebSocket ParsedURL.
 
     Raises:
-        InvalidURL: If ``uri`` isn't a valid WebSocket ParsedURL.
+        InvalidURL: If ``url`` isn't a valid WebSocket URL.
 
     """
     parsed = urllib.parse.urlparse(url)

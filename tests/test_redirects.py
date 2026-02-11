@@ -1,7 +1,4 @@
-import asyncio
 from http import HTTPStatus
-
-import async_timeout
 import pytest
 
 import picows

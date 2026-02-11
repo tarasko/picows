@@ -10,7 +10,7 @@ from .picows import (WSListener, WSTransport, WSAutoPingStrategy,
 from .url import parse_url, ParsedURL
 
 
-def process_redirect(exc, old_parsed_url, max_redirects):
+def process_redirect(exc: WSError, old_parsed_url: ParsedURL, max_redirects: int) -> Union[Exception, ParsedURL]:
     if max_redirects <= 0:
         return exc
     if exc.response is None:
@@ -22,7 +22,7 @@ def process_redirect(exc, old_parsed_url, max_redirects):
 
     if location is None:
         return WSError("received redirect HTTP response without Location header",
-                      exc.raw_headers, exc.raw_body, exc.response)
+                       exc.raw_header, exc.raw_body, exc.response)
 
     url = urllib.parse.urljoin(old_parsed_url.url, location)
     parsed_url = parse_url(url)
@@ -32,25 +32,23 @@ def process_redirect(exc, old_parsed_url, max_redirects):
             f"cannot follow redirect to non-secure URL {parsed_url.url}",
             exc.raw_header, exc.raw_body, exc.response)
 
-
-
     return parsed_url
 
 
 async def ws_connect(ws_listener_factory: Callable[[], WSListener],
                      url: str,
                      *,
-                     ssl_context: Optional[SSLContext]=None,
-                     disconnect_on_exception: bool=True,
-                     websocket_handshake_timeout=5,
-                     logger_name: str="client",
+                     ssl_context: Optional[SSLContext] = None,
+                     disconnect_on_exception: bool = True,
+                     websocket_handshake_timeout: float = 5,
+                     logger_name: str = "client",
                      enable_auto_ping: bool = False,
-                     auto_ping_idle_timeout: float=10,
-                     auto_ping_reply_timeout: float=10,
-                     auto_ping_strategy = WSAutoPingStrategy.PING_WHEN_IDLE,
-                     enable_auto_pong: bool=True,
+                     auto_ping_idle_timeout: float = 10,
+                     auto_ping_reply_timeout: float = 10,
+                     auto_ping_strategy: WSAutoPingStrategy = WSAutoPingStrategy.PING_WHEN_IDLE,
+                     enable_auto_pong: bool = True,
                      max_frame_size: int = 10 * 1024 * 1024,
-                     extra_headers: Optional[WSHeadersLike]=None,
+                     extra_headers: Optional[WSHeadersLike] = None,
                      max_redirects: int = 5,
                      **kwargs
                      ) -> tuple[WSTransport, WSListener]:
@@ -61,14 +59,17 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
     `asyncio.loop.create_connection <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.create_connection>`_
 
     :param ws_listener_factory:
-        A parameterless factory function that returns a user handler. User handler has to derive from :any:`WSListener`.
+        A parameterless factory function that returns a user handler.
+        User handler has to derive from :any:`WSListener`.
     :param url: Destination ParsedURL
-    :param ssl_context: optional SSLContext to override default one when wss scheme is used
+    :param ssl_context: optional SSLContext to override default one when
+        wss scheme is used
     :param disconnect_on_exception:
         Indicates whether the client should initiate disconnect on any exception
         thrown from WSListener.on_ws_frame callbacks
     :param websocket_handshake_timeout:
-        is the time in seconds to wait for the websocket client to receive websocket handshake response before aborting the connection.
+        is the time in seconds to wait for the websocket client to receive
+        websocket handshake response before aborting the connection.
     :param logger_name:
         picows will use `picows.<logger_name>` logger to do all the logging.
     :param enable_auto_ping:
@@ -103,7 +104,8 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
     assert "ssl" not in kwargs, "explicit 'ssl' argument for loop.create_connection is not supported"
     assert "sock" not in kwargs, "explicit 'sock' argument for loop.create_connection is not supported"
     assert "all_errors" not in kwargs, "explicit 'all_errors' argument for loop.create_connection is not supported"
-    assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), "invalid value of auto_ping_strategy parameter"
+    assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), \
+        "invalid value of auto_ping_strategy parameter"
 
     parsed_url = parse_url(url)
 
@@ -113,7 +115,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener],
         else:
             ssl = None
 
-        def ws_protocol_factory():
+        def ws_protocol_factory() -> WSProtocol:
             return WSProtocol(
                 parsed_url.netloc,
                 parsed_url.resource_name,
@@ -152,13 +154,13 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,
                            host=None,
                            port=None,
                            *,
-                           disconnect_on_exception: bool=True,
+                           disconnect_on_exception: bool = True,
                            websocket_handshake_timeout=5,
-                           logger_name: str="server",
+                           logger_name: str = "server",
                            enable_auto_ping: bool = False,
                            auto_ping_idle_timeout: float = 20,
                            auto_ping_reply_timeout: float = 20,
-                           auto_ping_strategy = WSAutoPingStrategy.PING_WHEN_IDLE,
+                           auto_ping_strategy=WSAutoPingStrategy.PING_WHEN_IDLE,
                            enable_auto_pong: bool = True,
                            max_frame_size: int = 10 * 1024 * 1024,
                            **kwargs
@@ -227,7 +229,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,
 
     assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), "invalid value of auto_ping_strategy parameter"
 
-    def ws_protocol_factory():
+    def ws_protocol_factory() -> WSProtocol:
         return WSProtocol(
             None,           # host+port
             None,           # ws_path
