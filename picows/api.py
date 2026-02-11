@@ -143,8 +143,8 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
         except WSError as exc:
             parsed_url_or_exc = process_redirect(exc, parsed_url, max_redirects)
             if isinstance(parsed_url_or_exc, ParsedURL):
-                logger.info("%s redirect to %s",
-                            parsed_url.url, parsed_url_or_exc.url)
+                logger.info("%s replied with HTTP redirect to %s, (status = %s)",
+                            parsed_url.url, parsed_url_or_exc.url, exc.response.status)
                 parsed_url = parsed_url_or_exc
                 max_redirects -= 1
             else:

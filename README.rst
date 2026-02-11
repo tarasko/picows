@@ -165,9 +165,6 @@ Contributing / Building From Source
     # To run tests
     $ pip install -r requirements-test.txt
 
-    # To run benchmark
-    $ pip install -r requirements-benchmark.txt
-
     # To build docs
     $ pip install -r docs/requirements.txt
 
