@@ -33,7 +33,7 @@ cdef class ClientListener(WSListener):
             transport.disconnect()
 
 
-async def main(url, msg_size):
-    transport, client = await ws_connect(lambda: ClientListener(msg_size), url)
+async def main(url, msg_size, ssl_context):
+    transport, client = await ws_connect(lambda: ClientListener(msg_size), url, ssl_context=ssl_context)
     await transport.wait_disconnected()
 
