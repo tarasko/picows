@@ -187,6 +187,7 @@ async def ws_connect(
     enable_auto_pong: bool = True,
     extra_headers: Optional[WSHeadersLike] = None,
     max_redirects: int = 5,
+    proxy: Optional[str] = None,
     **kwargs: Any
 ) -> tuple[WSTransport, WSListener]: ...
 

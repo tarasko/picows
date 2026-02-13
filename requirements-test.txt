@@ -6,3 +6,5 @@ pytest-asyncio
 async_timeout
 uvloop; sys_platform != 'win32'
 tiny-proxy
+python-socks
+anyio
