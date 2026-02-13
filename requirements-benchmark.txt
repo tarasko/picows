@@ -1,6 +1,0 @@
-multidict
-websockets
-aiohttp
-numpy
-matplotlib
-uvloop; sys_platform != 'win32'

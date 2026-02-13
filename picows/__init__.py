@@ -1,19 +1,28 @@
-from .picows import (
+from .types import (
     WSError,
+    WSUpgradeRequest,
+    WSUpgradeResponse,
+    WSUpgradeResponseWithListener,
+    PICOWS_DEBUG_LL
+)
+
+from .picows import (
     WSMsgType,
     WSCloseCode,
     WSAutoPingStrategy,
     WSFrame,
     WSTransport,
     WSListener,
-    WSUpgradeRequest,
-    WSUpgradeResponse,
-    WSUpgradeResponseWithListener,
-    ws_connect,
-    ws_create_server,
-    PICOWS_DEBUG_LL
 )
 
+from .url import (
+    WSInvalidURL
+)
+
+from .api import (
+    ws_connect,
+    ws_create_server
+)
 
 __all__ = [
     'WSError',
@@ -31,5 +40,5 @@ __all__ = [
     'PICOWS_DEBUG_LL'
 ]
 
-__version__ = "1.11.1"
+__version__ = "1.12.0"
 __author__ = "Taras Kozlov"

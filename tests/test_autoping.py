@@ -2,7 +2,6 @@ import asyncio
 
 import async_timeout
 import pytest
-from aiohttp import WSMsgType
 
 import picows
 from tests.utils import (ServerAsyncContext, ClientAsyncContext, TIMEOUT,
@@ -61,7 +60,7 @@ async def test_custom_ping_consume_pong():
 
     class ServerClientListener(AccumulatingServerListener):
         def send_user_specific_ping(self, transport: picows.WSTransport):
-            transport.send(WSMsgType.TEXT, b"ping")
+            transport.send(picows.WSMsgType.TEXT, b"ping")
 
         def is_user_specific_pong(self, frame: picows.WSFrame):
             return frame.get_payload_as_memoryview() == b"pong"
@@ -90,7 +89,7 @@ async def test_custom_ping_consume_pong():
             async with ClientAsyncContext(ClientListener, server_ctx.plain_url,
                                           enable_auto_pong=False) as (transport, listener):
                 # Will check that b"hello" was delivered to on_ws_frame and custom ping message not.
-                transport.send(WSMsgType.TEXT, b"hello")
+                transport.send(picows.WSMsgType.TEXT, b"hello")
                 await transport.wait_disconnected()
 
                 assert listener.ping_count == 3
@@ -103,7 +102,7 @@ async def test_custom_ping_notify_pong():
 
     class ServerClientListener(AccumulatingServerListener):
         def send_user_specific_ping(self, transport: picows.WSTransport):
-            transport.send(WSMsgType.TEXT, b"ping")
+            transport.send(picows.WSMsgType.TEXT, b"ping")
 
         def is_user_specific_pong(self, frame: picows.WSFrame):
             return False
@@ -138,7 +137,7 @@ async def test_custom_ping_notify_pong():
         async with ServerAsyncContext(server) as server_ctx:
             async with ClientAsyncContext(ClientListener, server_ctx.plain_url,
                                           enable_auto_pong=False) as (transport, listener):
-                transport.send(WSMsgType.TEXT, b"hello")
+                transport.send(picows.WSMsgType.TEXT, b"hello")
                 await transport.wait_disconnected()
 
                 assert listener.ping_count == 3
