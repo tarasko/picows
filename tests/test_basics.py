@@ -8,7 +8,7 @@ import pytest
 import async_timeout
 
 from http import HTTPStatus
-from tests.utils import create_client_ssl_context, create_server_ssl_context, \
+from tests.utils import create_client_ssl_context, echo_server, \
     TIMEOUT, ClientMsgQueue, ServerEchoListener, ClientAsyncContext, ServerAsyncContext, get_server_port
 
 
@@ -43,20 +43,6 @@ else:
             return uvloop.EventLoopPolicy()
         else:
             assert False, "unknown loop"
-
-
-@pytest.fixture(params=["plain", "ssl"])
-async def echo_server(request):
-    use_ssl = request.param == "ssl"
-    server = await picows.ws_create_server(lambda _: ServerEchoListener(),
-                                           "127.0.0.1",
-                                           0,
-                                           ssl=create_server_ssl_context() if use_ssl else None,
-                                           websocket_handshake_timeout=0.5,
-                                           enable_auto_pong=False)
-
-    async with ServerAsyncContext(server) as server_ctx:
-        yield server_ctx.ssl_url if use_ssl else server_ctx.plain_url
 
 
 @pytest.fixture()
@@ -454,3 +440,4 @@ async def test_stress(client_msg_queue):
             frame = await client_msg_queue.get_message()
 
     assert not client_msg_queue.is_paused
+

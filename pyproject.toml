@@ -7,7 +7,7 @@ readme = "README.rst"
 license-files = ["LICENSE"]
 dynamic = ["version"]
 keywords = ["websocket", "networking"]
-dependencies = ["multidict", "python-socks", "async-timeout"]
+dependencies = ["multidict", "python-socks"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Framework :: AsyncIO",

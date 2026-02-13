@@ -1,7 +1,9 @@
 import asyncio
 import pathlib
 import ssl
-from typing import Union
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from typing import Union, Optional
 
 import async_timeout
 import pytest
@@ -88,40 +90,35 @@ class ServerEchoListener(picows.WSListener):
             self._transport.send(frame.msg_type, frame.get_payload_as_bytes(), frame.fin, frame.rsv1)
 
 
-class ServerAsyncContext:
-    def __init__(self, server, shutdown_timeout=TIMEOUT):
-        self.server = server
-        self.server_task = asyncio.create_task(server.serve_forever())
-        self.plain_url = None
-        self.ssl_url = None
-        self.shutdown_timeout = shutdown_timeout
+@dataclass
+class ServerUrls:
+    plain_url: Optional[str]
+    ssl_url: Optional[str]
 
-    async def __aenter__(self):
-        await self.server.__aenter__()
-        self.plain_url = f"ws://127.0.0.1:{self.server.sockets[0].getsockname()[1]}"
-        self.ssl_url = f"wss://127.0.0.1:{self.server.sockets[0].getsockname()[1]}"
-        return self
 
-    async def __aexit__(self, *exc):
-        self.server_task.cancel()
-        await self.server.__aexit__(*exc)
+@asynccontextmanager
+async def ServerAsyncContext(server, shutdown_timeout=TIMEOUT):
+    server_task = asyncio.create_task(server.serve_forever())
+    await server.__aenter__()
+    try:
+        yield ServerUrls(f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}",
+                         f"wss://127.0.0.1:{server.sockets[0].getsockname()[1]}")
+    finally:
+        server_task.cancel()
+        server.__aexit__()
         with pytest.raises(asyncio.CancelledError):
-            async with async_timeout.timeout(self.shutdown_timeout):
-                await self.server_task
+            async with async_timeout.timeout(shutdown_timeout):
+                await server_task
 
 
-class ClientAsyncContext:
-    def __init__(self, *args, **kwargs):
-        self.args = args
-        self.kwargs = kwargs
-
-    async def __aenter__(self):
-        self._transport, self._listener = await picows.ws_connect(*self.args, **self.kwargs)
-        return self._transport, self._listener
-
-    async def __aexit__(self, *exc):
-        self._transport.disconnect(graceful=False)
-        await self._transport.wait_disconnected()
+@asynccontextmanager
+async def ClientAsyncContext(*args, **kwargs):
+    transport, listener = await picows.ws_connect(*args, **kwargs)
+    try:
+        yield (transport, listener)
+    finally:
+        transport.disconnect(graceful=False)
+        await transport.wait_disconnected()
 
 
 def create_server_ssl_context():
@@ -145,3 +142,17 @@ def create_client_ssl_context():
 
 def get_server_port(server: asyncio.Server):
     return server.sockets[0].getsockname()[1]
+
+
+@pytest.fixture(params=["plain", "ssl"])
+async def echo_server(request):
+    use_ssl = request.param == "ssl"
+    server = await picows.ws_create_server(lambda _: ServerEchoListener(),
+                                           "127.0.0.1",
+                                           0,
+                                           ssl=create_server_ssl_context() if use_ssl else None,
+                                           websocket_handshake_timeout=0.5,
+                                           enable_auto_pong=False)
+
+    async with ServerAsyncContext(server) as server_ctx:
+        yield server_ctx.ssl_url if use_ssl else server_ctx.plain_url
