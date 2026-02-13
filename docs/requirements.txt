@@ -2,3 +2,5 @@ Cython>=3.0
 sphinx-toolbox
 enum-tools
 multidict
+python-socks
+async-timeout

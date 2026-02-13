@@ -4,6 +4,8 @@ from logging import getLogger
 from ssl import SSLContext
 from typing import Callable, Optional, Union
 
+from python_socks.async_.asyncio import Proxy
+
 from .types import (WSHeadersLike, WSUpgradeRequest,
                     WSUpgradeResponseWithListener, WSError)
 from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: ignore [attr-defined]
@@ -51,6 +53,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                      max_frame_size: int = 10 * 1024 * 1024,
                      extra_headers: Optional[WSHeadersLike] = None,
                      max_redirects: int = 5,
+                     proxy: Optional[str] = None,
                      **kwargs
                      ) -> tuple[WSTransport, WSListener]:
     """
@@ -99,6 +102,10 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
         Arbitrary HTTP headers to add to the handshake request.
     :param max_redirects:
         * How many times we can follow HTTP redirects. Set to 0 in order to disable redirects.
+    :param proxy:
+        Optional proxy URL. Supported schemes are ``http://``, ``socks4://``
+        and ``socks5://`` (including authenticated variants).
+        HTTPS proxy scheme (``https://``) is currently not supported.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
 
@@ -138,8 +145,26 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                 extra_headers)
 
         try:
-            (_, ws_protocol) = await asyncio.get_running_loop().create_connection(
-                ws_protocol_factory, parsed_url.host, parsed_url.port, ssl=ssl, **kwargs)
+            loop = asyncio.get_running_loop()
+            conn_kwargs = dict(kwargs)
+            if proxy is not None and urllib.parse.urlsplit(proxy).scheme.lower() == "https":
+                raise ValueError("HTTPS proxy URL scheme is not supported, use http://, socks4:// or socks5://")
+
+            if proxy is None:
+                (_, ws_protocol) = await loop.create_connection(
+                    ws_protocol_factory, parsed_url.host, parsed_url.port, ssl=ssl, **conn_kwargs)
+            else:
+                proxy_sock = await Proxy.from_url(proxy).connect(dest_host=parsed_url.host,
+                                                                dest_port=parsed_url.port)
+
+                if ssl is not None and "server_hostname" not in conn_kwargs:
+                    conn_kwargs["server_hostname"] = parsed_url.host
+
+                (_, ws_protocol) = await loop.create_connection(
+                    ws_protocol_factory,
+                    sock=proxy_sock,
+                    ssl=ssl,
+                    **conn_kwargs)
 
             await ws_protocol.wait_until_handshake_complete()
             return ws_protocol.transport, ws_protocol.listener
