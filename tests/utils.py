@@ -42,7 +42,7 @@ def multiloop_event_loop_policy():
         params = ("asyncio", "uvloop")
         uvloop = importlib.import_module("uvloop")
 
-    @pytest.fixture(params=params, scope="function")
+    @pytest.fixture(params=params)
     def event_loop_policy(request) -> asyncio.AbstractEventLoopPolicy:
         name = request.param
 

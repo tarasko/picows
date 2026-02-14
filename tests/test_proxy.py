@@ -33,7 +33,7 @@ _proxy_url_templates = {
 }
 
 @asynccontextmanager
-async def _proxy_context(proxy_type: str):
+async def ProxyServer(proxy_type: str):
     url_template = _proxy_url_templates[proxy_type]
     handler = _create_proxy_handler(proxy_type)
     listener = await anyio.create_tcp_listener(local_host="127.0.0.1")
@@ -54,7 +54,7 @@ async def _proxy_context(proxy_type: str):
 @pytest.mark.parametrize("proxy_type", ["http", "http_auth", "socks4", "socks5"])
 async def test_proxy_connect_and_echo(echo_server, proxy_type: str):
     client_ssl_ctx = create_client_ssl_context()
-    async with _proxy_context(proxy_type) as proxy_url:
+    async with ProxyServer(proxy_type) as proxy_url:
         async with ClientAsyncContext(AsyncClient, echo_server, ssl_context=client_ssl_ctx, proxy=proxy_url) as (transport, listener):
             transport.send(picows.WSMsgType.BINARY, b"hello over proxy")
             frame = await listener.get_message()
