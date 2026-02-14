@@ -302,5 +302,13 @@ are not currently supported:
 When connecting to ``wss://`` URLs through a proxy, picows establishes a tunnel
 through the proxy and then performs the TLS handshake with the websocket server.
 
-When domain name is in URL, DNS resolution happens at the proxy, unless it is SOCK4.
-SOCK4 is an old protocol, where
+Hostname resolution generally happens at the proxy, unless it is SOCK4.
+SOCK4 is an old protocol, where CONNECT request doesn't support host names, only IP addresses.
+SOCK4 hostname resolution is performed at the client.
+
+Basic auth is supported. Login/password can be specified in proxy url.
+
+.. _getproxies: https://docs.python.org/3/library/urllib.request.html#urllib.request.getproxies
+
+Currently **picows** doesn't attempt to use system proxy settings. If you want to use
+a system wide proxy, get them using `getproxies`_ and pass one as a proxy argument.
