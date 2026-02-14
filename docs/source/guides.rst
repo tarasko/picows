@@ -311,4 +311,5 @@ Basic auth is supported. Login/password can be specified in proxy url.
 .. _getproxies: https://docs.python.org/3/library/urllib.request.html#urllib.request.getproxies
 
 Currently **picows** doesn't attempt to use system proxy settings. If you want to use
-a system wide proxy, get them using `getproxies`_ and pass one as a proxy argument.
+a system wide proxy settings, get them using `getproxies`_ and pass one as a
+proxy argument.
