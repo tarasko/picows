@@ -5,8 +5,11 @@ import pytest
 from tiny_proxy import HttpProxyHandler, Socks4ProxyHandler, Socks5ProxyHandler
 
 import picows
-from tests.utils import ClientAsyncContext, ClientMsgQueue, \
-    create_client_ssl_context, echo_server
+from tests.utils import ClientAsyncContext, AsyncClient, \
+    create_client_ssl_context, echo_server, multiloop_event_loop_policy
+
+
+event_loop_policy = multiloop_event_loop_policy()
 
 
 def _create_proxy_handler(proxy_type: str):
@@ -52,7 +55,7 @@ async def _proxy_context(proxy_type: str):
 async def test_proxy_connect_and_echo(echo_server, proxy_type: str):
     client_ssl_ctx = create_client_ssl_context()
     async with _proxy_context(proxy_type) as proxy_url:
-        async with ClientAsyncContext(ClientMsgQueue, echo_server, ssl_context=client_ssl_ctx, proxy=proxy_url) as (transport, listener):
+        async with ClientAsyncContext(AsyncClient, echo_server, ssl_context=client_ssl_ctx, proxy=proxy_url) as (transport, listener):
             transport.send(picows.WSMsgType.BINARY, b"hello over proxy")
             frame = await listener.get_message()
             assert frame.msg_type == picows.WSMsgType.BINARY

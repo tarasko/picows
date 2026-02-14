@@ -46,7 +46,7 @@ async def test_ping_pong():
                                                enable_auto_pong=False)
 
         async with ServerAsyncContext(server) as server_ctx:
-            async with ClientAsyncContext(ClientListener, server_ctx.plain_url,
+            async with ClientAsyncContext(ClientListener, server_ctx.tcp_url,
                                           enable_auto_pong=False) as (transport, listener):
                 await transport.wait_disconnected()
                 assert listener.ping_count == 3
@@ -86,7 +86,7 @@ async def test_custom_ping_consume_pong():
 
     async with async_timeout.timeout(TIMEOUT):
         async with ServerAsyncContext(server) as server_ctx:
-            async with ClientAsyncContext(ClientListener, server_ctx.plain_url,
+            async with ClientAsyncContext(ClientListener, server_ctx.tcp_url,
                                           enable_auto_pong=False) as (transport, listener):
                 # Will check that b"hello" was delivered to on_ws_frame and custom ping message not.
                 transport.send(picows.WSMsgType.TEXT, b"hello")
@@ -135,7 +135,7 @@ async def test_custom_ping_notify_pong():
 
     async with async_timeout.timeout(TIMEOUT):
         async with ServerAsyncContext(server) as server_ctx:
-            async with ClientAsyncContext(ClientListener, server_ctx.plain_url,
+            async with ClientAsyncContext(ClientListener, server_ctx.tcp_url,
                                           enable_auto_pong=False) as (transport, listener):
                 transport.send(picows.WSMsgType.TEXT, b"hello")
                 await transport.wait_disconnected()
@@ -155,7 +155,7 @@ async def test_no_pong_reply():
 
     async with async_timeout.timeout(TIMEOUT):
         async with ServerAsyncContext(server) as server_ctx:
-            async with ClientAsyncContext(AccumulatingListener, server_ctx.plain_url,
+            async with ClientAsyncContext(AccumulatingListener, server_ctx.tcp_url,
                                           enable_auto_pong=False) as (transport, listener):
                 await transport.wait_disconnected()
 
@@ -175,7 +175,7 @@ async def test_no_ping_when_data_is_present():
                                            enable_auto_pong=False)
 
     async with ServerAsyncContext(server) as server_ctx:
-        async with ClientAsyncContext(AccumulatingListener, server_ctx.plain_url,
+        async with ClientAsyncContext(AccumulatingListener, server_ctx.tcp_url,
                                       enable_auto_pong=False) as (transport, listener):
             for i in range(50):
                 await asyncio.sleep(0.02)
@@ -203,7 +203,7 @@ async def test_periodic_ping_when_data_is_present():
             super().on_ws_frame(transport, frame)
 
     async with ServerAsyncContext(server) as server_ctx:
-        async with ClientAsyncContext(ClientListener, server_ctx.plain_url,
+        async with ClientAsyncContext(ClientListener, server_ctx.tcp_url,
                                       enable_auto_pong=False) as (transport, listener):
             for i in range(50):
                 await asyncio.sleep(0.02)
@@ -229,7 +229,7 @@ async def test_send_user_specific_ping_exception():
 
     async with async_timeout.timeout(TIMEOUT):
         async with ServerAsyncContext(server) as server_ctx:
-            async with ClientAsyncContext(AccumulatingListener, server_ctx.plain_url,
+            async with ClientAsyncContext(AccumulatingListener, server_ctx.tcp_url,
                                           enable_auto_pong=False) as (transport, listener):
                 await transport.wait_disconnected()
 
@@ -254,7 +254,7 @@ async def test_is_user_specific_pong_exception():
 
     async with async_timeout.timeout(TIMEOUT):
         async with ServerAsyncContext(server) as server_ctx:
-            async with ClientAsyncContext(AccumulatingListener, server_ctx.plain_url,
+            async with ClientAsyncContext(AccumulatingListener, server_ctx.tcp_url,
                                           enable_auto_pong=True) as (transport, listener):
                 await transport.wait_disconnected()
 
@@ -283,7 +283,7 @@ async def test_roundtrip_time(use_notify, auto_ping_strategy):
         client_listener_factory = ClientListenerUseNotify if use_notify else picows.WSListener
         client_enable_auto_ping = auto_ping_strategy is not None
         client_auto_ping_strategy = auto_ping_strategy or picows.WSAutoPingStrategy.PING_WHEN_IDLE
-        async with ClientAsyncContext(client_listener_factory, server_ctx.plain_url,
+        async with ClientAsyncContext(client_listener_factory, server_ctx.tcp_url,
                                       enable_auto_ping=client_enable_auto_ping,
                                       auto_ping_idle_timeout=0.5,
                                       auto_ping_reply_timeout=0.5,
@@ -319,7 +319,7 @@ async def test_roundtrip_latency_disconnect(with_auto_ping):
 
     async with async_timeout.timeout(TIMEOUT):
         async with ServerAsyncContext(server) as server_ctx:
-            async with ClientAsyncContext(ClientListener, server_ctx.plain_url,
+            async with ClientAsyncContext(ClientListener, server_ctx.tcp_url,
                                           enable_auto_ping=with_auto_ping,
                                           auto_ping_idle_timeout=0.5,
                                           auto_ping_reply_timeout=0.5) as (transport, listener):

@@ -1,6 +1,9 @@
 import asyncio
+import importlib
+import os
 import pathlib
 import ssl
+import sys
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Union, Optional
@@ -11,6 +14,51 @@ import pytest
 import picows
 
 TIMEOUT = 0.5
+
+
+def _default_windows_policy() -> asyncio.AbstractEventLoopPolicy:
+    # Matches your current logic
+    if sys.version_info >= (3, 10):
+        return asyncio.DefaultEventLoopPolicy()
+    return asyncio.WindowsSelectorEventLoopPolicy()
+
+def multiloop_event_loop_policy():
+    """
+    Returns a pytest fixture function named `event_loop_policy` (by assignment in the test module).
+
+    Usage in a test module:
+        from tests.utils import make_event_loop_policy_fixture
+        event_loop_policy = make_event_loop_policy_fixture()
+
+    Notes:
+    - On Windows, uvloop isn't used (by default) and we return the appropriate asyncio policy.
+    - On non-Windows, params are ("asyncio", "uvloop")
+    """
+    # Decide params at factory creation time (import-time for that module)
+    uvloop = None
+    if os.name == "nt":
+        params = ("asyncio",)
+    else:
+        params = ("asyncio", "uvloop")
+        uvloop = importlib.import_module("uvloop")
+
+    @pytest.fixture(params=params, scope="function")
+    def event_loop_policy(request) -> asyncio.AbstractEventLoopPolicy:
+        name = request.param
+
+        if os.name == "nt":
+            # only asyncio param
+            return _default_windows_policy()
+
+        # non-Windows
+        if name == "asyncio":
+            return asyncio.DefaultEventLoopPolicy()
+        elif name == "uvloop":
+            return uvloop.EventLoopPolicy()
+        else:
+            raise AssertionError(f"unknown loop: {name!r}")
+
+    return event_loop_policy
 
 
 class BinaryFrame:
@@ -49,7 +97,7 @@ def materialize_frame(frame: picows.WSFrame) -> Union[TextFrame, CloseFrame, Bin
         return BinaryFrame(frame)
 
 
-class ClientMsgQueue(picows.WSListener):
+class AsyncClient(picows.WSListener):
     transport: picows.WSTransport
     msg_queue: asyncio.Queue
     is_paused: bool
@@ -92,7 +140,7 @@ class ServerEchoListener(picows.WSListener):
 
 @dataclass
 class ServerUrls:
-    plain_url: Optional[str]
+    tcp_url: Optional[str]
     ssl_url: Optional[str]
 
 
@@ -105,7 +153,7 @@ async def ServerAsyncContext(server, shutdown_timeout=TIMEOUT):
                          f"wss://127.0.0.1:{server.sockets[0].getsockname()[1]}")
     finally:
         server_task.cancel()
-        server.__aexit__()
+        await server.__aexit__()
         with pytest.raises(asyncio.CancelledError):
             async with async_timeout.timeout(shutdown_timeout):
                 await server_task
@@ -118,6 +166,21 @@ async def ClientAsyncContext(*args, **kwargs):
         yield (transport, listener)
     finally:
         transport.disconnect(graceful=False)
+        await transport.wait_disconnected()
+
+
+@pytest.fixture()
+async def connected_async_client(echo_server):
+    async with ClientAsyncContext(AsyncClient, echo_server,
+                                  ssl_context=create_client_ssl_context(),
+                                  websocket_handshake_timeout=0.5,
+                                  enable_auto_pong=False
+                                  ) as (transport, listener):
+        yield listener
+
+        # Teardown client
+        transport.send_close(picows.WSCloseCode.GOING_AWAY, b"poka poka")
+        # Gracefull shutdown, expect server to disconnect us because we have sent close message
         await transport.wait_disconnected()
 
 
@@ -144,7 +207,7 @@ def get_server_port(server: asyncio.Server):
     return server.sockets[0].getsockname()[1]
 
 
-@pytest.fixture(params=["plain", "ssl"])
+@pytest.fixture(params=["tcp", "ssl"])
 async def echo_server(request):
     use_ssl = request.param == "ssl"
     server = await picows.ws_create_server(lambda _: ServerEchoListener(),
@@ -155,4 +218,4 @@ async def echo_server(request):
                                            enable_auto_pong=False)
 
     async with ServerAsyncContext(server) as server_ctx:
-        yield server_ctx.ssl_url if use_ssl else server_ctx.plain_url
+        yield server_ctx.ssl_url if use_ssl else server_ctx.tcp_url

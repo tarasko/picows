@@ -7,7 +7,7 @@ import picows
 from picows import WSUpgradeResponse
 from picows.api import _maybe_handle_redirect
 from picows.url import parse_url
-from tests.utils import ClientMsgQueue, ServerEchoListener, ServerAsyncContext, ClientAsyncContext, get_server_port
+from tests.utils import AsyncClient, ServerEchoListener, ServerAsyncContext, ClientAsyncContext, get_server_port
 
 
 async def test_redirect_chain():
@@ -37,17 +37,17 @@ async def test_redirect_chain():
     url = f"ws://test_login:test_pwd@127.0.0.1:{get_server_port(redirect_2_server)}"
 
     async with ServerAsyncContext(final_server), ServerAsyncContext(redirect_1_server), ServerAsyncContext(redirect_2_server):
-        listener: ClientMsgQueue
-        async with ClientAsyncContext(ClientMsgQueue, url) as (transport, listener):
+        listener: AsyncClient
+        async with ClientAsyncContext(AsyncClient, url) as (transport, listener):
             transport.send(picows.WSMsgType.TEXT, b"hello")
             msg = await listener.get_message()
             assert msg.payload_as_ascii_text == "hello"
 
         with pytest.raises(picows.WSError, match="status 101"):
-            await picows.ws_connect(ClientMsgQueue, url, max_redirects=0)
+            await picows.ws_connect(AsyncClient, url, max_redirects=0)
 
         with pytest.raises(picows.WSError, match="status 101"):
-            await picows.ws_connect(ClientMsgQueue, url, max_redirects=1)
+            await picows.ws_connect(AsyncClient, url, max_redirects=1)
 
 
 async def test_redirect_location():
