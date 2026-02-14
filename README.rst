@@ -18,9 +18,6 @@ Introduction
     :target: https://picows.readthedocs.io/en/latest/
     :alt: Latest Read The Docs
 
-.. image:: https://img.shields.io/badge/License-MIT-green
-    :target: https://opensource.org/license/mit
-
 .. image:: https://deepwiki.com/badge.svg
     :target: https://deepwiki.com/tarasko/picows 
     :alt: Ask DeepWiki
