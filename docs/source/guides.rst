@@ -299,7 +299,7 @@ are not currently supported:
         proxy="socks5://user:password@127.0.0.1:1080",
     )
 
-When connecting to ``wss://`` URLs through a proxy, picows establishes a tunnel
+When connecting to ``wss://`` URLs through a proxy, **picows** establishes a tunnel
 through the proxy and then performs the TLS handshake with the websocket server.
 
 Hostname resolution generally happens at the proxy, unless it is SOCK4.
