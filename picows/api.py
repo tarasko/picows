@@ -150,21 +150,22 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
             if proxy is not None and urllib.parse.urlsplit(proxy).scheme.lower() == "https":
                 raise ValueError("HTTPS proxy URL scheme is not supported, use http://, socks4:// or socks5://")
 
-            if proxy is None:
-                (_, ws_protocol) = await loop.create_connection(
-                    ws_protocol_factory, parsed_url.host, parsed_url.port, ssl=ssl, **conn_kwargs)
-            else:
-                proxy_sock = await Proxy.from_url(proxy).connect(dest_host=parsed_url.host,
-                                                                dest_port=parsed_url.port)
+            proxy_socket = None
+            host = None
+            port = None
+            if proxy is not None:
+                proxy_socket = await Proxy.from_url(proxy).connect(
+                    dest_host=parsed_url.host,
+                    dest_port=parsed_url.port)
 
                 if ssl is not None and "server_hostname" not in conn_kwargs:
                     conn_kwargs["server_hostname"] = parsed_url.host
+            else:
+                host = parsed_url.host
+                port = parsed_url.port
 
-                (_, ws_protocol) = await loop.create_connection(
-                    ws_protocol_factory,
-                    sock=proxy_sock,
-                    ssl=ssl,
-                    **conn_kwargs)
+            (_, ws_protocol) = await loop.create_connection(
+                ws_protocol_factory, host, port, ssl=ssl, sock=proxy_socket, **conn_kwargs)
 
             await ws_protocol.wait_until_handshake_complete()
             return ws_protocol.transport, ws_protocol.listener
