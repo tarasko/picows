@@ -165,7 +165,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                 port = parsed_url.port
 
             (_, ws_protocol) = await loop.create_connection(
-                ws_protocol_factory, host, port, ssl=ssl, sock=proxy_socket, **conn_kwargs)
+                ws_protocol_factory, host, port, ssl=ssl, sock=proxy_socket, **conn_kwargs) # type: ignore[arg-type]
 
             await ws_protocol.wait_until_handshake_complete()
             return ws_protocol.transport, ws_protocol.listener

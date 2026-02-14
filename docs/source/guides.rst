@@ -75,7 +75,7 @@ If this applies to your use case, it's better to delay the determination of a po
 
 Using proxies
 -------------
-`Available since 1.9`
+`Available since 1.13`
 
 :any:`ws_connect` supports HTTP, SOCKS4 and SOCKS5 proxies via
 `python-socks <https://github.com/romis2012/python-socks>`_.
