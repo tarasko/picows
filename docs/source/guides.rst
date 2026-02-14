@@ -73,26 +73,6 @@ If this applies to your use case, it's better to delay the determination of a po
             ...
 
 
-Using proxies
--------------
-`Available since 1.13`
-
-:any:`ws_connect` supports HTTP, SOCKS4 and SOCKS5 proxies via
-`python-socks <https://github.com/romis2012/python-socks>`_.
-Use ``proxy`` argument with a proxy URL. HTTPS proxy URLs (``https://...``)
-are not currently supported:
-
-.. code-block:: python
-
-    transport, listener = await ws_connect(
-        ClientListener,
-        "ws://127.0.0.1:9000/",
-        proxy="socks5://user:password@127.0.0.1:1080",
-    )
-
-When connecting to ``wss://`` URLs through a proxy, picows establishes a tunnel
-through the proxy and then performs the TLS handshake with the websocket server.
-
 Auto pong
 ---------
 `Available since 1.6`
@@ -301,3 +281,26 @@ This is described in the documentation of each particular method.
 In most cases, **picows** will send a CLOSE frame with an INTERNAL_ERROR close code and disconnect.
 However, for :any:`on_ws_frame`, it is possible to override it by setting disconnect_on_error=False
 in :any:`ws_connect`/:any:`ws_create_server`.
+
+Using proxies
+-------------
+`Available since 1.13`
+
+:any:`ws_connect` supports HTTP, SOCKS4 and SOCKS5 proxies via
+`python-socks <https://github.com/romis2012/python-socks>`_.
+Use ``proxy`` argument with a proxy URL. HTTPS proxy URLs (``https://...``)
+are not currently supported:
+
+.. code-block:: python
+
+    transport, listener = await ws_connect(
+        ClientListener,
+        "ws://127.0.0.1:9000/",
+        proxy="socks5://user:password@127.0.0.1:1080",
+    )
+
+When connecting to ``wss://`` URLs through a proxy, picows establishes a tunnel
+through the proxy and then performs the TLS handshake with the websocket server.
+
+When domain name is in URL, DNS resolution happens at the proxy, unless it is SOCK4.
+SOCK4 is an old protocol, where

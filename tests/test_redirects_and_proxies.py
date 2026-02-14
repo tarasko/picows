@@ -1,5 +1,7 @@
+import ssl
 from contextlib import asynccontextmanager
 from http import HTTPStatus
+from logging import getLogger
 
 import anyio
 import pytest
@@ -8,10 +10,11 @@ from tiny_proxy import HttpProxyHandler, Socks4ProxyHandler, Socks5ProxyHandler
 import picows
 from tests.utils import ClientAsyncContext, AsyncClient, \
     create_client_ssl_context, echo_server, multiloop_event_loop_policy, \
-    ServerEchoListener, get_server_port, ServerAsyncContext
+    ServerAsyncContext
 
 event_loop_policy = multiloop_event_loop_policy()
 
+_logger = getLogger(__name__)
 
 def _create_proxy_handler(proxy_type: str):
     if proxy_type == "http":
@@ -108,3 +111,17 @@ async def test_redirect_through_proxy(redirect_server_2, proxy_type: str):
 
         with pytest.raises(picows.WSError, match="status 101"):
             await picows.ws_connect(AsyncClient, redirect_server_2, max_redirects=1, proxy=proxy_url)
+
+
+@pytest.mark.parametrize("proxy_type", ["direct", "http", "http_auth", "socks4", "socks5"])
+async def test_proxy_dns_resolution(proxy_type):
+    client_ssl_ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+
+    async with ProxyServer(proxy_type) as proxy_url:
+        async with ClientAsyncContext(AsyncClient, "wss://echo.websocket.org", ssl_context=client_ssl_ctx, proxy=proxy_url) as (transport, listener):
+            frame = await listener.get_message()
+            _logger.debug("Welcome frame from echo.websocket.org: %s", frame.payload_as_ascii_text)
+            transport.send(picows.WSMsgType.BINARY, b"hello over proxy")
+            frame = await listener.get_message()
+            assert frame.msg_type == picows.WSMsgType.BINARY
+            assert frame.payload_as_bytes == b"hello over proxy"
