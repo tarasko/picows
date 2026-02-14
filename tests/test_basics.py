@@ -1,85 +1,31 @@
 import asyncio
 import base64
 import os
-import sys
 
 import picows
 import pytest
 import async_timeout
 
 from http import HTTPStatus
-from tests.utils import create_client_ssl_context, create_server_ssl_context, \
-    TIMEOUT, ClientMsgQueue, ServerEchoListener, ClientAsyncContext, ServerAsyncContext, get_server_port
+from tests.utils import create_client_ssl_context, echo_server, \
+    TIMEOUT, AsyncClient, ServerEchoListener, ClientAsyncContext, \
+    ServerAsyncContext, get_server_port, multiloop_event_loop_policy, \
+    connected_async_client
 
 
 class MyException(RuntimeError):
     pass
 
 
-if os.name == 'nt':
-    @pytest.fixture(
-        params=(
-            "asyncio",
-        ),
-    )
-    def event_loop_policy(request):
-        if sys.version_info >= (3, 10):
-            return asyncio.DefaultEventLoopPolicy()
-        else:
-            return asyncio.WindowsSelectorEventLoopPolicy()
-else:
-    import uvloop
-
-    @pytest.fixture(
-        params=(
-            "asyncio",
-            "uvloop",
-        ),
-    )
-    def event_loop_policy(request):
-        if request.param == 'asyncio':
-            return None
-        elif request.param == 'uvloop':
-            return uvloop.EventLoopPolicy()
-        else:
-            assert False, "unknown loop"
-
-
-@pytest.fixture(params=["plain", "ssl"])
-async def echo_server(request):
-    use_ssl = request.param == "ssl"
-    server = await picows.ws_create_server(lambda _: ServerEchoListener(),
-                                           "127.0.0.1",
-                                           0,
-                                           ssl=create_server_ssl_context() if use_ssl else None,
-                                           websocket_handshake_timeout=0.5,
-                                           enable_auto_pong=False)
-
-    async with ServerAsyncContext(server) as server_ctx:
-        yield server_ctx.ssl_url if use_ssl else server_ctx.plain_url
-
-
-@pytest.fixture()
-async def client_msg_queue(echo_server):
-    async with ClientAsyncContext(ClientMsgQueue, echo_server,
-                                  ssl_context=create_client_ssl_context(),
-                                  websocket_handshake_timeout=0.5,
-                                  enable_auto_pong=False
-                                  ) as (transport, listener):
-        yield listener
-
-        # Teardown client
-        transport.send_close(picows.WSCloseCode.GOING_AWAY, b"poka poka")
-        # Gracefull shutdown, expect server to disconnect us because we have sent close message
-        await transport.wait_disconnected()
+event_loop_policy = multiloop_event_loop_policy()
 
 
 @pytest.mark.parametrize("msg_size", [0, 1, 2, 3, 4, 5, 6, 7, 8, 29, 64, 256 * 1024])
-async def test_echo(client_msg_queue, msg_size):
+async def test_echo(connected_async_client, msg_size):
     msg = (b"ABCDEFGHIKLMNOPQ" * (int(msg_size / 16) + 1))[:msg_size]
 
-    client_msg_queue.transport.send(picows.WSMsgType.BINARY, msg, False, False)
-    frame = await client_msg_queue.get_message()
+    connected_async_client.transport.send(picows.WSMsgType.BINARY, msg, False, False)
+    frame = await connected_async_client.get_message()
     assert frame.msg_type == picows.WSMsgType.BINARY
     assert frame.payload_as_bytes == msg
     assert frame.payload_as_bytes_from_mv == msg
@@ -88,14 +34,14 @@ async def test_echo(client_msg_queue, msg_size):
 
     ba = bytearray(b"1234567890123456")
     ba += msg
-    client_msg_queue.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, ba, 16)
-    frame = await client_msg_queue.get_message()
+    connected_async_client.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, ba, 16)
+    frame = await connected_async_client.get_message()
     assert frame.msg_type == picows.WSMsgType.BINARY
     assert frame.payload_as_bytes == msg
 
     msg = base64.b64encode(msg)
-    client_msg_queue.transport.send(picows.WSMsgType.TEXT, msg, True, True)
-    frame = await client_msg_queue.get_message()
+    connected_async_client.transport.send(picows.WSMsgType.TEXT, msg, True, True)
+    frame = await connected_async_client.get_message()
     assert frame.msg_type == picows.WSMsgType.TEXT
     assert frame.payload_as_ascii_text == msg.decode("ascii")
     assert frame.payload_as_utf8_text == msg.decode("utf8")
@@ -103,36 +49,36 @@ async def test_echo(client_msg_queue, msg_size):
     assert frame.rsv1
 
     # Check send defaults
-    client_msg_queue.transport.send(picows.WSMsgType.BINARY, msg)
-    frame = await client_msg_queue.get_message()
+    connected_async_client.transport.send(picows.WSMsgType.BINARY, msg)
+    frame = await connected_async_client.get_message()
     assert frame.fin
     assert not frame.rsv1
 
     # Check ping
-    client_msg_queue.transport.send_ping(b"hi")
-    frame = await client_msg_queue.get_message()
+    connected_async_client.transport.send_ping(b"hi")
+    frame = await connected_async_client.get_message()
     assert frame.msg_type == picows.WSMsgType.PING
     assert frame.payload_as_bytes == b"hi"
 
     # Check pong
-    client_msg_queue.transport.send_pong(b"hi")
-    frame = await client_msg_queue.get_message()
+    connected_async_client.transport.send_pong(b"hi")
+    frame = await connected_async_client.get_message()
     assert frame.msg_type == picows.WSMsgType.PONG
     assert frame.payload_as_bytes == b"hi"
 
     # Test non-bytes like send
     with pytest.raises(TypeError):
-        client_msg_queue.transport.send(picows.WSMsgType.BINARY, "hi")
+        connected_async_client.transport.send(picows.WSMsgType.BINARY, "hi")
 
 
-async def test_send_external_bytearray_asserts(client_msg_queue):
+async def test_send_external_bytearray_asserts(connected_async_client):
     with pytest.raises(AssertionError):
         # Check assertion for msg_len >= 0
-        client_msg_queue.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, bytearray(b"HELLO"), 16)
+        connected_async_client.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, bytearray(b"HELLO"), 16)
 
     with pytest.raises(AssertionError):
         # Check assertion for offset to be at least 14
-        client_msg_queue.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, bytearray(b"1234567890123HELLO"), 13)
+        connected_async_client.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, bytearray(b"1234567890123HELLO"), 13)
 
 
 async def test_max_frame_size_violation():
@@ -142,7 +88,7 @@ async def test_max_frame_size_violation():
                                            "127.0.0.1", 0,
                                            max_frame_size=max_frame_size)
     async with ServerAsyncContext(server) as server_ctx:
-        async with ClientAsyncContext(ClientMsgQueue, server_ctx.plain_url,
+        async with ClientAsyncContext(AsyncClient, server_ctx.tcp_url,
                                       ssl_context=create_client_ssl_context(),
                                       max_frame_size=max_frame_size,
                                       ) as (transport, listener):
@@ -152,9 +98,9 @@ async def test_max_frame_size_violation():
             assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
 
 
-async def test_close(client_msg_queue):
-    client_msg_queue.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"goodbye")
-    frame = await client_msg_queue.get_message()
+async def test_close(connected_async_client):
+    connected_async_client.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"goodbye")
+    frame = await connected_async_client.get_message()
     assert frame.msg_type == picows.WSMsgType.CLOSE
     assert frame.close_code == picows.WSCloseCode.GOING_AWAY
     assert frame.close_message == b"goodbye"
@@ -265,7 +211,7 @@ async def test_route_not_found():
 
     async with ServerAsyncContext(server) as server_ctx:
         with pytest.raises(picows.WSError, match="status 101", check=exc_check):
-            (_, client) = await picows.ws_connect(picows.WSListener, server_ctx.plain_url)
+            (_, client) = await picows.ws_connect(picows.WSListener, server_ctx.tcp_url)
 
 
 async def test_server_internal_error():
@@ -279,7 +225,7 @@ async def test_server_internal_error():
 
     async with ServerAsyncContext(server) as server_ctx:
         with pytest.raises(picows.WSError, match="status 101", check=exc_check):
-            (_, client) = await picows.ws_connect(picows.WSListener, server_ctx.plain_url)
+            (_, client) = await picows.ws_connect(picows.WSListener, server_ctx.tcp_url)
 
 
 async def test_server_bad_request():
@@ -337,7 +283,7 @@ async def test_ws_on_connected_throw_client_side():
     server = await picows.ws_create_server(lambda _: picows.WSListener(),
                                            "127.0.0.1", 0)
     async with ServerAsyncContext(server) as server_ctx:
-        (transport, _) = await picows.ws_connect(ClientListener, server_ctx.plain_url)
+        (transport, _) = await picows.ws_connect(ClientListener, server_ctx.tcp_url)
         async with async_timeout.timeout(TIMEOUT):
             with pytest.raises(MyException):
                 await transport.wait_disconnected()
@@ -353,7 +299,7 @@ async def test_ws_on_connected_throw_server_side():
     server = await picows.ws_create_server(lambda _: ServerClientListener(),
                                            "127.0.0.1", 0)
     async with ServerAsyncContext(server) as server_ctx:
-        (transport, _) = await picows.ws_connect(picows.WSListener, server_ctx.plain_url)
+        (transport, _) = await picows.ws_connect(picows.WSListener, server_ctx.tcp_url)
         async with async_timeout.timeout(TIMEOUT):
             await transport.wait_disconnected()
 
@@ -374,7 +320,7 @@ async def test_ws_on_frame_throw_client_side(disconnect_on_exception):
                                            0)
 
     async with ServerAsyncContext(server) as server_ctx:
-        transport, listener = await picows.ws_connect(ClientListener, server_ctx.plain_url,
+        transport, listener = await picows.ws_connect(ClientListener, server_ctx.tcp_url,
                                                       disconnect_on_exception=disconnect_on_exception)
         try:
             if disconnect_on_exception:
@@ -402,7 +348,7 @@ async def test_ws_on_frame_throw_server_side(disconnect_on_exception):
                                            disconnect_on_exception=disconnect_on_exception)
 
     async with ServerAsyncContext(server) as server_ctx:
-        async with ClientAsyncContext(picows.WSListener, server_ctx.plain_url) as (transport, listener):
+        async with ClientAsyncContext(picows.WSListener, server_ctx.tcp_url) as (transport, listener):
             transport.send(picows.WSMsgType.BINARY, b"halo")
 
             if disconnect_on_exception:
@@ -414,33 +360,33 @@ async def test_ws_on_frame_throw_server_side(disconnect_on_exception):
                         await transport.wait_disconnected()
 
 
-async def test_stress(client_msg_queue):
+async def test_stress(connected_async_client):
     # Heuristic check if picows direct write works smoothly together with
     # loop transport write. We have to fill socket system buffers first
     # and then loop Transport.write kicks in. Only after that we get pause_writing
 
-    client_msg_queue.transport.underlying_transport.set_write_buffer_limits(256, 128)
+    connected_async_client.transport.underlying_transport.set_write_buffer_limits(256, 128)
 
     msg1 = os.urandom(307)
     msg2 = os.urandom(311)
     msg3 = os.urandom(313)
 
     total_batches = 0
-    while not client_msg_queue.is_paused:
-        client_msg_queue.transport.send(picows.WSMsgType.BINARY, msg1)
-        client_msg_queue.transport.send(picows.WSMsgType.BINARY, msg2)
-        client_msg_queue.transport.send(picows.WSMsgType.BINARY, msg3)
+    while not connected_async_client.is_paused:
+        connected_async_client.transport.send(picows.WSMsgType.BINARY, msg1)
+        connected_async_client.transport.send(picows.WSMsgType.BINARY, msg2)
+        connected_async_client.transport.send(picows.WSMsgType.BINARY, msg3)
         total_batches += 1
 
     # Add extra batch to make sure we utilize loop buffers above high watermark
-    client_msg_queue.transport.send(picows.WSMsgType.BINARY, msg1)
-    client_msg_queue.transport.send(picows.WSMsgType.BINARY, msg2)
-    client_msg_queue.transport.send(picows.WSMsgType.BINARY, msg3)
+    connected_async_client.transport.send(picows.WSMsgType.BINARY, msg1)
+    connected_async_client.transport.send(picows.WSMsgType.BINARY, msg2)
+    connected_async_client.transport.send(picows.WSMsgType.BINARY, msg3)
     total_batches += 1
 
     for i in range(total_batches * 3):
         async with async_timeout.timeout(TIMEOUT):
-            frame = await client_msg_queue.get_message()
+            frame = await connected_async_client.get_message()
 
         if i % 3 == 0:
             assert frame.payload_as_bytes == msg1
@@ -451,6 +397,7 @@ async def test_stress(client_msg_queue):
 
     with pytest.raises(asyncio.TimeoutError):
         async with async_timeout.timeout(TIMEOUT):
-            frame = await client_msg_queue.get_message()
+            frame = await connected_async_client.get_message()
 
-    assert not client_msg_queue.is_paused
+    assert not connected_async_client.is_paused
+

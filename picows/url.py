@@ -20,29 +20,13 @@ class WSInvalidURL(WSError):
 
 @dataclasses.dataclass
 class ParsedURL:
-    """
-    Websocket URL.
-
-    Attributes:
-        secure: :obj:`True` for a ``wss`` ParsedURL, :obj:`False` for a ``ws`` URL.
-        host: Normalized to lower case.
-        port: Always set even if it's the default.
-        path: May be empty.
-        query: May be empty if the URL doesn't include a query component.
-        username: Available when the URL contains `User Information`_.
-        password: Available when the URL contains `User Information`_.
-
-    .. _User Information: https://datatracker.ietf.org/doc/html/rfc3986#section-3.2.1
-
-    """
-
     url: str
     secure: bool
     netloc: str
-    host: str
-    port: int
+    host: str       # Normalized to lower case.
+    port: int       # Always set
     path: str
-    query: str
+    query: str      # May be empty if the URL doesn't include a query component.
     username: Optional[str] = None
     password: Optional[str] = None
 
@@ -65,19 +49,6 @@ class ParsedURL:
 
 
 def parse_url(url: str) -> ParsedURL:
-    """
-    Parse and validate a WebSocket URL.
-
-    Args:
-        url: WebSocket URL.
-
-    Returns:
-        Parsed WebSocket ParsedURL.
-
-    Raises:
-        InvalidURL: If ``url`` isn't a valid WebSocket URL.
-
-    """
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ["ws", "wss"]:
         raise WSInvalidURL(url, "scheme isn't ws or wss")
