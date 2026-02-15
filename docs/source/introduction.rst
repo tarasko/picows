@@ -16,8 +16,8 @@ Introduction
     :target: https://picows.readthedocs.io/en/latest/
     :alt: Latest Read The Docs
 
-**picows** is a high-performance python library designed for building asyncio WebSocket clients and servers.
-Implemented in Cython, it offers exceptional speed and efficiency, surpassing other popular WebSocket python libraries.
+**picows** is a high-performance Python library designed for building asyncio WebSocket clients and servers.
+Implemented in Cython, it offers exceptional speed and efficiency, surpassing other popular Python WebSocket libraries.
 
 .. image:: https://raw.githubusercontent.com/tarasko/websocket-benchmark/master/results/benchmark-256.png
     :target: https://github.com/tarasko/websocket-benchmark/blob/master
@@ -43,7 +43,7 @@ Getting started
 
 Echo client
 -----------
-Connects to an echo server, sends a message and disconnect upon reply.
+Connects to an echo server, sends a message, and disconnects after receiving a reply.
 
 .. code-block:: python
 

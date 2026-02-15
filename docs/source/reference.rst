@@ -48,7 +48,7 @@ Classes
         :type: bool
 
         Indicates whether rsv1 flag is set in the frame.
-        Some protocol extensions use this flag to indicated that the frame data
+        Some protocol extensions use this flag to indicate that the frame data
         is compressed.
         For example in `permessage_deflate extension <https://www.rfc-editor.org/rfc/rfc7692#section-7>`_
 
@@ -103,7 +103,7 @@ Classes
     .. py:attribute:: headers
         :type: CIMultiDict[str, str]
 
-        Request headers. Keys are case insensitive
+        Request headers. Keys are case-insensitive
 
 .. autoclass:: WSUpgradeResponse
     :members:
@@ -121,12 +121,12 @@ Classes
     .. py:attribute:: headers
         :type: CIMultiDict[str, str]
 
-        Response headers. Keys are case insensitive
+        Response headers. Keys are case-insensitive
 
     .. py:attribute:: body
         :type: bytes
 
-        Optional response body. Can be non-empty in case of errors
+        Optional response body. It can be non-empty in case of errors
 
 .. autoclass:: WSUpgradeResponseWithListener
     :members:
@@ -140,8 +140,8 @@ Classes
     .. note::
 
         All `send` methods never block. The data is buffered and arranged to be sent out asynchronously in case
-        if it can't be sent immediately.
-        This behaviour is derived from the underlying `asyncio.WriteTransport.write`
+        if it cannot be sent immediately.
+        This behavior is derived from the underlying `asyncio.WriteTransport.write`
 
     .. py:attribute:: underlying_transport
         :type: asyncio.Transport
@@ -168,17 +168,17 @@ Classes
 
         Send a frame over websocket with a message as its payload.
         This function does not copy message to prepare websocket frames.
-        It reuses message's memory and append websocket header at the front.
+        It reuses the message's memory and appends a WebSocket header at the front.
 
         .. attention::
 
-            Message's buffer should have at least 14 bytes in front of the message pointer available for writing.
+            The message buffer should have at least 14 writable bytes in front of the message pointer.
 
         :param msg_type: Message type
         :param msg_ptr: Pointer to a message payload
         :param msg_size: Size of the message payload
         :param fin: fin bit in websocket frame.
-            Indicate that the frame is the last one in the message.
+            Indicates that the frame is the last one in the message.
         :param rsv1: first reserved bit in websocket frame.
             Some protocol extensions use it to indicate that payload
             is compressed.

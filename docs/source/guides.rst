@@ -19,13 +19,13 @@ Eager tasks do not wait for the next event loop cycle and get executed immediate
 See `echo_client_async_callbacks.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_async_callbacks.py>`_
 illustrating this approach.
 
-If you need an async get_message(), similar to what aiohttp and websockets offer, than you would have to use asyncio.Queue.
+If you need an async receive_message(), similar to what aiohttp and websockets offer, then you would have to use asyncio.Queue.
 The latency penalty will become bigger, since awaiting coroutine can only be woken up on the next event loop cycle
 and message payload will always have to be copied.
 See `echo_client_async_iteration.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_async_iteration.py>`_
 illustrating this approach.
 
-**picows** let you choose the best possible approach for your project. Very often turning async is not really necessary on
+**picows** lets you choose the best possible approach for your project. Very often turning async is not really necessary on
 the data path. With **picows** you can delay this and do it only when necessary, for example, only when you actually have to start
 some async operation.
 
@@ -77,10 +77,10 @@ debug logging.
 Exceptions handling
 -------------------
 
-When talking about how library deals with exceptions, there are 2 questions that
+When talking about how the library deals with exceptions, there are two questions that
 must be addressed:
 
-**What kinds of exceptions can the library functions throws?**
+**What kinds of exceptions can the library functions throw?**
 
 **picows** may raise any exception that the underlying system calls may raise.
 For example, `ConnectionResetError` from :any:`ws_connect` or `BrokenPipeError`
@@ -113,7 +113,7 @@ From the user's perspective, these frames function like regular frames and may c
 
 **picows** offers an efficient 'auto ping' mechanism to automatically send a PING to the remote peer after a specified period of inactivity and to handle and verify PONG responses. If no PONG is received, the WebSocket will be disconnected.
 
-This behaviour is controlled by the 3 parameters passed to :any:`ws_connect` or :any:`ws_create_server`:
+This behavior is controlled by three parameters passed to :any:`ws_connect` or :any:`ws_create_server`:
 
 .. code-block:: python
 
@@ -126,7 +126,7 @@ This behaviour is controlled by the 3 parameters passed to :any:`ws_connect` or 
 
 
 Furthermore, it is possible to customize what will be ping and pong frames.
-Apart from PING/PONG msg types other common options are:
+Apart from PING/PONG message types, other common options are:
 
     * TEXT frames with 'ping' and 'pong' payload.
     * TEXT frames with full json payload like {"op": "ping"} and {"op": "pong"}
@@ -198,13 +198,13 @@ Measuring/checking round-trip time
 ----------------------------------
 `Available since 1.5`
 
-**picows** allows to conveniently measure round-trip time to a remote peer using
-:any:`measure_roundtrip_time`. This is done by sending PING request multiple
+**picows** allows you to conveniently measure round-trip time to a remote peer using
+:any:`measure_roundtrip_time`. This is done by sending PING requests multiple
 times and measuring response delay.
 
-Checkout an `okx_roundtrip_time.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/okx_roundtrip_time.py>`_
+Check out `okx_roundtrip_time.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/okx_roundtrip_time.py>`_
 example of how to measure RTT to a popular OKX crypto-currency exchange and initiate
-reconnect if it doesn't satisfy a predefined threshold.
+reconnect if it does not satisfy a predefined threshold.
 
 Dealing with slow clients
 -------------------------
@@ -236,7 +236,7 @@ Using proxies
 
 :any:`ws_connect` supports HTTP, SOCKS4 and SOCKS5 proxies via
 `python-socks <https://github.com/romis2012/python-socks>`_.
-Use ``proxy`` argument with a proxy URL. HTTPS proxy URLs (``https://...``)
+Use the ``proxy`` argument with a proxy URL. HTTPS proxy URLs (``https://...``)
 are not currently supported:
 
 .. code-block:: python
@@ -254,10 +254,10 @@ Hostname resolution generally happens at the proxy, unless it is SOCK4.
 SOCK4 is an old protocol, where CONNECT request doesn't support host names, only IP addresses.
 SOCK4 hostname resolution is performed at the client.
 
-Basic auth is supported. Login/password can be specified in proxy url.
+Basic auth is supported. Login and password can be specified in the proxy URL.
 
 .. _getproxies: https://docs.python.org/3/library/urllib.request.html#urllib.request.getproxies
 
-Currently **picows** doesn't attempt to use system proxy settings. If you want to use
-a system wide proxy settings, get them using `getproxies`_ and pass one as a
+Currently, **picows** does not attempt to use system proxy settings. If you want to use
+system-wide proxy settings, get them using `getproxies`_ and pass one as the
 proxy argument.
