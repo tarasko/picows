@@ -1,6 +1,108 @@
 Topic guides
 ===============
 
+Making data interface async
+---------------------------
+The on_ws_* methods in WSListener are non-async for performance reasons.
+There are several factors that make a non-async interface significantly faster than an async one:
+
+    * Implementing an async interface requires queuing data for later processing by a coroutine, which then needs to be woken up by the event loop. This introduces a substantial delay in processing and adds extra overhead for the event loop.
+    * Since data cannot be processed immediately from the read buffer, it would need to be copied, which eliminates the advantage of zero-copy.
+    * Regular Cython class methods can be overloaded very efficiently (equivalent to a C function call via a vtable), which is not possible for async class methods.
+
+In summary, you can build an async interface on top of a non-async one and accept the performance trade-off when needed.
+However, if the interface is async-only, you cannot avoid this performance penalty.
+
+If you just want to turn non-async callbacks into async, the most efficient approach is to use
+`eager tasks <https://docs.python.org/3/library/asyncio-task.html#eager-task-factory>`_ available since python 3.13.
+Eager tasks do not wait for the next event loop cycle and get executed immediately.
+See `echo_client_async_callbacks.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_async_callbacks.py>`_
+illustrating this approach.
+
+If you need an async get_message(), similar to what aiohttp and websockets offer, than you would have to use asyncio.Queue.
+The latency penalty will become bigger, since awaiting coroutine can only be woken up on the next event loop cycle
+and message payload will always have to be copied.
+See `echo_client_async_iteration.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_async_iteration.py>`_
+illustrating this approach.
+
+**picows** let you choose the best possible approach for your project. Very often turning async is not really necessary on
+the data path. With **picows** you can delay this and do it only when necessary, for example, only when you actually have to start
+some async operation.
+
+Message fragmentation
+---------------------
+In the WebSocket protocol, there is a distinction between messages and frames.
+A message can be split across multiple frames, and reassembling them is done by concatenating the frame payloads.
+
+.. important::
+    Consider verifying what the remote peer is sending.
+    It's very common for clients and servers to never fragment their messages. In such case **Frame** == **Message**.
+    Additionally, control messages like PING, PONG, and CLOSE are never fragmented.
+
+**picows** does not attempt to concatenate frames automatically, as the most
+efficient way to handle this may vary depending on the specific use case.
+
+Message fragmentation works as follows:
+
+Unfragmented message::
+
+    WSFrame(msg_type=WSMsgType.<actual message type>, fin=True)
+
+Fragmented message::
+
+    WSFrame(msg_type=WSMsgType.<actual message type>, fin=False)
+    WSFrame(msg_type=WSMsgType.CONTINUATION, fin=False)
+    ...
+    # the last frame of the message
+    WSFrame(msg_type=WSMsgType.CONTINUATION, fin=True)
+
+`echo_client_fragmented_msg.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_fragmented_msg.py>`_
+demonstrates how to correctly split messages and how to assemble them back.
+
+Enable debug logs
+-----------------
+
+**picows** logs using Python's standard logging module under picows.* logger.
+You may use any available way to set log level to PICOWS_DEBUG_LL (=9) to enable
+debug logging.
+
+.. code-block:: python
+
+    # Either set global log level
+    logging.basicConfig(level=picows.PICOWS_DEBUG_LL)
+    # Or set picows logger log level only
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger("picows").setLevel(picows.PICOWS_DEBUG_LL)
+
+Exceptions handling
+-------------------
+
+When talking about how library deals with exceptions, there are 2 questions that
+must be addressed:
+
+**What kinds of exceptions can the library functions throws?**
+
+**picows** may raise any exception that the underlying system calls may raise.
+For example, `ConnectionResetError` from :any:`ws_connect` or `BrokenPipeError`
+from :any:`WSTransport.send`.
+
+**picows** does not wrap these exceptions in its own special exception type.
+Additionally, :any:`ws_connect` may raise :any:`WSError` in cases of websocket
+negotiation errors.
+In general, :any:`WSError` is reserved for errors specific to websockets only.
+
+There is also a special exception, `asyncio.CancelledError`, which any coroutine
+can raise when it is externally cancelled. Sometimes you need to handle this
+exception manually. For example, in a reconnection loop where you want to
+reconnect on any error, the loop should break on `asyncio.CancelledError`.
+
+**What happens if a user callback raises an exception, and how does the library handle it?**
+
+This is described in the documentation of each particular method.
+In most cases, **picows** will send a CLOSE frame with an INTERNAL_ERROR close code and disconnect.
+However, for :any:`on_ws_frame`, it is possible to override it by setting disconnect_on_error=False
+in :any:`ws_connect`/:any:`ws_create_server`.
+
 Auto ping
 --------------
 `Available since 1.4`
@@ -104,36 +206,6 @@ Checkout an `okx_roundtrip_time.py <https://raw.githubusercontent.com/tarasko/pi
 example of how to measure RTT to a popular OKX crypto-currency exchange and initiate
 reconnect if it doesn't satisfy a predefined threshold.
 
-Message fragmentation
----------------------
-In the WebSocket protocol, there is a distinction between messages and frames.
-A message can be split across multiple frames, and reassembling them is done by concatenating the frame payloads.
-
-.. important::
-    Consider verifying what the remote peer is sending.
-    It's very common for clients and servers to never fragment their messages. In such case **Frame** == **Message**.
-    Additionally, control messages like PING, PONG, and CLOSE are never fragmented.
-
-**picows** does not attempt to concatenate frames automatically, as the most
-efficient way to handle this may vary depending on the specific use case.
-
-Message fragmentation works as follows:
-
-Unfragmented message::
-
-    WSFrame(msg_type=WSMsgType.<actual message type>, fin=True)
-
-Fragmented message::
-
-    WSFrame(msg_type=WSMsgType.<actual message type>, fin=False)
-    WSFrame(msg_type=WSMsgType.CONTINUATION, fin=False)
-    ...
-    # the last frame of the message
-    WSFrame(msg_type=WSMsgType.CONTINUATION, fin=True)
-
-`echo_client_fragmented_msg.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_fragmented_msg.py>`_
-demonstrates how to correctly split messages and how to assemble them back.
-
 Dealing with slow clients
 -------------------------
 
@@ -149,34 +221,6 @@ while writing is paused and resume only when the transport drains.
 demonstrates how ``pause_writing``/``resume_writing`` are triggered and how to stop
 the producer while the client is slow.
 
-Making data interface async
----------------------------
-The on_ws_* methods in WSListener are non-async for performance reasons.
-There are several factors that make a non-async interface significantly faster than an async one:
-
-    * Implementing an async interface requires queuing data for later processing by a coroutine, which then needs to be woken up by the event loop. This introduces a substantial delay in processing and adds extra overhead for the event loop.
-    * Since data cannot be processed immediately from the read buffer, it would need to be copied, which eliminates the advantage of zero-copy.
-    * Regular Cython class methods can be overloaded very efficiently (equivalent to a C function call via a vtable), which is not possible for async class methods.
-
-In summary, you can build an async interface on top of a non-async one and accept the performance trade-off when needed.
-However, if the interface is async-only, you cannot avoid this performance penalty.
-
-If you just want to turn non-async callbacks into async, the most efficient approach is to use
-`eager tasks <https://docs.python.org/3/library/asyncio-task.html#eager-task-factory>`_ available since python 3.13.
-Eager tasks do not wait for the next event loop cycle and get executed immediately.
-See `echo_client_async_callbacks.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_async_callbacks.py>`_
-illustrating this approach.
-
-If you need an async get_message(), similar to what aiohttp and websockets offer, than you would have to use asyncio.Queue.
-The latency penalty will become bigger, since awaiting coroutine can only be woken up on the next event loop cycle
-and message payload will always have to be copied.
-See `echo_client_async_iteration.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_async_iteration.py>`_
-illustrating this approach.
-
-**picows** let you choose the best possible approach for your project. Very often turning async is not really necessary on
-the data path. With **picows** you can delay this and do it only when necessary, for example, only when you actually have to start
-some async operation.
-
 Using Cython interface
 ----------------------
 
@@ -185,50 +229,6 @@ If you are using Cython in your project, you can access picows type definitions
 and some extra functionality by importing `picows.pxd <https://raw.githubusercontent.com/tarasko/picows/master/picows/picows.pxd>`_ that is installed with the library.
 
 Check out an `echo_client_cython.pyx <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_cython.pyx>`_ of a simple echo client that is written in Cython.
-
-Enable debug logs
------------------
-
-**picows** logs using Python's standard logging module under picows.* logger.
-You may use any available way to set log level to PICOWS_DEBUG_LL (=9) to enable
-debug logging.
-
-.. code-block:: python
-
-    # Either set global log level
-    logging.basicConfig(level=picows.PICOWS_DEBUG_LL)
-    # Or set picows logger log level only
-    logging.basicConfig(level=logging.INFO)
-    logging.getLogger("picows").setLevel(picows.PICOWS_DEBUG_LL)
-
-Exceptions handling
--------------------
-
-When talking about how library deals with exceptions, there are 2 questions that
-must be addressed:
-
-**What kinds of exceptions can the library functions throws?**
-
-**picows** may raise any exception that the underlying system calls may raise.
-For example, `ConnectionResetError` from :any:`ws_connect` or `BrokenPipeError`
-from :any:`WSTransport.send`.
-
-**picows** does not wrap these exceptions in its own special exception type.
-Additionally, :any:`ws_connect` may raise :any:`WSError` in cases of websocket
-negotiation errors.
-In general, :any:`WSError` is reserved for errors specific to websockets only.
-
-There is also a special exception, `asyncio.CancelledError`, which any coroutine
-can raise when it is externally cancelled. Sometimes you need to handle this
-exception manually. For example, in a reconnection loop where you want to
-reconnect on any error, the loop should break on `asyncio.CancelledError`.
-
-**What happens if a user callback raises an exception, and how does the library handle it?**
-
-This is described in the documentation of each particular method.
-In most cases, **picows** will send a CLOSE frame with an INTERNAL_ERROR close code and disconnect.
-However, for :any:`on_ws_frame`, it is possible to override it by setting disconnect_on_error=False
-in :any:`ws_connect`/:any:`ws_create_server`.
 
 Using proxies
 -------------

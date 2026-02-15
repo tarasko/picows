@@ -49,6 +49,8 @@ Documentation
 
 https://picows.readthedocs.io/en/stable/
 
+Make sure to check `topic guides<https://picows.readthedocs.io/en/stable/guides.html>` for the most common usage patterns and questions
+
 Motivation
 ==========
 Popular WebSocket libraries provide high-level interfaces that handle timeouts,
