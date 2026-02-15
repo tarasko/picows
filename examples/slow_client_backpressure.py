@@ -1,6 +1,19 @@
+# This example demonstrates how to deal with slow clients that are not able to
+# process data from server.
+# By overriding WSListener.pause_writing, WSListener.stop_writing server
+# can handle backpressure and implement the most appropriate strategy.
+
+# This example starts:
+# a WebSocket server that continuously pushes incrementing counters,
+# a client in another process (using multiprocessing),
+# and a deliberately slow client handler that blocks its event loop with time.sleep(0.01) for every incoming frame.
+
 import asyncio
+import logging
 import multiprocessing
+import random
 import time
+from logging import basicConfig
 
 from picows import ws_connect, ws_create_server, WSFrame, WSListener, WSMsgType, WSTransport
 
@@ -10,35 +23,35 @@ PORT = 9001
 
 class ServerClientListener(WSListener):
     def __init__(self):
-        self.transport = None
         self._push_task = None
-        self._is_paused = False
+        self._write_resumed_fut = None
         self._counter = 0
 
     def on_ws_connected(self, transport: WSTransport):
-        self.transport = transport
-
         # Keep small watermarks so pause/resume can be observed quickly.
-        self.transport.underlying_transport.set_write_buffer_limits(high=32 * 1024, low=16 * 1024)
+        transport.underlying_transport.set_write_buffer_limits(high=32 * 1024, low=16 * 1024)
+        self._push_task = asyncio.get_running_loop().create_task(self._push_forever(transport))
 
-        self._push_task = asyncio.get_running_loop().create_task(self._push_forever())
-
-    async def _push_forever(self):
+    async def _push_forever(self, transport: WSTransport):
+        # Send message of 1024 bytes
+        msg = random.randbytes(1024)
         while True:
-            if self._is_paused:
-                await asyncio.sleep(0.001)
-                continue
+            # If writing is paused then waiting until it is un-paused
+            if self._write_resumed_fut is not None:
+                await self._write_resumed_fut
 
-            self.transport.send(WSMsgType.TEXT, f"tick-{self._counter}".encode("ascii"))
+            transport.send(WSMsgType.BINARY, msg)
             self._counter += 1
-            await asyncio.sleep(0)
+            if self._counter % 1000 == 0:
+                print(f"[server] push_forever, counter={self._counter}")
 
     def pause_writing(self):
-        self._is_paused = True
-        print("[server] pause_writing")
+        self._write_resumed_fut = asyncio.get_running_loop().create_future()
+        print(f"[server] pause_writing, sent {self._counter}")
 
     def resume_writing(self):
-        self._is_paused = False
+        self._write_resumed_fut.set_result(None)
+        self._write_resumed_fut = None
         print("[server] resume_writing")
 
     def on_ws_disconnected(self, transport: WSTransport):
@@ -51,23 +64,24 @@ class SlowClientListener(WSListener):
         self._received = 0
 
     def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
-        if frame.msg_type != WSMsgType.TEXT:
-            return
-
         # Emulate expensive CPU-bound work in the event loop thread.
         time.sleep(0.01)
 
         self._received += 1
         if self._received % 100 == 0:
-            print(f"[client] received={self._received}")
-
-
-async def run_client(url: str):
-    transport, _ = await ws_connect(SlowClientListener, url)
-    await transport.wait_disconnected()
+            # WSFrame(..., tail_sz=?) indicates how much data is still in the
+            # read buffer that has NOT been delivered to on_ws_frame yet.
+            # last_in_buffer=False, indicates that we already have next complete
+            # frame and on_ws_frame will be called right after current on_ws_frame
+            # is complete.
+            print(f"[client] received={self._received}, {frame}")
 
 
 def run_client_process(url: str):
+    async def run_client(url: str):
+        transport, _ = await ws_connect(SlowClientListener, url)
+        await transport.wait_disconnected()
+
     asyncio.run(run_client(url))
 
 
@@ -79,7 +93,7 @@ async def main():
     client_process.start()
 
     try:
-        await asyncio.sleep(5)
+        await asyncio.sleep(20)
     finally:
         client_process.terminate()
         client_process.join(timeout=1)
@@ -88,4 +102,5 @@ async def main():
 
 
 if __name__ == "__main__":
+    basicConfig(level=logging.ERROR)
     asyncio.run(main())
