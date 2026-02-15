@@ -170,49 +170,12 @@ illustrating this approach.
 If you need an async get_message(), similar to what aiohttp and websockets offer, than you would have to use asyncio.Queue.
 The latency penalty will become bigger, since awaiting coroutine can only be woken up on the next event loop cycle
 and message payload will always have to be copied.
+See `echo_client_async_iteration.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_async_iteration.py>`_
+illustrating this approach.
 
-
-.. code-block:: python
-
-    class ClientListener(picows.WSListener):
-        def __init__(self):
-            self.msg_queue = asyncio.Queue()
-
-        ...
-        def on_ws_frame(transport: picows.WSTransport, frame: picows.WSFrame):
-            if frame.msg_type == picows.WSMsgType.TEXT:
-                obj = json.loads(frame.get_payload_as_utf8_text())
-                self.msg_queue.put_nowait(obj)
-
-        def on_ws_disconnected(transport: picows.WSTransport):
-            # Push None to indicate the end of the stream
-            self.msg_queue.put_nowait(None)
-
-
-    async def some_async_function():
-        transport, listener = await ws_connect(ClientListener, ...)
-        while True:
-            msg = await listener.msg_queue.get()
-            listener.msg_queue.task_done()
-            if msg is None:
-                # client disconnected
-            :else
-                # Otherwise process message in async context
-
-Another approach would be to just use asyncio.Loop.create_task:
-
-.. code-block:: python
-
-    async def process_message(msg):
-        ...
-
-    class ClientListener(picows.WSListener):
-        def on_ws_frame(transport: picows.WSTransport, frame: picows.WSFrame):
-            if frame.msg_type == picows.WSMsgType.TEXT:
-                msg = json.loads(frame.get_payload_as_utf8_text())
-                asyncio.get_running_loop().create_task(process_message(msg))
-
-Consider using it together with `eager task factory <https://docs.python.org/3/library/asyncio-task.html#eager-task-factory>`_.
+**picows** let you choose the best possible approach for your project. Very often turning async is not really necessary on
+the data path. With **picows** you can delay this and do it only when necessary, for example, only when you actually have to start
+some async operation.
 
 Using Cython interface
 ----------------------
