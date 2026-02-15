@@ -149,8 +149,8 @@ while writing is paused and resume only when the transport drains.
 demonstrates how ``pause_writing``/``resume_writing`` are triggered and how to stop
 the producer while the client is slow.
 
-Async iteration
----------------
+Making data interface async
+---------------------------
 The on_ws_* methods in WSListener are non-async for performance reasons.
 There are several factors that make a non-async interface significantly faster than an async one:
 
@@ -161,7 +161,16 @@ There are several factors that make a non-async interface significantly faster t
 In summary, you can build an async interface on top of a non-async one and accept the performance trade-off when needed.
 However, if the interface is async-only, you cannot avoid this performance penalty.
 
-Here is a one way to implement async iteration using asyncio.Queue:
+If you just want to turn non-async callbacks into async, the most efficient approach is to use
+`eager tasks <https://docs.python.org/3/library/asyncio-task.html#eager-task-factory>`_ available since python 3.13.
+Eager tasks do not wait for the next event loop cycle and get executed immediately.
+See `echo_client_async_callbacks.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_async_callbacks.py>`_
+illustrating this approach.
+
+If you need an async get_message(), similar to what aiohttp and websockets offer, than you would have to use asyncio.Queue.
+The latency penalty will become bigger, since awaiting coroutine can only be woken up on the next event loop cycle
+and message payload will always have to be copied.
+
 
 .. code-block:: python
 
