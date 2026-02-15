@@ -22,8 +22,8 @@ Introduction
     :target: https://deepwiki.com/tarasko/picows 
     :alt: Ask DeepWiki
 
-**picows** is a high-performance python library designed for building asyncio WebSocket clients and servers.
-Implemented in Cython, it offers exceptional speed and efficiency, surpassing other popular WebSocket python libraries.
+**picows** is a high-performance Python library designed for building asyncio WebSocket clients and servers.
+Implemented in Cython, it offers exceptional speed and efficiency, surpassing other popular Python WebSocket libraries.
 
 .. image:: https://raw.githubusercontent.com/tarasko/websocket-benchmark/master/results/benchmark-256.png
     :target: https://github.com/tarasko/websocket-benchmark/blob/master
@@ -79,7 +79,7 @@ Getting started
 
 Echo client
 -----------
-Connects to an echo server, sends a message and disconnect upon reply.
+Connects to an echo server, sends a message, and disconnects after receiving a reply.
 
 .. code-block:: python
 
@@ -147,8 +147,8 @@ Echo server
 Features
 ====================
 * Maximally efficient WebSocket frame parser and builder implemented in Cython
-* Re-use memory as much as possible, avoid reallocations, and avoid unnecessary Python object creations
-* Provide Cython .pxd for efficient integration of user Cythonized code with picows
+* Reuse memory as much as possible, avoid reallocations, and avoid unnecessary Python object creation
+* Provide a Cython .pxd for efficient integration of user Cythonized code with picows
 * Ability to check if a frame is the last one in the receiving buffer
 * Auto ping-pong with an option to customize ping/pong messages.
 * Convenient method to measure websocket roundtrip time using ping/pong messages.
@@ -174,7 +174,7 @@ Contributing / Building From Source
     # To build docs
     $ pip install -r docs/requirements.txt
 
-4. Build inplace and run tests::
+4. Build in place and run tests::
 
     $ python setup.py build_ext --inplace
     $ pytest -s -v
@@ -185,4 +185,3 @@ Contributing / Building From Source
 5. Build docs::
 
     $ make -C docs clean html
-

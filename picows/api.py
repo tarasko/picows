@@ -57,7 +57,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                      **kwargs
                      ) -> tuple[WSTransport, WSListener]:
     """
-    Open a websocket connection to a given ParsedURL.
+    Open a WebSocket connection to a given URL.
 
     This function forwards its `kwargs` directly to
     `asyncio.loop.create_connection <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.create_connection>`_
@@ -65,9 +65,9 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
     :param ws_listener_factory:
         A parameterless factory function that returns a user handler.
         User handler has to derive from :any:`WSListener`.
-    :param url: Destination ParsedURL
+    :param url: Destination URL
     :param ssl_context: optional SSLContext to override default one when
-        wss scheme is used
+        the wss scheme is used
     :param disconnect_on_exception:
         Indicates whether the client should initiate disconnect on any exception
         thrown from WSListener.on_ws_frame callbacks
@@ -95,7 +95,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
         * PING_WHEN_IDLE - ping only if there is no new incoming data.
         * PING_PERIODICALLY - send ping at regular intervals regardless of incoming data.
     :param enable_auto_pong:
-        If enabled then picows will automatically reply to incoming PING frames.
+        If enabled, picows will automatically reply to incoming PING frames.
     :param max_frame_size:
         * Maximum allowed frame size. Disconnect will be initiated if client receives a frame that is bigger than max size.
     :param extra_headers:
@@ -196,11 +196,11 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
                            **kwargs
                            ) -> asyncio.Server:
     """
-    Create a websocket server listening on TCP port of the host address.
+    Create a WebSocket server listening on a TCP port at the host address.
     This function forwards its `kwargs` directly to
     `asyncio.loop.create_server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.create_server>`_
 
-    It has a few extra parameters to control the behaviour of websocket
+    It has a few extra parameters to control WebSocket behavior.
 
     :param ws_listener_factory:
         A factory function that accepts WSUpgradeRequest object and returns one of:
@@ -251,9 +251,9 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
         * PING_WHEN_IDLE - ping only if there is no new incoming data.
         * PING_PERIODICALLY - send ping at regular intervals regardless of incoming data.
     :param enable_auto_pong:
-        If enabled then picows will automatically reply to incoming PING frames.
+        If enabled, picows will automatically reply to incoming PING frames.
     :param max_frame_size:
-        * Maximum allowed frame size. Disconnect will be initiated if server side receives frame that is bigger than max size.
+        * Maximum allowed frame size. Disconnect will be initiated if the server side receives a frame that is bigger than the max size.
     :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
 

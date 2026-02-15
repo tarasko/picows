@@ -38,7 +38,7 @@ class WSUpgradeResponse:
                               body: Optional[bytes] = None,
                               extra_headers: Optional[WSHeadersLike] = None) -> Any:
         """
-        Create upgrade response with error.
+        Create an upgrade response with an error.
 
         :param status: int status code or http.HTTPStatus enum value
         :param body: optional bytes-like response body
@@ -63,10 +63,10 @@ class WSUpgradeResponse:
                                  location: str,
                                  extra_headers: Optional[WSHeadersLike] = None) -> Any:
         """
-        Create upgrade response with error.
+        Create an upgrade redirect response.
 
         :param status: int status code or http.HTTPStatus enum value
-        :param body: optional bytes-like response body
+        :param location: redirect target URL
         :param extra_headers: optional additional headers
         :return: a new WSUpgradeResponse object
         """
@@ -123,7 +123,7 @@ class WSUpgradeResponse:
 
 class WSUpgradeResponseWithListener:
     """
-    Bind :any:`WSUpgradeResponse` and :any:`WSListener` objects together..
+    Bind :any:`WSUpgradeResponse` and :any:`WSListener` objects together.
     """
     __slots__ = ("response", "listener")
 
@@ -140,7 +140,7 @@ class WSUpgradeResponseWithListener:
 
 class WSError(RuntimeError):
     """
-    Thrown by :any:`ws_connect` on any kind of handshake errors.
+    Raised by :any:`ws_connect` for any kind of handshake error.
     """
     raw_header: Optional[bytes]
     raw_body: Optional[bytes]
