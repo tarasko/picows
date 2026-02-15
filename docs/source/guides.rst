@@ -109,6 +109,11 @@ Message fragmentation
 In the WebSocket protocol, there is a distinction between messages and frames.
 A message can be split across multiple frames, and reassembling them is done by concatenating the frame payloads.
 
+.. important::
+    Consider verifying what the remote peer is sending.
+    It's very common for clients and servers to never fragment their messages. In such case **Frame** == **Message**.
+    Additionally, control messages like PING, PONG, and CLOSE are never fragmented.
+
 **picows** does not attempt to concatenate frames automatically, as the most
 efficient way to handle this may vary depending on the specific use case.
 
@@ -126,52 +131,8 @@ Fragmented message::
     # the last frame of the message
     WSFrame(msg_type=WSMsgType.CONTINUATION, fin=True)
 
-Here is the naive way to implement concatenation:
-
-.. code-block:: python
-
-    class ClientListener(picows.WSListener):
-        def __init__(self):
-            self._full_msg == bytearray()
-            self._full_msg_type = picows.WSMsgType.TEXT
-
-        def on_ws_frame(transport: picows.WSTransport, frame: picows.WSFrame):
-            ... # Handle PING/PONG/CLOSE control frames first
-
-            if frame.fin:
-                if self._full_msg:
-                    # This is the last fragment of the message because fin is set
-                    # and there were previous fragments
-
-                    assert frame.msg_type == picows.WSMsgType.CONTINUATION
-
-                    self._full_msg += frame.get_payload_as_memoryview()
-                    self.on_concatenated_message(transport, self._full_msg_type, self._full_msg)
-                    self._full_msg.clear()
-                else:
-                    # This is the only fragment of the message because fin is set
-                    # and there was not previous fragments
-                    self.on_unfragmented_message(transport, frame)
-            else:
-                if not self._full_msg:
-                    # First fragment determine the whole message type
-                    self._full_msg_type == frame.msg_type
-
-                # Accumulate payload from multiple fragments
-                self._full_msg += frame.get_payload_as_memoryview()
-                return
-
-        def on_unfragmented_message(self, transport: picows.WSTransport, frame: picows.WSFrame):
-            # Called for the simple case when a frame is a whole message
-            pass
-
-        def on_concatenated_message(self, transport: picows.WSTransport, msg_type: picows.WSMsgType, payload: bytearray):
-            # Called after concatenating a message from multiple frames
-            pass
-
-Before using this code snippet, consider verifying what the remote peer is sending.
-It's quite common for clients and servers to never fragment their messages.
-Additionally, control messages like PING, PONG, and CLOSE are never fragmented.
+`echo_client_fragmented_msg.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_fragmented_msg.py>`_
+demonstrates how to correctly split messages and how to assemble them back.
 
 Dealing with slow clients
 -------------------------
