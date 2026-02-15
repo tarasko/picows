@@ -49,7 +49,7 @@ Documentation
 
 https://picows.readthedocs.io/en/stable/
 
-Make sure to check `topic guides<https://picows.readthedocs.io/en/stable/guides.html>` for the most common usage patterns and questions
+Make sure to check `topic guides<https://picows.readthedocs.io/en/stable/guides.html>`_ for the most common usage patterns and questions.
 
 Motivation
 ==========
