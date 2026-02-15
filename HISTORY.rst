@@ -5,7 +5,13 @@ picows Release History
    :depth: 1
    :local:
 
+1.13.1 (2026-02-15)
+------------------
+
+* Add more examples and update docs
+
 1.13.0 (2026-02-14)
+------------------
 
 * #23: add support for SOCKS4, SOCKS5, HTTP proxies (no support for HTTPS proxy yet)
 
