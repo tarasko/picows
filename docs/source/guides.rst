@@ -19,7 +19,7 @@ Eager tasks do not wait for the next event loop cycle and get executed immediate
 See `echo_client_async_callbacks.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_async_callbacks.py>`_
 illustrating this approach.
 
-If you need an async get_message(), similar to what aiohttp and websockets offer, then you would have to use asyncio.Queue.
+If you need an async receive_message(), similar to what aiohttp and websockets offer, then you would have to use asyncio.Queue.
 The latency penalty will become bigger, since awaiting coroutine can only be woken up on the next event loop cycle
 and message payload will always have to be copied.
 See `echo_client_async_iteration.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_async_iteration.py>`_
