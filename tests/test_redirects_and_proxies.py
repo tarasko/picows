@@ -98,7 +98,7 @@ async def redirect_server_2(redirect_server_1):
         yield server_urls.tcp_url
 
 
-@pytest.mark.parametrize("proxy_type", ["direct", "http", "http_auth", "socks4", "socks5"])
+@pytest.mark.parametrize("proxy_type", ["direct", "socks4", "socks5", "http", "http_auth", "https", "https_auth"])
 async def test_redirect_through_proxy(redirect_server_2, proxy_type: str):
     # This is an absolute masterpiece! Best test I wrote ever!
     #
@@ -108,20 +108,29 @@ async def test_redirect_through_proxy(redirect_server_2, proxy_type: str):
     # echo server, send request and validate response.
     #
     # God bless pytest!
+
+    is_https = proxy_type in ("https", "https_auth")
+    is_asyncio_loop = isinstance(asyncio.get_event_loop_policy(), asyncio.DefaultEventLoopPolicy)
+
+    if sys.version_info < (3, 11) and is_asyncio_loop and is_https:
+        pytest.skip("HTTPS proxy using asyncio requires Python 3.11+")
+        return
+
     client_ssl_ctx = create_client_ssl_context()
+    proxy_ssl_ctx = create_client_ssl_context() if is_https else None
 
     async with ProxyServer(proxy_type) as proxy_url:
-        async with ClientAsyncContext(AsyncClient, redirect_server_2, ssl_context=client_ssl_ctx, proxy=proxy_url) as (transport, listener):
+        async with ClientAsyncContext(AsyncClient, redirect_server_2, ssl_context=client_ssl_ctx, proxy=proxy_url, proxy_ssl_context=proxy_ssl_ctx) as (transport, listener):
             transport.send(picows.WSMsgType.BINARY, b"hello over proxy")
             frame = await listener.get_message()
             assert frame.msg_type == picows.WSMsgType.BINARY
             assert frame.payload_as_bytes == b"hello over proxy"
 
         with pytest.raises(picows.WSError, match="status 101"):
-            await picows.ws_connect(AsyncClient, redirect_server_2, max_redirects=0, proxy=proxy_url)
+            await picows.ws_connect(AsyncClient, redirect_server_2, max_redirects=0, proxy=proxy_url, proxy_ssl_context=proxy_ssl_ctx)
 
         with pytest.raises(picows.WSError, match="status 101"):
-            await picows.ws_connect(AsyncClient, redirect_server_2, max_redirects=1, proxy=proxy_url)
+            await picows.ws_connect(AsyncClient, redirect_server_2, max_redirects=1, proxy=proxy_url, proxy_ssl_context=proxy_ssl_ctx)
 
 
 @pytest.mark.parametrize("proxy_type", ["direct", "http", "http_auth", "socks4", "socks5"])
@@ -136,28 +145,4 @@ async def test_proxy_dns_resolution(proxy_type):
             frame = await listener.get_message()
             assert frame.msg_type == picows.WSMsgType.BINARY
             assert frame.payload_as_bytes == b"hello over proxy"
-
-
-@pytest.mark.parametrize("proxy_type", ["https", "https_auth"])
-async def test_https_proxy(echo_server, proxy_type):
-    is_asyncio_loop = isinstance(asyncio.get_event_loop_policy(), asyncio.DefaultEventLoopPolicy)
-    if sys.version_info < (3, 11) and is_asyncio_loop:
-        pytest.skip("HTTPS proxy using asyncio requires Python 3.11+")
-        return
-
-    client_ssl_ctx = create_client_ssl_context()
-    proxy_ssl_ctx = create_client_ssl_context()
-
-    async with ProxyServer(proxy_type) as proxy_url:
-        async with ClientAsyncContext(
-                AsyncClient,
-                echo_server,
-                ssl_context=client_ssl_ctx,
-                proxy=proxy_url,
-                proxy_ssl_context=proxy_ssl_ctx,
-        ) as (transport, listener):
-            transport.send(picows.WSMsgType.BINARY, b"hello over https proxy")
-            frame = await listener.get_message()
-            assert frame.msg_type == picows.WSMsgType.BINARY
-            assert frame.payload_as_bytes == b"hello over https proxy"
 

@@ -55,11 +55,37 @@ def _hold_proxy_stream_until_disconnect(proxy_stream: object, ws_transport: WSTr
     asyncio.get_running_loop().create_task(_cleanup())
 
 
+async def _connect_through_https_proxy(ws_protocol_factory, ssl_context, proxy: str, proxy_ssl_context, proxy_parsed_url, parsed_url):
+    is_asyncio_loop = isinstance(asyncio.get_event_loop_policy(),
+                                 asyncio.DefaultEventLoopPolicy)  # type: ignore [attr-defined]
+    if sys.version_info < (3, 11) and is_asyncio_loop:
+        raise WSInvalidURL(
+            proxy,
+            "HTTPS proxy with asyncio requires Python 3.11+ (asyncio StreamWriter.start_tls support)"
+        )
+    proxy_ssl_context = proxy_ssl_context or ssl.create_default_context(
+        ssl.Purpose.SERVER_AUTH)
+
+    http_proxy_url = urllib.parse.urlunsplit(
+        ("http", proxy_parsed_url.netloc, "", "", "")
+    )
+    stream = await ProxyV2.from_url(http_proxy_url,
+                                    proxy_ssl=proxy_ssl_context).connect(
+        dest_host=parsed_url.host,
+        dest_port=parsed_url.port,
+        dest_ssl=ssl_context)
+    ws_protocol = ws_protocol_factory()
+    stream.writer.transport.set_protocol(ws_protocol)
+    ws_protocol.connection_made(stream.writer.transport)
+    await ws_protocol.wait_until_handshake_complete()
+    _hold_proxy_stream_until_disconnect(stream, ws_protocol.transport)
+    return ws_protocol.transport, ws_protocol.listener
+
+
 async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: ignore [no-untyped-def]
                      url: str,
                      *,
                      ssl_context: Optional[SSLContext] = None,
-                     proxy_ssl_context: Optional[SSLContext] = None,
                      disconnect_on_exception: bool = True,
                      websocket_handshake_timeout: float = 5,
                      logger_name: str = "client",
@@ -72,6 +98,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                      extra_headers: Optional[WSHeadersLike] = None,
                      max_redirects: int = 5,
                      proxy: Optional[str] = None,
+                     proxy_ssl_context: Optional[SSLContext] = None,
                      **kwargs
                      ) -> tuple[WSTransport, WSListener]:
     """
@@ -86,8 +113,6 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
     :param url: Destination URL
     :param ssl_context: optional SSLContext to override default one when
         the wss scheme is used
-    :param proxy_ssl_context: optional SSLContext to override default one when
-        https proxy scheme is used
     :param disconnect_on_exception:
         Indicates whether the client should initiate disconnect on any exception
         thrown from WSListener.on_ws_frame callbacks
@@ -125,6 +150,8 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
     :param proxy:
         Optional proxy URL. Supported schemes are ``http://``, ``socks4://``
         ``https://`` and ``socks5://`` (including authenticated variants).
+    :param proxy_ssl_context: optional SSLContext to override default one when
+        https proxy scheme is used
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
 
@@ -140,11 +167,6 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
     while True:
         if parsed_url.username is not None or parsed_url.password is not None:
             logger.warning("Basic authentication was requested in URL, but it is not currently supported, ignore username and password")
-
-        if parsed_url.secure:
-            ssl_arg = ssl_context if ssl_context is not None else True
-        else:
-            ssl_arg = None
 
         def ws_protocol_factory() -> WSProtocol:
             return WSProtocol(
@@ -163,61 +185,36 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                 max_frame_size,
                 extra_headers)
 
-        try:
-            loop = asyncio.get_running_loop()
-            conn_kwargs = dict(kwargs)
+        current_ssl_context = ssl_context if parsed_url.secure else None
 
-            proxy_socket = None
-            host = None
-            port = None
+        loop = asyncio.get_running_loop()
+        conn_kwargs = dict(kwargs)
+
+        proxy_socket = None
+        host = None
+        port = None
+
+        try:
             if proxy is not None:
                 proxy_url = urllib.parse.urlsplit(proxy)
                 proxy_scheme = proxy_url.scheme.lower()
                 if proxy_scheme == "https":
-                    is_asyncio_loop = isinstance(asyncio.get_event_loop_policy(), asyncio.DefaultEventLoopPolicy) # type: ignore [attr-defined]
-                    if sys.version_info < (3, 11) and is_asyncio_loop:
-                        raise WSInvalidURL(
-                            proxy,
-                            "HTTPS proxy with asyncio requires Python 3.11+ (asyncio StreamWriter.start_tls support)"
-                        )
-                    if proxy_ssl_context is None:
-                        current_proxy_ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-                    else:
-                        current_proxy_ssl_context = proxy_ssl_context
-
-                    if ssl_arg is None:
-                        destination_ssl_context = None
-                    elif isinstance(ssl_arg, SSLContext):
-                        destination_ssl_context = ssl_arg
-                    else:
-                        destination_ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-
-                    http_proxy_url = urllib.parse.urlunsplit(
-                        ("http", proxy_url.netloc, "", "", "")
-                    )
-                    stream = await ProxyV2.from_url(http_proxy_url, proxy_ssl=current_proxy_ssl_context).connect(
-                        dest_host=parsed_url.host,
-                        dest_port=parsed_url.port,
-                        dest_ssl=destination_ssl_context)
-                    ws_protocol = ws_protocol_factory()
-                    stream.writer.transport.set_protocol(ws_protocol)
-                    ws_protocol.connection_made(stream.writer.transport)
-                    await ws_protocol.wait_until_handshake_complete()
-                    _hold_proxy_stream_until_disconnect(stream, ws_protocol.transport)
-                    return ws_protocol.transport, ws_protocol.listener
+                    return await _connect_through_https_proxy(
+                        ws_protocol_factory, current_ssl_context, proxy,
+                        proxy_ssl_context, proxy_url, parsed_url)
                 else:
                     proxy_socket = await Proxy.from_url(proxy).connect(
                         dest_host=parsed_url.host,
                         dest_port=parsed_url.port)
 
-                if ssl_arg is not None and "server_hostname" not in conn_kwargs:
+                if parsed_url.secure and "server_hostname" not in conn_kwargs:
                     conn_kwargs["server_hostname"] = parsed_url.host
             else:
                 host = parsed_url.host
                 port = parsed_url.port
 
             (_, ws_protocol) = await loop.create_connection(
-                ws_protocol_factory, host, port, ssl=ssl_arg, sock=proxy_socket, **conn_kwargs) # type: ignore[arg-type]
+                ws_protocol_factory, host, port, ssl=current_ssl_context, sock=proxy_socket, **conn_kwargs) # type: ignore[arg-type]
 
             await ws_protocol.wait_until_handshake_complete()
             return ws_protocol.transport, ws_protocol.listener
