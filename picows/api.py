@@ -174,10 +174,13 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                 proxy_url = urllib.parse.urlsplit(proxy)
                 proxy_scheme = proxy_url.scheme.lower()
                 if proxy_scheme == "https":
-                    if sys.version_info < (3, 11):
+                    is_asyncio_loop = isinstance(
+                        asyncio.get_event_loop_policy(),
+                        asyncio.DefaultEventLoopPolicy)
+                    if sys.version_info < (3, 11) and is_asyncio_loop:
                         raise WSInvalidURL(
                             proxy,
-                            "https proxy requires Python 3.11+ (asyncio StreamWriter.start_tls support)"
+                            "HTTPS proxy with asyncio requires Python 3.11+ (asyncio StreamWriter.start_tls support)"
                         )
                     if proxy_ssl_context is None:
                         current_proxy_ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
