@@ -1,5 +1,6 @@
 import asyncio
 import ssl
+import sys
 import urllib.parse
 from logging import getLogger
 from ssl import SSLContext
@@ -12,7 +13,7 @@ from .types import (WSHeadersLike, WSUpgradeRequest,
                     WSUpgradeResponseWithListener, WSError)
 from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: ignore [attr-defined]
                      WSProtocol)
-from .url import parse_url, ParsedURL
+from .url import parse_url, ParsedURL, WSInvalidURL
 
 _proxy_stream_lifecycle_guards: set[object] = set()
 
@@ -173,6 +174,11 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                 proxy_url = urllib.parse.urlsplit(proxy)
                 proxy_scheme = proxy_url.scheme.lower()
                 if proxy_scheme == "https":
+                    if sys.version_info < (3, 11):
+                        raise WSInvalidURL(
+                            proxy,
+                            "https proxy requires Python 3.11+ (asyncio StreamWriter.start_tls support)"
+                        )
                     if proxy_ssl_context is None:
                         current_proxy_ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
                     else:

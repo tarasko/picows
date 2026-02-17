@@ -1,4 +1,6 @@
+import asyncio
 import ssl
+import sys
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from logging import getLogger
@@ -9,6 +11,7 @@ from anyio.streams.tls import TLSListener
 from tiny_proxy import HttpProxyHandler, Socks4ProxyHandler, Socks5ProxyHandler
 
 import picows
+import picows.api as picows_api
 from tests.utils import ClientAsyncContext, AsyncClient, \
     create_client_ssl_context, echo_server, multiloop_event_loop_policy, \
     ServerAsyncContext, create_server_ssl_context
@@ -137,10 +140,25 @@ async def test_proxy_dns_resolution(proxy_type):
 
 @pytest.mark.parametrize("proxy_type", ["https", "https_auth"])
 async def test_https_proxy(echo_server, proxy_type):
+    loop = asyncio.get_running_loop()
     client_ssl_ctx = create_client_ssl_context()
     proxy_ssl_ctx = create_client_ssl_context()
 
     async with ProxyServer(proxy_type) as proxy_url:
+        if sys.version_info < (3, 11) and isinstance(loop, asyncio.AbstractEventLoop):
+            pytest.skip("HTTPS proxy using asyncio requires Python 3.11+")
+            return
+            # with pytest.raises(picows.WSInvalidURL,
+            #                    match="https proxy requires Python 3.11\\+"):
+            #     await picows.ws_connect(
+            #         AsyncClient,
+            #         echo_server,
+            #         ssl_context=client_ssl_ctx,
+            #         proxy=proxy_url,
+            #         proxy_ssl_context=proxy_ssl_ctx,
+            #     )
+            # return
+
         async with ClientAsyncContext(
                 AsyncClient,
                 echo_server,
@@ -152,3 +170,4 @@ async def test_https_proxy(echo_server, proxy_type):
             frame = await listener.get_message()
             assert frame.msg_type == picows.WSMsgType.BINARY
             assert frame.payload_as_bytes == b"hello over https proxy"
+
