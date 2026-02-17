@@ -141,9 +141,9 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
             logger.warning("Basic authentication was requested in URL, but it is not currently supported, ignore username and password")
 
         if parsed_url.secure:
-            ssl = ssl_context if ssl_context is not None else True
+            ssl_arg = ssl_context if ssl_context is not None else True
         else:
-            ssl = None
+            ssl_arg = None
 
         def ws_protocol_factory() -> WSProtocol:
             return WSProtocol(
@@ -178,10 +178,10 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                     else:
                         current_proxy_ssl_context = proxy_ssl_context
 
-                    if ssl is None:
+                    if ssl_arg is None:
                         destination_ssl_context = None
-                    elif isinstance(ssl, SSLContext):
-                        destination_ssl_context = ssl
+                    elif isinstance(ssl_arg, SSLContext):
+                        destination_ssl_context = ssl_arg
                     else:
                         destination_ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
 
@@ -203,14 +203,14 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                         dest_host=parsed_url.host,
                         dest_port=parsed_url.port)
 
-                if ssl is not None and "server_hostname" not in conn_kwargs:
+                if ssl_arg is not None and "server_hostname" not in conn_kwargs:
                     conn_kwargs["server_hostname"] = parsed_url.host
             else:
                 host = parsed_url.host
                 port = parsed_url.port
 
             (_, ws_protocol) = await loop.create_connection(
-                ws_protocol_factory, host, port, ssl=ssl, sock=proxy_socket, **conn_kwargs) # type: ignore[arg-type]
+                ws_protocol_factory, host, port, ssl=ssl_arg, sock=proxy_socket, **conn_kwargs) # type: ignore[arg-type]
 
             await ws_protocol.wait_until_handshake_complete()
             return ws_protocol.transport, ws_protocol.listener
