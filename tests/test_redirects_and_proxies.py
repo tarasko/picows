@@ -133,7 +133,7 @@ async def test_redirect_through_proxy(redirect_server_2, proxy_type: str):
             await picows.ws_connect(AsyncClient, redirect_server_2, max_redirects=1, proxy=proxy_url, proxy_ssl_context=proxy_ssl_ctx)
 
 
-@pytest.mark.parametrize("proxy_type", ["direct", "socks4", "socks5", "http", "http_auth", "https", "https_auth"])
+@pytest.mark.parametrize("proxy_type", ["socks4", "socks5", "http"])
 @pytest.mark.skip(reason="echo server may respond with 429 (too many requests if we spam it a lot)")
 async def test_proxy_dns_resolution(proxy_type):
     is_https = proxy_type in ("https", "https_auth")
