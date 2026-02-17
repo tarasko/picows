@@ -4,7 +4,7 @@ import sys
 import urllib.parse
 from logging import getLogger
 from ssl import SSLContext
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Optional, Union, cast
 
 from python_socks.async_.asyncio import Proxy
 from python_socks.async_.asyncio.v2 import Proxy as ProxyV2
@@ -14,9 +14,6 @@ from .types import (WSHeadersLike, WSUpgradeRequest,
 from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: ignore [attr-defined]
                      WSProtocol)
 from .url import parse_url, ParsedURL, WSInvalidURL
-
-_proxy_stream_lifecycle_guards: set[object] = set()
-
 
 def _maybe_handle_redirect(exc: WSError, old_parsed_url: ParsedURL, max_redirects: int) -> ParsedURL:
     if max_redirects <= 0:
@@ -43,21 +40,31 @@ def _maybe_handle_redirect(exc: WSError, old_parsed_url: ParsedURL, max_redirect
     return parsed_url
 
 
-def _hold_proxy_stream_until_disconnect(proxy_stream: object, ws_transport: WSTransport) -> None:
-    _proxy_stream_lifecycle_guards.add(proxy_stream)
+class _DetachedWriterTransport:
+    def is_closing(self) -> bool:
+        return True
 
-    async def _cleanup() -> None:
-        try:
-            await ws_transport.wait_disconnected()
-        finally:
-            _proxy_stream_lifecycle_guards.discard(proxy_stream)
-
-    asyncio.get_running_loop().create_task(_cleanup())
+    def close(self) -> None:
+        return
 
 
-async def _connect_through_https_proxy(ws_protocol_factory, ssl_context, proxy: str, proxy_ssl_context, proxy_parsed_url, parsed_url):
-    is_asyncio_loop = isinstance(asyncio.get_event_loop_policy(),
-                                 asyncio.DefaultEventLoopPolicy)  # type: ignore [attr-defined]
+def _detach_stream_writer_transport(stream: Any) -> asyncio.Transport:
+    transport = cast(asyncio.Transport, stream.writer.transport)
+    # Prevent StreamWriter.__del__ from closing a transport we hand over to WSProtocol.
+    stream.writer._transport = _DetachedWriterTransport()
+    return transport
+
+
+async def _connect_through_https_proxy(
+        ws_protocol_factory: Callable[[], WSProtocol],
+        ssl_context: Optional[SSLContext],
+        proxy: str,
+        proxy_ssl_context: Optional[SSLContext],
+        proxy_parsed_url: urllib.parse.SplitResult,
+        parsed_url: ParsedURL
+) -> tuple[WSTransport, WSListener]:
+    loop = asyncio.get_running_loop()
+    is_asyncio_loop = loop.__class__.__module__.startswith("asyncio")
     if sys.version_info < (3, 11) and is_asyncio_loop:
         raise WSInvalidURL(
             proxy,
@@ -69,16 +76,15 @@ async def _connect_through_https_proxy(ws_protocol_factory, ssl_context, proxy: 
     http_proxy_url = urllib.parse.urlunsplit(
         ("http", proxy_parsed_url.netloc, "", "", "")
     )
-    stream = await ProxyV2.from_url(http_proxy_url,
-                                    proxy_ssl=proxy_ssl_context).connect(
+    stream = await ProxyV2.from_url(http_proxy_url, proxy_ssl=proxy_ssl_context).connect(
         dest_host=parsed_url.host,
         dest_port=parsed_url.port,
         dest_ssl=ssl_context)
     ws_protocol = ws_protocol_factory()
-    stream.writer.transport.set_protocol(ws_protocol)
-    ws_protocol.connection_made(stream.writer.transport)
+    transport = _detach_stream_writer_transport(stream)
+    transport.set_protocol(ws_protocol)
+    ws_protocol.connection_made(transport)
     await ws_protocol.wait_until_handshake_complete()
-    _hold_proxy_stream_until_disconnect(stream, ws_protocol.transport)
     return ws_protocol.transport, ws_protocol.listener
 
 
@@ -164,6 +170,8 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
     logger = getLogger(f"picows.{logger_name}")
     parsed_url = parse_url(url)
 
+    # Loop in order to follow redirects
+    # Break loop if we were able to upgrade
     while True:
         if parsed_url.username is not None or parsed_url.password is not None:
             logger.warning("Basic authentication was requested in URL, but it is not currently supported, ignore username and password")
