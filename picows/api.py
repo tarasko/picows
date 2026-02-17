@@ -174,9 +174,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                 proxy_url = urllib.parse.urlsplit(proxy)
                 proxy_scheme = proxy_url.scheme.lower()
                 if proxy_scheme == "https":
-                    is_asyncio_loop = isinstance(
-                        asyncio.get_event_loop_policy(),
-                        asyncio.DefaultEventLoopPolicy)
+                    is_asyncio_loop = isinstance(asyncio.get_event_loop_policy(), asyncio.DefaultEventLoopPolicy) # type: ignore [attr-defined]
                     if sys.version_info < (3, 11) and is_asyncio_loop:
                         raise WSInvalidURL(
                             proxy,
