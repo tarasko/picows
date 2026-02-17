@@ -140,25 +140,15 @@ async def test_proxy_dns_resolution(proxy_type):
 
 @pytest.mark.parametrize("proxy_type", ["https", "https_auth"])
 async def test_https_proxy(echo_server, proxy_type):
-    loop = asyncio.get_running_loop()
+    is_asyncio_loop = isinstance(asyncio.get_event_loop_policy(), asyncio.DefaultEventLoopPolicy)
+    if sys.version_info < (3, 11) and is_asyncio_loop:
+        pytest.skip("HTTPS proxy using asyncio requires Python 3.11+")
+        return
+
     client_ssl_ctx = create_client_ssl_context()
     proxy_ssl_ctx = create_client_ssl_context()
 
     async with ProxyServer(proxy_type) as proxy_url:
-        if sys.version_info < (3, 11) and isinstance(loop, asyncio.AbstractEventLoop):
-            pytest.skip("HTTPS proxy using asyncio requires Python 3.11+")
-            return
-            # with pytest.raises(picows.WSInvalidURL,
-            #                    match="https proxy requires Python 3.11\\+"):
-            #     await picows.ws_connect(
-            #         AsyncClient,
-            #         echo_server,
-            #         ssl_context=client_ssl_ctx,
-            #         proxy=proxy_url,
-            #         proxy_ssl_context=proxy_ssl_ctx,
-            #     )
-            # return
-
         async with ClientAsyncContext(
                 AsyncClient,
                 echo_server,
