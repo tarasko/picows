@@ -177,6 +177,7 @@ async def ws_connect(
     url: str,
     *args: Any,
     ssl_context: Union[SSLContext, None] = None,
+    proxy_ssl_context: Union[SSLContext, None] = None,
     disconnect_on_exception: bool = True,
     websocket_handshake_timeout: float = 5,
     logger_name: str = "client",
