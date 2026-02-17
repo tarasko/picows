@@ -122,7 +122,7 @@ async def test_redirect_through_proxy(redirect_server_2, proxy_type: str):
     async with ProxyServer(proxy_type) as proxy_url:
         async with ClientAsyncContext(AsyncClient, redirect_server_2, ssl_context=client_ssl_ctx, proxy=proxy_url, proxy_ssl_context=proxy_ssl_ctx) as (transport, listener):
             transport.send(picows.WSMsgType.BINARY, b"hello over proxy")
-            frame = await listener.get_message()
+            frame = await listener.get_message(1.0)
             assert frame.msg_type == picows.WSMsgType.BINARY
             assert frame.payload_as_bytes == b"hello over proxy"
 
