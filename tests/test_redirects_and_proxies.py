@@ -5,12 +5,13 @@ from logging import getLogger
 
 import anyio
 import pytest
+from anyio.streams.tls import TLSListener
 from tiny_proxy import HttpProxyHandler, Socks4ProxyHandler, Socks5ProxyHandler
 
 import picows
 from tests.utils import ClientAsyncContext, AsyncClient, \
     create_client_ssl_context, echo_server, multiloop_event_loop_policy, \
-    ServerAsyncContext
+    ServerAsyncContext, create_server_ssl_context
 
 event_loop_policy = multiloop_event_loop_policy()
 
@@ -20,6 +21,10 @@ def _create_proxy_handler(proxy_type: str):
     if proxy_type == "http":
         return HttpProxyHandler()
     if proxy_type == "http_auth":
+        return HttpProxyHandler(username="user", password="password")
+    if proxy_type == "https":
+        return HttpProxyHandler()
+    if proxy_type == "https_auth":
         return HttpProxyHandler(username="user", password="password")
     if proxy_type == "socks4":
         return Socks4ProxyHandler()
@@ -32,6 +37,8 @@ def _create_proxy_handler(proxy_type: str):
 _proxy_url_templates = {
     "http": "http://127.0.0.1:{port}",
     "http_auth": "http://user:password@127.0.0.1:{port}",
+    "https": "https://127.0.0.1:{port}",
+    "https_auth": "https://user:password@127.0.0.1:{port}",
     "socks4": "socks4://127.0.0.1:{port}",
     "socks5": "socks5://user:password@127.0.0.1:{port}"
 }
@@ -45,10 +52,11 @@ async def ProxyServer(proxy_type: str):
     url_template = _proxy_url_templates[proxy_type]
     handler = _create_proxy_handler(proxy_type)
     listener = await anyio.create_tcp_listener(local_host="127.0.0.1")
+    proxy_listener = TLSListener(listener, create_server_ssl_context()) if proxy_type.startswith("https") else listener
 
     task_group = anyio.create_task_group()
     await task_group.__aenter__()
-    task_group.start_soon(listener.serve, handler.handle)
+    task_group.start_soon(proxy_listener.serve, handler.handle)
 
     try:
         proxy_port = listener.listeners[0].extra(anyio.abc.SocketAttribute.local_port)
@@ -56,7 +64,7 @@ async def ProxyServer(proxy_type: str):
     finally:
         task_group.cancel_scope.cancel()
         await task_group.__aexit__(None, None, None)
-        await listener.aclose()
+        await proxy_listener.aclose()
 
 
 @pytest.fixture()
@@ -125,3 +133,22 @@ async def test_proxy_dns_resolution(proxy_type):
             frame = await listener.get_message()
             assert frame.msg_type == picows.WSMsgType.BINARY
             assert frame.payload_as_bytes == b"hello over proxy"
+
+
+@pytest.mark.parametrize("proxy_type", ["https", "https_auth"])
+async def test_https_proxy(echo_server, proxy_type):
+    client_ssl_ctx = create_client_ssl_context()
+    proxy_ssl_ctx = create_client_ssl_context()
+
+    async with ProxyServer(proxy_type) as proxy_url:
+        async with ClientAsyncContext(
+                AsyncClient,
+                echo_server,
+                ssl_context=client_ssl_ctx,
+                proxy=proxy_url,
+                proxy_ssl_context=proxy_ssl_ctx,
+        ) as (transport, listener):
+            transport.send(picows.WSMsgType.BINARY, b"hello over https proxy")
+            frame = await listener.get_message()
+            assert frame.msg_type == picows.WSMsgType.BINARY
+            assert frame.payload_as_bytes == b"hello over https proxy"

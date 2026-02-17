@@ -1,16 +1,20 @@
 import asyncio
+import ssl
 import urllib.parse
 from logging import getLogger
 from ssl import SSLContext
 from typing import Callable, Optional, Union
 
 from python_socks.async_.asyncio import Proxy
+from python_socks.async_.asyncio.v2 import Proxy as ProxyV2
 
 from .types import (WSHeadersLike, WSUpgradeRequest,
                     WSUpgradeResponseWithListener, WSError)
 from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: ignore [attr-defined]
                      WSProtocol)
 from .url import parse_url, ParsedURL
+
+_proxy_stream_lifecycle_guards: set[object] = set()
 
 
 def _maybe_handle_redirect(exc: WSError, old_parsed_url: ParsedURL, max_redirects: int) -> ParsedURL:
@@ -38,10 +42,23 @@ def _maybe_handle_redirect(exc: WSError, old_parsed_url: ParsedURL, max_redirect
     return parsed_url
 
 
+def _hold_proxy_stream_until_disconnect(proxy_stream: object, ws_transport: WSTransport) -> None:
+    _proxy_stream_lifecycle_guards.add(proxy_stream)
+
+    async def _cleanup() -> None:
+        try:
+            await ws_transport.wait_disconnected()
+        finally:
+            _proxy_stream_lifecycle_guards.discard(proxy_stream)
+
+    asyncio.get_running_loop().create_task(_cleanup())
+
+
 async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: ignore [no-untyped-def]
                      url: str,
                      *,
                      ssl_context: Optional[SSLContext] = None,
+                     proxy_ssl_context: Optional[SSLContext] = None,
                      disconnect_on_exception: bool = True,
                      websocket_handshake_timeout: float = 5,
                      logger_name: str = "client",
@@ -68,6 +85,8 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
     :param url: Destination URL
     :param ssl_context: optional SSLContext to override default one when
         the wss scheme is used
+    :param proxy_ssl_context: optional SSLContext to override default one when
+        https proxy scheme is used
     :param disconnect_on_exception:
         Indicates whether the client should initiate disconnect on any exception
         thrown from WSListener.on_ws_frame callbacks
@@ -104,8 +123,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
         * How many times we can follow HTTP redirects. Set to 0 in order to disable redirects.
     :param proxy:
         Optional proxy URL. Supported schemes are ``http://``, ``socks4://``
-        and ``socks5://`` (including authenticated variants).
-        HTTPS proxy scheme (``https://``) is currently not supported.
+        ``https://`` and ``socks5://`` (including authenticated variants).
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
 
@@ -147,16 +165,43 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
         try:
             loop = asyncio.get_running_loop()
             conn_kwargs = dict(kwargs)
-            if proxy is not None and urllib.parse.urlsplit(proxy).scheme.lower() == "https":
-                raise ValueError("HTTPS proxy URL scheme is not supported, use http://, socks4:// or socks5://")
 
             proxy_socket = None
             host = None
             port = None
             if proxy is not None:
-                proxy_socket = await Proxy.from_url(proxy).connect(
-                    dest_host=parsed_url.host,
-                    dest_port=parsed_url.port)
+                proxy_url = urllib.parse.urlsplit(proxy)
+                proxy_scheme = proxy_url.scheme.lower()
+                if proxy_scheme == "https":
+                    if proxy_ssl_context is None:
+                        current_proxy_ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+                    else:
+                        current_proxy_ssl_context = proxy_ssl_context
+
+                    if ssl is None:
+                        destination_ssl_context = None
+                    elif isinstance(ssl, SSLContext):
+                        destination_ssl_context = ssl
+                    else:
+                        destination_ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+
+                    http_proxy_url = urllib.parse.urlunsplit(
+                        ("http", proxy_url.netloc, "", "", "")
+                    )
+                    stream = await ProxyV2.from_url(http_proxy_url, proxy_ssl=current_proxy_ssl_context).connect(
+                        dest_host=parsed_url.host,
+                        dest_port=parsed_url.port,
+                        dest_ssl=destination_ssl_context)
+                    ws_protocol = ws_protocol_factory()
+                    stream.writer.transport.set_protocol(ws_protocol)
+                    ws_protocol.connection_made(stream.writer.transport)
+                    await ws_protocol.wait_until_handshake_complete()
+                    _hold_proxy_stream_until_disconnect(stream, ws_protocol.transport)
+                    return ws_protocol.transport, ws_protocol.listener
+                else:
+                    proxy_socket = await Proxy.from_url(proxy).connect(
+                        dest_host=parsed_url.host,
+                        dest_port=parsed_url.port)
 
                 if ssl is not None and "server_hostname" not in conn_kwargs:
                     conn_kwargs["server_hostname"] = parsed_url.host

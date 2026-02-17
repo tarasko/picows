@@ -236,16 +236,19 @@ Using proxies
 
 :any:`ws_connect` supports HTTP, SOCKS4 and SOCKS5 proxies via
 `python-socks <https://github.com/romis2012/python-socks>`_.
-Use the ``proxy`` argument with a proxy URL. HTTPS proxy URLs (``https://...``)
-are not currently supported:
+Use the ``proxy`` argument with a proxy URL:
 
 .. code-block:: python
 
     transport, listener = await ws_connect(
         ClientListener,
         "ws://127.0.0.1:9000/",
-        proxy="socks5://user:password@127.0.0.1:1080",
+        proxy_ssl_context=ssl.create_default_context(),
+        proxy="https://user:password@127.0.0.1:1080",
     )
+
+When ``https://`` proxy URL scheme is used, TLS is established with the proxy
+first. ``proxy_ssl_context`` can be used to customize certificate verification.
 
 When connecting to ``wss://`` URLs through a proxy, **picows** establishes a tunnel
 through the proxy and then performs the TLS handshake with the websocket server.
