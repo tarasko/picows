@@ -13,7 +13,7 @@ import pytest
 
 import picows
 
-TIMEOUT = 0.5
+TIMEOUT = 1.0
 
 
 def _default_windows_policy() -> asyncio.AbstractEventLoopPolicy:
@@ -124,6 +124,12 @@ class AsyncClient(picows.WSListener):
 
 
 class ServerEchoListener(picows.WSListener):
+    # Standard echo server that is used for testing
+    # Send back received BINARY, CLOSE, CONTINUATION frames.
+    # On TEXT frame, analyze content:
+    # * disconnect_me_without_close_frame - disconnect client immediately
+    # * random_1024 - generate random message of 1024 bytes and send it as BINARY
+    # * everything else is just echoed as TEXT frame
     def on_ws_connected(self, transport: picows.WSTransport):
         self._transport = transport
 
@@ -131,11 +137,22 @@ class ServerEchoListener(picows.WSListener):
         if frame.msg_type == picows.WSMsgType.CLOSE:
             self._transport.send_close(frame.get_close_code(), frame.get_close_message())
             self._transport.disconnect()
-        if (frame.msg_type == picows.WSMsgType.TEXT and
-                frame.get_payload_as_memoryview() == b"disconnect_me_without_close_frame"):
-            self._transport.disconnect()
-        else:
-            self._transport.send(frame.msg_type, frame.get_payload_as_bytes(), frame.fin, frame.rsv1)
+            return
+
+        if frame.msg_type == picows.WSMsgType.TEXT:
+            if frame.get_payload_as_memoryview() == b"disconnect_me_without_close_frame":
+                self._transport.disconnect()
+                return
+
+            # Check if client wants us to send a random message of a specific size
+            if frame.get_payload_as_memoryview()[:8].tobytes().startswith(b"random_"):
+                data = frame.get_payload_as_ascii_text()
+                msg_size = int(data.removeprefix("random_"))
+                msg = os.urandom(msg_size)
+                self._transport.send(picows.WSMsgType.BINARY, msg)
+                return
+
+        self._transport.send(frame.msg_type, frame.get_payload_as_bytes(), frame.fin, frame.rsv1)
 
 
 @dataclass

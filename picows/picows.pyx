@@ -1214,10 +1214,12 @@ cdef class WSProtocol:
             return self._get_next_frame_impl()
         except _WSParserError as ex:
             self._logger.error("WS parser error: %s, initiate disconnect", ex.args)
+            self._disconnect_exception = WSError(str(ex))
             self.transport.send_close(ex.args[0], ex.args[1].encode())
             self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
-        except:
+        except BaseException as ex:
             self._logger.exception("WS parser failure, initiate disconnect")
+            self._disconnect_exception = WSError(str(ex))
             self.transport.send_close(WSCloseCode.PROTOCOL_ERROR)
             self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 

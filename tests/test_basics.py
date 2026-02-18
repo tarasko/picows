@@ -20,7 +20,7 @@ class MyException(RuntimeError):
 event_loop_policy = multiloop_event_loop_policy()
 
 
-@pytest.mark.parametrize("msg_size", [0, 1, 2, 3, 4, 5, 6, 7, 8, 29, 64, 256 * 1024])
+@pytest.mark.parametrize("msg_size", [0, 1, 2, 3, 4, 5, 6, 7, 8, 29, 64, 256 * 1024, 6*1024*1024])
 async def test_echo(connected_async_client, msg_size):
     msg = (b"ABCDEFGHIKLMNOPQ" * (int(msg_size / 16) + 1))[:msg_size]
 
@@ -81,21 +81,33 @@ async def test_send_external_bytearray_asserts(connected_async_client):
         connected_async_client.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, bytearray(b"1234567890123HELLO"), 13)
 
 
-async def test_max_frame_size_violation():
-    msg = os.urandom(1024 * 1024)
-    max_frame_size = 16 * 1024
-    server = await picows.ws_create_server(lambda _: ServerEchoListener(),
-                                           "127.0.0.1", 0,
-                                           max_frame_size=max_frame_size)
-    async with ServerAsyncContext(server) as server_ctx:
-        async with ClientAsyncContext(AsyncClient, server_ctx.tcp_url,
-                                      ssl_context=create_client_ssl_context(),
-                                      max_frame_size=max_frame_size,
-                                      ) as (transport, listener):
-            transport.send(picows.WSMsgType.BINARY, msg)
-            frame = await listener.get_message()
-            assert frame.msg_type == picows.WSMsgType.CLOSE
-            assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
+async def test_max_frame_size_violation_huge_frame_from_client(echo_server):
+    msg = os.urandom(30 * 1024 * 1024)
+    async with ClientAsyncContext(AsyncClient, echo_server,
+                                  ssl_context=create_client_ssl_context(),
+                                  ) as (transport, listener):
+        transport.send(picows.WSMsgType.BINARY, msg)
+        frame = await listener.get_message()
+        assert frame.msg_type == picows.WSMsgType.CLOSE
+        assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
+
+
+async def test_max_frame_size_violation_huge_frame_from_server(echo_server):
+    ssl_context = create_client_ssl_context()
+    with pytest.raises(picows.WSError, match="violates max allowed size"):
+        async with ClientAsyncContext(AsyncClient, echo_server, ssl_context=ssl_context) as (transport, listener):
+            async with async_timeout.timeout(1.0):
+                transport.send(picows.WSMsgType.TEXT, b"random_30000000")
+                await transport.wait_disconnected()
+
+    # Check that the exception persists
+    # https://github.com/tarasko/picows/discussions/81
+    with pytest.raises(picows.WSError, match="violates max allowed size"):
+        async with ClientAsyncContext(AsyncClient, echo_server, ssl_context=ssl_context) as (transport, listener):
+            async with async_timeout.timeout(1.0):
+                transport.send(picows.WSMsgType.TEXT, b"random_30000000")
+                await transport.wait_disconnected()
+
 
 
 async def test_close(connected_async_client):

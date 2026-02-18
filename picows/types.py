@@ -140,7 +140,7 @@ class WSUpgradeResponseWithListener:
 
 class WSError(RuntimeError):
     """
-    Raised by :any:`ws_connect` for any kind of handshake error.
+    Raised by :any:`ws_connect` or :any:`wait_disconnected` for any kind of websocket handshake or protocol errors.
     """
     raw_header: Optional[bytes]
     raw_body: Optional[bytes]
