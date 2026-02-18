@@ -518,9 +518,25 @@ cdef class WSTransport:
 
     async def wait_disconnected(self):
         """
-        Coroutine that conveniently allows to wait until websocket is
-        completely disconnected.
-        (underlying transport is closed, on_ws_disconnected has been called)
+        Wait until websocket is fully disconnected.
+
+        Completion means:
+
+        * the underlying transport is closed
+        * :any:`WSListener.on_ws_disconnected` callback has finished
+
+        Exception behavior:
+
+        * client side: if disconnect was initiated because user callback raised,
+          the original exception is transferred here and re-raised by this
+          coroutine when awaited.
+        * client side: websocket/protocol failures may also be re-raised here
+          (for example :any:`WSError`).
+        * server side: always completes normally (no per-client exception
+          propagation via this coroutine).
+
+        This coroutine internally shields the wait future, so cancelling the
+        waiter does not cancel internal disconnect bookkeeping.
 
         """
         await asyncio.shield(self.disconnected_future)
@@ -1351,10 +1367,10 @@ cdef class WSProtocol:
             self.listener.on_ws_connected(self.transport)
         except Exception as exc:
             if self.is_client_side:
-                self._logger.info("Exception from user's WSListener.on_ws_connected handler, initiate disconnect")
+                self._logger.warning("Initiate disconnect because of exception from WSListener.on_ws_connected: %s", str(exc))
                 self._disconnect_exception = exc
             else:
-                self._logger.exception("Exception from user's WSListener.on_ws_connected handler, initiate disconnect")
+                self._logger.error("Initiate disconnect because of exception from WSListener.on_ws_connected: %s", str(exc))
             self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
             self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 
@@ -1387,11 +1403,11 @@ cdef class WSProtocol:
                 if self.is_client_side:
                     if self._disconnect_exception is None:
                         self._disconnect_exception = exc
-                        self._logger.info("Exception from user's WSListener.on_ws_frame, initiate disconnect")
+                        self._logger.warning("Initiate disconnect because of exception from WSListener.on_ws_frame: %s", str(exc))
                     else:
                         self._logger.exception("Secondary exception from user's WSListener.on_ws_frame")
                 else:
-                    self._logger.exception("Exception from user's WSListener.on_ws_frame, initiate disconnect")
+                    self._logger.exception("Initiate disconnect because of exception from WSListener.on_ws_frame")
 
                 self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
                 self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
@@ -1401,8 +1417,15 @@ cdef class WSProtocol:
     cdef inline _invoke_on_ws_disconnected(self):
         try:
             self.listener.on_ws_disconnected(self.transport)
-        except:
-            self._logger.exception("Unhandled exception from user's on_ws_disconnected")
+        except Exception as exc:
+            if self.is_client_side:
+                if self._disconnect_exception is None:
+                    self._disconnect_exception = exc
+                    self._logger.warning("Exception from WSListener.on_ws_disconnected: %s", str(exc))
+                else:
+                    self._logger.error("Exception from WSListener.on_ws_disconnected: %s", str(exc))
+            else:
+                self._logger.exception("Unhandled exception from user's WSListener.on_ws_disconnected")
 
     cdef inline _shrink_buffer(self):
         if self._f_curr_frame_start_pos > 0:

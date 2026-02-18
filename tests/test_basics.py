@@ -372,6 +372,22 @@ async def test_ws_on_frame_throw_server_side(disconnect_on_exception):
                         await transport.wait_disconnected()
 
 
+async def test_ws_on_disconnected_throw_client_side():
+    # Check that exception is transferred to wait_disconnected from on_ws_disconnected
+    class ClientListener(picows.WSListener):
+        def on_ws_disconnected(self, transport):
+            raise MyException("exception from on_ws_disconnected")
+
+    server = await picows.ws_create_server(lambda _: picows.WSListener(),
+                                           "127.0.0.1", 0)
+    async with ServerAsyncContext(server) as server_ctx:
+        (transport, _) = await picows.ws_connect(ClientListener, server_ctx.tcp_url)
+        async with async_timeout.timeout(TIMEOUT):
+            with pytest.raises(MyException):
+                transport.disconnect()
+                await transport.wait_disconnected()
+
+
 async def test_stress(connected_async_client):
     # Heuristic check if picows direct write works smoothly together with
     # loop transport write. We have to fill socket system buffers first
