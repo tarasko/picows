@@ -401,11 +401,11 @@ cdef class WSTransport:
         """
         Send a frame over websocket with a message as its payload. 
         This function does not copy message to prepare websocket frames. 
-        It reuses bytearray's memory to append websocket frame header at the front.
+        It reuses bytearray's memory to write websocket frame header at the front.
         
         :param msg_type: :any:`WSMsgType` enum value\n 
         :param msg_offset: specifies where message begins in the bytearray. 
-            Must be at least 14 to let picows to insert websocket frame header in front of the message.
+            Must be at least 14 to let picows to write websocket frame header in front of the message.
         :param buffer: bytearray that contains message and some extra space (at least 14 bytes) in the beginning.
             The len of the message is determined as `len(buffer) - msg_offset`         
         :param fin: fin bit in websocket frame.
