@@ -8,7 +8,9 @@ picows Release History
 1.14.0
 ------------------
 
-* WSTransport.wait_disconnect raises WSError exception if disconnect was cause by protocol parsing error.
+* WSTransport.wait_disconnected raises WSError exception if disconnect was cause by protocol parsing error.
+* Transfer user exception from on_ws_disconnected to wait_disconnected on the client side
+* Expand 'Exceptions handling' topic guide to explain how exceptions are transferred from user callbacks to wait_disconnected
 
 1.13.1 (2026-02-15)
 ------------------
