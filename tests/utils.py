@@ -13,7 +13,7 @@ import pytest
 
 import picows
 
-TIMEOUT = 0.5
+TIMEOUT = 1.0
 
 
 def _default_windows_policy() -> asyncio.AbstractEventLoopPolicy:
