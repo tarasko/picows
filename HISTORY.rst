@@ -5,6 +5,11 @@ picows Release History
    :depth: 1
    :local:
 
+1.14.0
+------------------
+
+* WSTransport.wait_disconnect raises WSError exception if disconnect was cause by protocol parsing error.
+
 1.13.1 (2026-02-15)
 ------------------
 
