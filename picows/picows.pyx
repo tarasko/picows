@@ -521,10 +521,12 @@ cdef class WSTransport:
         Wait until websocket is fully disconnected.
 
         Completion means:
+
         * the underlying transport is closed
-        * :any:`WSListener.on_ws_disconnected` callback (if any) has finished
+        * :any:`WSListener.on_ws_disconnected` callback has finished
 
         Exception behavior:
+
         * client side: if disconnect was initiated because user callback raised,
           the original exception is transferred here and re-raised by this
           coroutine when awaited.
