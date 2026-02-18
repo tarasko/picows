@@ -518,9 +518,23 @@ cdef class WSTransport:
 
     async def wait_disconnected(self):
         """
-        Coroutine that conveniently allows to wait until websocket is
-        completely disconnected.
-        (underlying transport is closed, on_ws_disconnected has been called)
+        Wait until websocket is fully disconnected.
+
+        Completion means:
+        * the underlying transport is closed
+        * :any:`WSListener.on_ws_disconnected` callback (if any) has finished
+
+        Exception behavior:
+        * client side: if disconnect was initiated because user callback raised,
+          the original exception is transferred here and re-raised by this
+          coroutine when awaited.
+        * client side: websocket/protocol failures may also be re-raised here
+          (for example :any:`WSError`).
+        * server side: always completes normally (no per-client exception
+          propagation via this coroutine).
+
+        This coroutine internally shields the wait future, so cancelling the
+        waiter does not cancel internal disconnect bookkeeping.
 
         """
         await asyncio.shield(self.disconnected_future)

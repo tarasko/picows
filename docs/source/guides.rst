@@ -98,10 +98,25 @@ reconnect on any error, the loop should break on `asyncio.CancelledError`.
 
 **What happens if a user callback raises an exception, and how does the library handle it?**
 
-This is described in the documentation of each particular method.
-In most cases, **picows** will send a CLOSE frame with an INTERNAL_ERROR close code and disconnect.
-However, for :any:`on_ws_frame`, it is possible to override it by setting disconnect_on_error=False
-in :any:`ws_connect`/:any:`ws_create_server`.
+In most cases, **picows** initiates websocket shutdown:
+
+* sends CLOSE(INTERNAL_ERROR),
+* closes the transport,
+* and then calls :any:`WSTransport.wait_disconnected` waiters.
+
+On the **client side**, the first exception raised by a user handler is
+stored internally, transferred to :any:`WSTransport.wait_disconnected`,
+and re-raised when `await transport.wait_disconnected()` completes.
+This makes handler failures observable from your top-level coroutine.
+
+On the **server side**, callback exceptions are logged and not re-raised via
+`wait_disconnected` (there is no per-client await path on server internals).
+
+For :any:`on_ws_frame`, this behavior is configurable via
+`disconnect_on_exception` in :any:`ws_connect`/:any:`ws_create_server`:
+
+* `disconnect_on_exception=True` (default): exception triggers disconnect, and on client side it is re-raised by `wait_disconnected`.
+* `disconnect_on_exception=False`: exception is only logged, connection stays open.
 
 Auto ping
 --------------
