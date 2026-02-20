@@ -209,6 +209,69 @@ manually from :any:`on_ws_frame`.
 
             ...
 
+Graceful websocket shutdown
+---------------------------
+
+According to RFC 6455, graceful websocket shutdown is a CLOSE handshake:
+one side sends a CLOSE frame, the peer replies with CLOSE, and then both
+sides close the underlying TCP connection.
+
+**picows** does not perform full websocket CLOSE handshake automatically:
+
+* :any:`WSTransport.disconnect` does **not** call :any:`WSTransport.send_close`.
+* Incoming CLOSE frames are delivered to :any:`WSListener.on_ws_frame`; **picows**
+  does not automatically send CLOSE reply.
+
+If you want graceful websocket shutdown, handle CLOSE explicitly in your
+listener:
+
+.. code-block:: python
+
+    class Listener(picows.WSListener):
+
+        def initiate_close(self, transport: picows.WSTransport):
+            transport.send_close(picows.WSCloseCode.OK, b"done")
+            transport.disconnect()
+
+        def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
+            if frame.msg_type == picows.WSMsgType.CLOSE:
+                # If peer initiates close, echo CLOSE and then disconnect.
+                # If CLOSE is a reply to our CLOSE, it safe to call send_close and disconnect again.
+                # They will be ignored.
+                transport.send_close(frame.get_close_code(), frame.get_close_message())
+                transport.disconnect()
+                return
+
+            ...
+
+`graceful_shutdown.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/graceful_shutdown.py>`_
+contains a complete runnable example.
+
+You do not need extra guards around those calls:
+
+* After the first :any:`WSTransport.send_close`, subsequent send calls
+  (:any:`WSTransport.send`, :any:`WSTransport.send_ping`,
+  :any:`WSTransport.send_pong`, :any:`WSTransport.send_close`) are no-ops.
+* :any:`WSTransport.disconnect` is idempotent and safe to call multiple times.
+
+Disconnect behavior and asyncio transport semantics
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+:any:`WSTransport.send`, :any:`WSTransport.send_ping`, :any:`WSTransport.send_pong`,
+and :any:`WSTransport.send_close` eventually rely on asyncio transport
+`write() <https://docs.python.org/3/library/asyncio-protocol.html#asyncio.WriteTransport.write>`_,
+which may buffer data.
+
+By default, :any:`WSTransport.disconnect` calls asyncio transport
+`close() <https://docs.python.org/3/library/asyncio-protocol.html#asyncio.WriteTransport.close>`_.
+This attempts to flush data that has already been enqueued by previous send calls
+before the socket is closed (subject to OS/kernel behavior and network conditions).
+
+For immediate teardown, call :any:`WSTransport.disconnect` with `graceful=False`.
+This maps to asyncio transport
+`abort() <https://docs.python.org/3/library/asyncio-protocol.html#asyncio.WriteTransport.abort>`_
+and closes the connection without waiting for buffered outgoing data.
+
 Measuring/checking round-trip time
 ----------------------------------
 `Available since 1.5`
@@ -276,3 +339,26 @@ Basic auth is supported. Login and password can be specified in the proxy URL.
 Currently, **picows** does not attempt to use system proxy settings. If you want to use
 system-wide proxy settings, get them using `getproxies`_ and pass one as the
 proxy argument.
+
+Setting socket options
+----------------------
+
+If you need custom TCP socket tuning, use :any:`on_ws_connected` callback and
+adjust the raw socket there.
+
+.. code-block:: python
+
+    import socket
+    from picows import WSListener, WSTransport
+
+    class Listener(WSListener):
+        ...
+        def on_ws_connected(transport: WSTransport):
+            sock: socket.socket = transport.underlying_transport.get_extra_info("socket")
+            # Example: enlarge kernel socket buffers
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 * 1024 * 1024)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1 * 1024 * 1024)
+
+.. note::
+    **picows** already enables `TCP_NODELAY` and, when available on the
+    platform, `TCP_QUICKACK` to reduce latency by default.

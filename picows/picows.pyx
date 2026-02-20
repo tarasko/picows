@@ -324,6 +324,7 @@ cdef class WSTransport:
         self.underlying_transport = underlying_transport
         self.is_client_side = is_client_side
         self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
+        self.is_close_frame_sent = False
         self.request = None
         self.response = None #
         self.auto_ping_expect_pong = False
@@ -333,15 +334,14 @@ cdef class WSTransport:
         self._loop = loop
         self._logger = logger
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
-        self._close_frame_is_sent = False
         self._write_buf = MemoryBuffer(1024)
         self._socket = underlying_transport.get_extra_info('socket').fileno()
 
     cdef send_reuse_external_buffer(self, WSMsgType msg_type,
                                     char* msg_ptr, Py_ssize_t msg_size,
                                     bint fin=True, bint rsv1=False):
-        if self._close_frame_is_sent:
-            self._logger.info("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
+        if self.is_close_frame_sent:
+            self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
             return
 
         cdef:
@@ -393,6 +393,9 @@ cdef class WSTransport:
             self.underlying_transport.write(PyBytes_FromStringAndSize(<char*>header_ptr, total_size))
         else:
             self._try_native_write_then_transport_write(<char*>header_ptr, total_size)
+
+        if msg_type == WSMsgType.CLOSE:
+            self.is_close_frame_sent = True
 
     cpdef send_reuse_external_bytearray(self, WSMsgType msg_type,
                                         bytearray buffer,
@@ -500,7 +503,6 @@ cdef class WSTransport:
         memcpy(self._write_buf.data + 2 + 16, msg_ptr, msg_length)
 
         self.send_reuse_external_buffer(WSMsgType.CLOSE, self._write_buf.data + 16, msg_length + 2, True, False)
-        self._close_frame_is_sent = True
 
     cpdef disconnect(self, bint graceful=True):
         """
