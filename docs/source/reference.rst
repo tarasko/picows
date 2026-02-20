@@ -142,6 +142,8 @@ Classes
         All `send` methods never block. The data is buffered and arranged to be sent out asynchronously in case
         if it cannot be sent immediately.
         This behavior is derived from the underlying `asyncio.WriteTransport.write`
+        Once :any:`WSTransport.send_close` is called, :any:`WSTransport.is_close_frame_sent`
+        becomes ``True`` and any subsequent send calls are no-ops (they do nothing).
 
     .. py:attribute:: underlying_transport
         :type: asyncio.Transport
@@ -151,6 +153,17 @@ Classes
         .. note::
 
             Please don't use it to send data. Use only `WSTransport.send` methods to send frames.
+
+    .. py:attribute:: is_close_frame_sent
+        :type: bool
+
+        Indicates whether a CLOSE frame has already been sent with
+        :any:`WSTransport.send_close`.
+
+        When this flag is ``True``, subsequent calls to send methods
+        (:any:`WSTransport.send`, :any:`WSTransport.send_ping`,
+        :any:`WSTransport.send_pong`, and :any:`WSTransport.send_close`)
+        are no-ops and do nothing.
 
     .. py:attribute:: request
         :type: WSUpgradeRequest

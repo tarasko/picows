@@ -394,6 +394,9 @@ cdef class WSTransport:
         else:
             self._try_native_write_then_transport_write(<char*>header_ptr, total_size)
 
+        if msg_type == WSMsgType.CLOSE:
+            self.is_close_frame_sent = True
+
     cpdef send_reuse_external_bytearray(self, WSMsgType msg_type,
                                         bytearray buffer,
                                         Py_ssize_t msg_offset,
@@ -500,7 +503,6 @@ cdef class WSTransport:
         memcpy(self._write_buf.data + 2 + 16, msg_ptr, msg_length)
 
         self.send_reuse_external_buffer(WSMsgType.CLOSE, self._write_buf.data + 16, msg_length + 2, True, False)
-        self.is_close_frame_sent = True
 
     cpdef disconnect(self, bint graceful=True):
         """
