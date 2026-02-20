@@ -276,3 +276,26 @@ Basic auth is supported. Login and password can be specified in the proxy URL.
 Currently, **picows** does not attempt to use system proxy settings. If you want to use
 system-wide proxy settings, get them using `getproxies`_ and pass one as the
 proxy argument.
+
+Setting socket options
+----------------------
+
+If you need custom TCP socket tuning, use :any:`on_ws_connected` callback and
+adjust the raw socket there.
+
+.. code-block:: python
+
+    import socket
+    from picows import WSListener, WSTransport
+
+    class Listener(WSListener):
+        ...
+        def on_ws_connected(transport: WSTransport):
+            sock: socket.socket = transport.underlying_transport.get_extra_info("socket")
+            # Example: enlarge kernel socket buffers
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 * 1024 * 1024)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1 * 1024 * 1024)
+
+.. note::
+    **picows** already enables `TCP_NODELAY` and, when available on the
+    platform, `TCP_QUICKACK` to reduce latency by default.
