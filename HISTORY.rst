@@ -5,6 +5,13 @@ picows Release History
    :depth: 1
    :local:
 
+1.14.1
+------------------
+
+* Expose WSTransport.is_close_frame_sent read-only property
+* Add 'Graceful websocket shutdown' topic guide
+* Add 'Setting socket options' topic guide
+
 1.14.0 (2026-02-19)
 ------------------
 
