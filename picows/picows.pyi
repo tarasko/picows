@@ -86,6 +86,9 @@ class WSTransport:
     def is_secure(self) -> bool: ...
 
     @property
+    def is_close_frame_sent(self) -> bool: ...
+
+    @property
     def request(self) -> WSUpgradeRequest: ...
 
     @property

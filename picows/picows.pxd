@@ -77,6 +77,7 @@ cdef class WSTransport:
         readonly object underlying_transport    #: asyncio.Transport
         readonly bint is_client_side
         readonly bint is_secure
+        readonly bint is_close_frame_sent
         readonly object request                 #: WSUpgradeRequest
         readonly object response                #: WSUpgradeResponse
 
@@ -88,7 +89,6 @@ cdef class WSTransport:
         object _loop
         object _logger                          #: Logger
         bint _log_debug_enabled
-        bint _close_frame_is_sent
         MemoryBuffer _write_buf
         int _socket
 
