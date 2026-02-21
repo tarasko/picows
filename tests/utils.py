@@ -16,11 +16,12 @@ import picows
 TIMEOUT = 1.0
 
 
-def _default_windows_policy() -> asyncio.AbstractEventLoopPolicy:
+def _default_windows_policy():
     # Matches your current logic
     if sys.version_info >= (3, 10):
         return asyncio.DefaultEventLoopPolicy()
     return asyncio.WindowsSelectorEventLoopPolicy()
+
 
 def multiloop_event_loop_policy():
     """
@@ -43,7 +44,7 @@ def multiloop_event_loop_policy():
         uvloop = importlib.import_module("uvloop")
 
     @pytest.fixture(params=params)
-    def event_loop_policy(request) -> asyncio.AbstractEventLoopPolicy:
+    def event_loop_policy(request):
         name = request.param
 
         if os.name == "nt":
