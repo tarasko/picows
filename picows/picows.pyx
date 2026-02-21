@@ -204,7 +204,7 @@ cdef class MemoryBuffer:
             PyMem_Free(self.data)
 
     cdef _reserve(self, Py_ssize_t target_size):
-        cdef Py_ssize_t new_capacity = 256 * (target_size / 256 + 1)
+        cdef Py_ssize_t new_capacity = 256 * (target_size / 256 + 2)
         cdef char* data = <char*>PyMem_Realloc(self.data, new_capacity)
         if data == NULL:
             raise MemoryError("cannot allocate memory for picows")
@@ -799,8 +799,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         self._extra_headers = extra_headers
 
         self._state = WSParserState.WAIT_UPGRADE_RESPONSE
-        self._read_buffer = MemoryBuffer(read_buffer_init_size)
-        self._read_buffer.size = self._read_buffer.capacity
+        self._read_buffer = MemoryBuffer(max(<Py_ssize_t>read_buffer_init_size, 2048))
+        self._read_buffer.size = self._read_buffer.capacity - 256 # Leave space for simd parsers
         self._f_new_data_start_pos = 0
         self._f_curr_state_start_pos = 0
         self._f_curr_frame_start_pos = 0
