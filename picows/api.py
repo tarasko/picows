@@ -113,7 +113,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
         You may set this to the actual expected maximum frame size but don't push it too much. Contrary to `max_frame_size` which
         is just a safety check, setting big value here will force **picows** to actually allocate the specified amount of memory.
     :param zero_copy_unsafe_ssl_write:
-        Write memoryview to websocket frame for SSL connections instead of copying it first into bytes object.
+        Write a memoryview to the write buffer for SSL connections instead of copying it first into bytes object.
         This relies on an undocumented feature of SSLTransport.write that guarantees to always
         copy, process, encrypt the whole data without holding it back.
         This works for all known asyncio and uvloop versions but may suddenly break in the future.
@@ -275,7 +275,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
         You may set this to the actual expected maximum frame size but don't push it too much. Contrary to `max_frame_size` which
         is just a safety check, setting big value here will force **picows** to actually allocate the specified amount of memory.
     :param zero_copy_unsafe_ssl_write:
-        Write memoryview to websocket frame for SSL connections instead of copying it first into bytes object.
+        Write a memoryview to the write buffer for SSL connections instead of copying it first into bytes object.
         This relies on an undocumented feature of SSLTransport.write that guarantees to always
         copy, process, encrypt the whole data without holding it back.
         This works for all known asyncio and uvloop versions but may suddenly break in the future.

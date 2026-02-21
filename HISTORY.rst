@@ -14,6 +14,7 @@ picows Release History
 * Always use BufferedProtocol (previously was only used with uvloop)
 * Implement exponential grow of the internal read buffer
 * Add read_buffer_init_size argument to ws_connect and ws_create_server
+* Add zero_copy_unsafe_ssl_write argument to ws_connect and ws_create_server
 
 1.14.0 (2026-02-19)
 ------------------
