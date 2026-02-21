@@ -107,6 +107,10 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
         Optional proxy URL. Supported schemes are ``http://``, ``socks4://``
         and ``socks5://`` (including authenticated variants).
         HTTPS proxy scheme (``https://``) is currently not supported.
+    :param read_buffer_init_size:
+        * Initial size of the internal read buffer. The buffer grows exponentially if new data doesn't fit.
+        You may set this to the actual expected maximum frame size but don't push it too much. Contrary to `max_frame_size` which
+        is just a safety check, setting big value here will force **picows** to actually allocate the specified amount of memory.         
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
 
@@ -257,6 +261,10 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
         If enabled, picows will automatically reply to incoming PING frames.
     :param max_frame_size:
         * Maximum allowed frame size. Disconnect will be initiated if the server side receives a frame that is bigger than the max size.
+    :param read_buffer_init_size:
+        * Initial size of the internal read buffer. The buffer grows exponentially if new data doesn't fit.
+        You may set this to the actual expected maximum frame size but don't push it too much. Contrary to `max_frame_size` which
+        is just a safety check, setting big value here will force **picows** to actually allocate the specified amount of memory.
     :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
 

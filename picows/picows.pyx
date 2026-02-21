@@ -890,35 +890,30 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
     #
     # So for the time being I implemented both data_received, and (get_buffer, buffer_updated).
     # uvloop will use (get_buffer, buffer_updated) and asyncio will use data_received
-    def data_received(self, data):
-        cdef:
-            char* ptr
-            Py_ssize_t sz
-
-        _unpack_bytes_like(data, &ptr, &sz)
-
-        # Leave some space for simd parsers like simdjson, they require extra
-        # space beyond normal data to make sure that vector reads
-        # don't cause access violation
-        if self._read_buffer.size - self._f_new_data_start_pos < (sz + 64):
-            self._read_buffer.resize(self._f_new_data_start_pos + sz + 64)
-
-        memcpy(self._read_buffer.data + self._f_new_data_start_pos, ptr, sz)
-        self._f_new_data_start_pos += sz
-
-        self._process_new_data()
+    # def data_received(self, data):
+    #     cdef:
+    #         char* ptr
+    #         Py_ssize_t sz
+    #
+    #     _unpack_bytes_like(data, &ptr, &sz)
+    #
+    #     # Leave some space for simd parsers like simdjson, they require extra
+    #     # space beyond normal data to make sure that vector reads
+    #     # don't cause access violation
+    #     if self._read_buffer.size - self._f_new_data_start_pos < (sz + 64):
+    #         self._read_buffer.resize(self._f_new_data_start_pos + sz + 64)
+    #
+    #     memcpy(self._read_buffer.data + self._f_new_data_start_pos, ptr, sz)
+    #     self._f_new_data_start_pos += sz
+    #
+    #     self._process_new_data()
 
     def get_buffer(self, Py_ssize_t size_hint):
         # size_hint is un-reliable, uvloop provides a fixed value of 65536
         # and asyncio just always pass -1
         # Therefore, ignore it and just implement exponential buffer grow when
         # buffer utilization hits a thresholds.
-
-        # Calculate how much of the buffer is full percentage-wise
-        cdef Py_ssize_t utilization = 100*self._f_new_data_start_pos / self._read_buffer.size
-        if utilization > 90 or self._read_buffer.size - self._f_new_data_start_pos <= 256:
-            # Double buffer size
-            self._read_buffer.resize(self._read_buffer.size * 2)
+        self._maybe_grow_read_buffer()
 
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
@@ -941,6 +936,13 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
     async def wait_until_handshake_complete(self):
         await asyncio.shield(self._handshake_complete_future)
+
+    cdef inline _maybe_grow_read_buffer(self):
+        cdef Py_ssize_t utilization = 100*self._f_new_data_start_pos / self._read_buffer.size
+        if utilization > 90 or self._read_buffer.size - self._f_new_data_start_pos <= 256:
+            # Double buffer size
+            self._read_buffer.resize(self._read_buffer.size * 2)
+
 
     cdef inline _process_new_data(self):
         if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:

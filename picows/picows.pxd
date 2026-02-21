@@ -89,7 +89,7 @@ cdef class WSTransport:
         object _loop
         object _logger                          #: Logger
         bint _log_debug_enabled
-        MemoryBuffer _write_buf
+        MemoryBuffer _write_buffer
         int _socket
 
     cdef inline send_reuse_external_buffer(self, WSMsgType msg_type, char* msg_ptr, Py_ssize_t msg_size, bint fin=*, bint rsv1=*)
