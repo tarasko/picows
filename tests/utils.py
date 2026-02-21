@@ -192,7 +192,7 @@ async def connected_async_client(echo_server):
                                   ssl_context=create_client_ssl_context(),
                                   websocket_handshake_timeout=0.5,
                                   enable_auto_pong=False,
-                                  fast_unsafe_ssl_write=True,
+                                  zero_copy_unsafe_ssl_write=True,
                                   ) as (transport, listener):
         yield listener
 
