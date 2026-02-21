@@ -74,6 +74,10 @@ Classes
         **Available only from Cython.**
 
         Raw pointer to the beginning of the frame payload in the receiving buffer.
+        It is safe to pass this pointer with size to SIMD libraries like
+        `simdjson <https://simdjson.org/>`_.
+        **picows** guarantees to have just a little bit of extra space behind payload
+        to make sure that SIMD read instructions don't hit access violation.
 
     .. py:attribute:: payload_size
         :type: size_t
