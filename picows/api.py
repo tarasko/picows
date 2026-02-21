@@ -54,6 +54,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                      extra_headers: Optional[WSHeadersLike] = None,
                      max_redirects: int = 5,
                      proxy: Optional[str] = None,
+                     read_buffer_init_size: int = 16 * 1024,
                      **kwargs
                      ) -> tuple[WSTransport, WSListener]:
     """
@@ -142,7 +143,8 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                 auto_ping_strategy,
                 enable_auto_pong,
                 max_frame_size,
-                extra_headers)
+                extra_headers,
+                read_buffer_init_size)
 
         try:
             loop = asyncio.get_running_loop()
@@ -193,6 +195,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
                            auto_ping_strategy=WSAutoPingStrategy.PING_WHEN_IDLE,
                            enable_auto_pong: bool = True,
                            max_frame_size: int = 10 * 1024 * 1024,
+                           read_buffer_init_size: int = 16 * 1024,
                            **kwargs
                            ) -> asyncio.Server:
     """
@@ -272,7 +275,8 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
             auto_ping_strategy,
             enable_auto_pong,
             max_frame_size,
-            None            # extra_headers
+            None,            # extra_headers,
+            read_buffer_init_size
         )
 
     return await asyncio.get_running_loop().create_server(

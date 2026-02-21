@@ -192,9 +192,9 @@ cdef class WSFrame:
 
 
 cdef class MemoryBuffer:
-    def __init__(self, Py_ssize_t default_capacity=2048):
+    def __init__(self, Py_ssize_t initial_capacity):
         self.size = 0
-        self.capacity = default_capacity
+        self.capacity = initial_capacity
         self.data = <char*>PyMem_Malloc(self.capacity)
         if self.data == NULL:
             raise MemoryError("cannot allocate memory for picows")
@@ -334,7 +334,7 @@ cdef class WSTransport:
         self._loop = loop
         self._logger = logger
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
-        self._write_buf = MemoryBuffer(1024)
+        self._write_buffer = MemoryBuffer(1024)
         self._socket = underlying_transport.get_extra_info('socket').fileno()
 
     cdef send_reuse_external_buffer(self, WSMsgType msg_type,
@@ -459,10 +459,10 @@ cdef class WSTransport:
         # with masking. Still people who wants maximum performance should use
         # send_reuse_external_bytearray instead of send to avoid memory copying
         # at all
-        self._write_buf.resize(msg_length + 16)
-        memcpy(self._write_buf.data + 16, msg_ptr, msg_length)
+        self._write_buffer.resize(msg_length + 16)
+        memcpy(self._write_buffer.data + 16, msg_ptr, msg_length)
 
-        self.send_reuse_external_buffer(msg_type, self._write_buf.data + 16, msg_length, fin, rsv1)
+        self.send_reuse_external_buffer(msg_type, self._write_buffer.data + 16, msg_length, fin, rsv1)
 
     cpdef send_ping(self, message=None):
         """
@@ -498,11 +498,11 @@ cdef class WSTransport:
 
         _unpack_bytes_like(close_message, &msg_ptr, &msg_length)
 
-        self._write_buf.resize(msg_length + 2 + 16)
-        (<uint16_t*>(self._write_buf.data + 16))[0] = htons(<uint16_t>close_code)
-        memcpy(self._write_buf.data + 2 + 16, msg_ptr, msg_length)
+        self._write_buffer.resize(msg_length + 2 + 16)
+        (<uint16_t*>(self._write_buffer.data + 16))[0] = htons(<uint16_t>close_code)
+        memcpy(self._write_buffer.data + 2 + 16, msg_ptr, msg_length)
 
-        self.send_reuse_external_buffer(WSMsgType.CLOSE, self._write_buf.data + 16, msg_length + 2, True, False)
+        self.send_reuse_external_buffer(WSMsgType.CLOSE, self._write_buffer.data + 16, msg_length + 2, True, False)
 
     cpdef disconnect(self, bint graceful=True):
         """
@@ -656,7 +656,7 @@ cdef class WSTransport:
         while (bytes_written == PICOWS_SOCKET_ERROR and
                ((not PLATFORM_IS_WINDOWS and errno.errno == errno.EINTR) or
                 (PLATFORM_IS_APPLE and errno.errno == errno.EPROTOTYPE))):
-            bytes_written = send(self._socket, self._write_buf.data, sz, 0)
+            bytes_written = send(self._socket, self._write_buffer.data, sz, 0)
 
         if bytes_written == sz:
             return
@@ -669,7 +669,11 @@ cdef class WSTransport:
         self.underlying_transport.write(PyBytes_FromStringAndSize(<char *> ptr, sz))
 
 
-cdef class WSProtocol:
+cdef class WSProtocolBase:
+    pass
+
+
+cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
     cdef:
         readonly WSTransport transport
         readonly WSListener listener
@@ -706,7 +710,7 @@ cdef class WSProtocol:
         # The following are the parts of an unfinished frame
         # Once the frame is finished WSFrame is created and returned
         WSParserState _state
-        MemoryBuffer _buffer
+        MemoryBuffer _read_buffer
         Py_ssize_t _f_new_data_start_pos
         Py_ssize_t _f_curr_state_start_pos
         Py_ssize_t _f_curr_frame_start_pos
@@ -731,7 +735,8 @@ cdef class WSProtocol:
                  auto_ping_strategy,
                  enable_auto_pong,
                  max_frame_size,
-                 extra_headers):
+                 extra_headers,
+                 read_buffer_init_size):
         self.transport = None
         self.listener = None
 
@@ -771,7 +776,8 @@ cdef class WSProtocol:
         self._extra_headers = extra_headers
 
         self._state = WSParserState.WAIT_UPGRADE_RESPONSE
-        self._buffer = MemoryBuffer()
+        self._read_buffer = MemoryBuffer(read_buffer_init_size)
+        self._read_buffer.size = self._read_buffer.capacity
         self._f_new_data_start_pos = 0
         self._f_curr_state_start_pos = 0
         self._f_curr_frame_start_pos = 0
@@ -894,29 +900,36 @@ cdef class WSProtocol:
         # Leave some space for simd parsers like simdjson, they require extra
         # space beyond normal data to make sure that vector reads
         # don't cause access violation
-        if self._buffer.size - self._f_new_data_start_pos < (sz + 64):
-            self._buffer.resize(self._f_new_data_start_pos + sz + 64)
+        if self._read_buffer.size - self._f_new_data_start_pos < (sz + 64):
+            self._read_buffer.resize(self._f_new_data_start_pos + sz + 64)
 
-        memcpy(self._buffer.data + self._f_new_data_start_pos, ptr, sz)
+        memcpy(self._read_buffer.data + self._f_new_data_start_pos, ptr, sz)
         self._f_new_data_start_pos += sz
 
         self._process_new_data()
 
     def get_buffer(self, Py_ssize_t size_hint):
-        cdef Py_ssize_t sz = size_hint + 1024
-        if self._buffer.size - self._f_new_data_start_pos < sz:
-            self._buffer.resize(self._f_new_data_start_pos + sz)
+        # size_hint is un-reliable, uvloop provides a fixed value of 65536
+        # and asyncio just always pass -1
+        # Therefore, ignore it and just implement exponential buffer grow when
+        # buffer utilization hits a thresholds.
+
+        # Calculate how much of the buffer is full percentage-wise
+        cdef Py_ssize_t utilization = 100*self._f_new_data_start_pos / self._read_buffer.size
+        if utilization > 90 or self._read_buffer.size - self._f_new_data_start_pos <= 256:
+            # Double buffer size
+            self._read_buffer.resize(self._read_buffer.size * 2)
 
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
                              size_hint,
-                             self._buffer.size - self._f_new_data_start_pos,
-                             self._buffer.size,
-                             self._buffer.capacity)
+                             self._read_buffer.size - self._f_new_data_start_pos,
+                             self._read_buffer.size,
+                             self._read_buffer.capacity)
 
         return PyMemoryView_FromMemory(
-            self._buffer.data + self._f_new_data_start_pos,
-            self._buffer.size - self._f_new_data_start_pos,
+            self._read_buffer.data + self._f_new_data_start_pos,
+            self._read_buffer.size - self._f_new_data_start_pos,
             PyBUF_WRITE)
 
     def buffer_updated(self, Py_ssize_t nbytes):
@@ -1096,7 +1109,7 @@ cdef class WSProtocol:
             self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 
     cdef inline tuple _try_read_upgrade_request(self):
-        cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
+        cdef bytes data = PyBytes_FromStringAndSize(self._read_buffer.data, self._f_new_data_start_pos)
         cdef list request = <list>data.split(b"\r\n\r\n", 1)
         if len(request) < 2:
             if len(data) >= self._upgrade_request_max_size:
@@ -1159,7 +1172,7 @@ cdef class WSProtocol:
         upgrade_request.version = <bytes>status_line_parts[2]
         upgrade_request.headers = headers
 
-        memmove(self._buffer.data, self._buffer.data + len(raw_headers) + 4, self._buffer.size - len(raw_headers) - 4)
+        memmove(self._read_buffer.data, self._read_buffer.data + len(raw_headers) + 4, self._read_buffer.size - len(raw_headers) - 4)
 
         cdef bytes tail = request[1]
         self._f_new_data_start_pos = len(tail)
@@ -1168,7 +1181,7 @@ cdef class WSProtocol:
         return upgrade_request, accept_val
 
     cdef inline object _try_read_and_process_upgrade_response(self):
-        cdef bytes data = PyBytes_FromStringAndSize(self._buffer.data, self._f_new_data_start_pos)
+        cdef bytes data = PyBytes_FromStringAndSize(self._read_buffer.data, self._f_new_data_start_pos)
         cdef list data_parts = <list>data.split(b"\r\n\r\n", 1)
         if len(data_parts) < 2:
             return None
@@ -1218,7 +1231,7 @@ cdef class WSProtocol:
         if r_key != match:
             raise WSError(f"cannot upgrade, invalid sec-websocket-accept response", raw_headers, tail, response)
 
-        memmove(self._buffer.data, self._buffer.data + len(raw_headers) + 4, self._buffer.size - len(raw_headers) - 4)
+        memmove(self._read_buffer.data, self._read_buffer.data + len(raw_headers) + 4, self._read_buffer.size - len(raw_headers) - 4)
         self._f_new_data_start_pos = len(tail)
         self._state = WSParserState.READ_HEADER
         if self._log_debug_enabled:
@@ -1253,8 +1266,8 @@ cdef class WSProtocol:
             if self._f_new_data_start_pos - self._f_curr_state_start_pos < 2:
                 return None
 
-            first_byte = <uint8_t>self._buffer.data[self._f_curr_state_start_pos]
-            second_byte = <uint8_t>self._buffer.data[self._f_curr_state_start_pos + 1]
+            first_byte = <uint8_t>self._read_buffer.data[self._f_curr_state_start_pos]
+            second_byte = <uint8_t>self._read_buffer.data[self._f_curr_state_start_pos + 1]
 
             self._f_fin = (first_byte >> 7) & 1
             self._f_rsv1 = (first_byte >> 6) & 1
@@ -1268,7 +1281,7 @@ cdef class WSProtocol:
             # rsv2, rsv3 are not used, check and throw if they are set
             if rsv2 or rsv3:
                 mem_dump = PyBytes_FromStringAndSize(
-                    self._buffer.data + self._f_curr_state_start_pos,
+                    self._read_buffer.data + self._f_curr_state_start_pos,
                     max(self._f_new_data_start_pos - self._f_curr_state_start_pos, 64)
                 )
                 raise _WSParserError(
@@ -1299,12 +1312,12 @@ cdef class WSProtocol:
             if self._f_payload_length_flag == 126:
                 if self._f_new_data_start_pos - self._f_curr_state_start_pos < 2:
                     return None
-                self._f_payload_length = ntohs((<uint16_t*>&self._buffer.data[self._f_curr_state_start_pos])[0])
+                self._f_payload_length = ntohs((<uint16_t*>&self._read_buffer.data[self._f_curr_state_start_pos])[0])
                 self._f_curr_state_start_pos += 2
             elif self._f_payload_length_flag > 126:
                 if self._f_new_data_start_pos - self._f_curr_state_start_pos < 8:
                     return None
-                self._f_payload_length = be64toh((<uint64_t*>&self._buffer.data[self._f_curr_state_start_pos])[0])
+                self._f_payload_length = be64toh((<uint64_t*>&self._read_buffer.data[self._f_curr_state_start_pos])[0])
                 self._f_curr_state_start_pos += 8
             else:
                 self._f_payload_length = self._f_payload_length_flag
@@ -1323,7 +1336,7 @@ cdef class WSProtocol:
             if self._f_new_data_start_pos - self._f_curr_state_start_pos < 4:
                 return None
 
-            self._f_mask = (<uint32_t*>&self._buffer.data[self._f_curr_state_start_pos])[0]
+            self._f_mask = (<uint32_t*>&self._read_buffer.data[self._f_curr_state_start_pos])[0]
             self._f_curr_state_start_pos += 4
             self._f_payload_start_pos = self._f_curr_state_start_pos
             self._state = WSParserState.READ_PAYLOAD
@@ -1334,12 +1347,12 @@ cdef class WSProtocol:
                 return None
 
             if self._f_has_mask:
-                _mask_payload(<uint8_t*>self._buffer.data + self._f_payload_start_pos,
+                _mask_payload(<uint8_t*>self._read_buffer.data + self._f_payload_start_pos,
                               self._f_payload_length,
                               self._f_mask)
 
             frame = <WSFrame>WSFrame.__new__(WSFrame)
-            frame.payload_ptr = self._buffer.data + self._f_payload_start_pos
+            frame.payload_ptr = self._read_buffer.data + self._f_payload_start_pos
             frame.payload_size = self._f_payload_length
             frame.tail_size = self._f_new_data_start_pos - (self._f_curr_state_start_pos + self._f_payload_length)
             frame.msg_type = self._f_msg_type
@@ -1431,8 +1444,8 @@ cdef class WSProtocol:
 
     cdef inline _shrink_buffer(self):
         if self._f_curr_frame_start_pos > 0:
-            memmove(self._buffer.data,
-                    self._buffer.data + self._f_curr_frame_start_pos,
+            memmove(self._read_buffer.data,
+                    self._read_buffer.data + self._f_curr_frame_start_pos,
                     self._f_new_data_start_pos - self._f_curr_frame_start_pos)
 
             self._f_new_data_start_pos -= self._f_curr_frame_start_pos
