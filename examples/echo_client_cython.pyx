@@ -9,7 +9,7 @@ from picows.picows cimport WSFrame, WSTransport, WSListener, WSMsgType, WSCloseC
 # override its methods like on_ws_frame. This way methods will be called
 # directly by picows without using more expensive python vectorcall protocol.
 # See echo_client_cython_runner.py for how to connect the client
-cdef class ClientListener(WSListener):
+cdef class ClientListenerCython(WSListener):
     cdef:
         double _start_ts
         bytes _msg
@@ -32,8 +32,4 @@ cdef class ClientListener(WSListener):
             transport.send_close(WSCloseCode.OK)
             transport.disconnect()
 
-
-async def main(url, msg_size, ssl_context):
-    transport, client = await ws_connect(lambda: ClientListener(msg_size), url, ssl_context=ssl_context)
-    await transport.wait_disconnected()
 
