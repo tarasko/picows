@@ -191,7 +191,8 @@ async def connected_async_client(echo_server):
     async with ClientAsyncContext(AsyncClient, echo_server,
                                   ssl_context=create_client_ssl_context(),
                                   websocket_handshake_timeout=0.5,
-                                  enable_auto_pong=False
+                                  enable_auto_pong=False,
+                                  zero_copy_unsafe_ssl_write=True,
                                   ) as (transport, listener):
         yield listener
 
@@ -226,7 +227,7 @@ def get_server_port(server: asyncio.Server):
 
 @pytest.fixture(params=["tcp", "ssl"])
 async def echo_server(request):
-    use_ssl = request.param == "ssl"
+    use_ssl = request.param in ("ssl", )
     server = await picows.ws_create_server(lambda _: ServerEchoListener(),
                                            "127.0.0.1",
                                            0,

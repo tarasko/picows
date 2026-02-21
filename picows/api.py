@@ -55,6 +55,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                      max_redirects: int = 5,
                      proxy: Optional[str] = None,
                      read_buffer_init_size: int = 16 * 1024,
+                     zero_copy_unsafe_ssl_write: bool = False,
                      **kwargs
                      ) -> tuple[WSTransport, WSListener]:
     """
@@ -111,6 +112,11 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
         Initial size of the internal read buffer. The buffer grows exponentially if new data doesn't fit.
         You may set this to the actual expected maximum frame size but don't push it too much. Contrary to `max_frame_size` which
         is just a safety check, setting big value here will force **picows** to actually allocate the specified amount of memory.
+    :param zero_copy_unsafe_ssl_write:
+        Write a memoryview to the write buffer for SSL connections instead of copying it first into bytes object.
+        This relies on an undocumented feature of SSLTransport.write that guarantees to always
+        copy, process, encrypt the whole data without holding it back.
+        This works for all known asyncio and uvloop versions but may suddenly break in the future.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
 
@@ -148,7 +154,9 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
                 enable_auto_pong,
                 max_frame_size,
                 extra_headers,
-                read_buffer_init_size)
+                read_buffer_init_size,
+                zero_copy_unsafe_ssl_write
+            )
 
         try:
             loop = asyncio.get_running_loop()
@@ -200,6 +208,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
                            enable_auto_pong: bool = True,
                            max_frame_size: int = 10 * 1024 * 1024,
                            read_buffer_init_size: int = 16 * 1024,
+                           zero_copy_unsafe_ssl_write: bool = False,
                            **kwargs
                            ) -> asyncio.Server:
     """
@@ -265,6 +274,11 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
         Initial size of the internal read buffer. The buffer grows exponentially if new data doesn't fit.
         You may set this to the actual expected maximum frame size but don't push it too much. Contrary to `max_frame_size` which
         is just a safety check, setting big value here will force **picows** to actually allocate the specified amount of memory.
+    :param zero_copy_unsafe_ssl_write:
+        Write a memoryview to the write buffer for SSL connections instead of copying it first into bytes object.
+        This relies on an undocumented feature of SSLTransport.write that guarantees to always
+        copy, process, encrypt the whole data without holding it back.
+        This works for all known asyncio and uvloop versions but may suddenly break in the future.
     :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
 
@@ -284,7 +298,8 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
             enable_auto_pong,
             max_frame_size,
             None,            # extra_headers,
-            read_buffer_init_size
+            read_buffer_init_size,
+            zero_copy_unsafe_ssl_write
         )
 
     return await asyncio.get_running_loop().create_server(
