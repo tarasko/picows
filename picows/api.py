@@ -110,7 +110,7 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
     :param read_buffer_init_size:
         * Initial size of the internal read buffer. The buffer grows exponentially if new data doesn't fit.
         You may set this to the actual expected maximum frame size but don't push it too much. Contrary to `max_frame_size` which
-        is just a safety check, setting big value here will force **picows** to actually allocate the specified amount of memory.         
+        is just a safety check, setting big value here will force **picows** to actually allocate the specified amount of memory.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
 

@@ -673,6 +673,29 @@ cdef class WSProtocolBase:
     pass
 
 
+# uvloop and asyncio use different checks to detect BufferedProtocol
+#
+# uvloop looks at the presence of get_buffer attribute and check that
+# user type is not derived from asyncio.Protocol.
+#
+# asyncio expects user protocol to actually derive from asyncio.BufferedProtocol.
+# Unfortunately Cython extension types are not allowed to derive pure python types as a first base
+# Therefore there is a trick where we derive from the dummy Cython type and
+# asyncio.BufferedProtocol as a second base.
+
+# On Windows asyncio is using ProactorEventLoop, it doesn't genuinely use BufferedProtocol.
+# Instead, it always reads data into its own buffer first and if user passed BufferedProtocol,
+# copy data into user provided buffer.
+
+# If you are doing a client I recommend to try WindowsSelectorEventLoopPolicy,
+# to avoid extra copying:
+#
+# if sys.platform == "win32":
+#     asyncio.set_event_loop_policy(
+#         asyncio.WindowsSelectorEventLoopPolicy()
+#     )
+
+
 cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
     cdef:
         readonly WSTransport transport
@@ -878,18 +901,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         if self.listener is not None:
             self.listener.resume_writing()
 
-    # uvloop and asyncio use different checks to detect BufferedProtocol
-    #
-    # uvloop looks at the presence of get_buffer attribute and check that
-    # user type is not derived from asyncio.Protocol.
-    #
-    # asyncio expect user protocol to actually derive from asyncio.BufferedProtocol.
-    # Unfortunately Cython extension types are not allowed to derive pure python types.
-    # It is possible make a pure python wrapper around cython type but this will result in
-    # extra dictionary lookup everytime get_buffer, buffer_updated are called
-    #
-    # So for the time being I implemented both data_received, and (get_buffer, buffer_updated).
-    # uvloop will use (get_buffer, buffer_updated) and asyncio will use data_received
+
+    # Uncomment this to try non-buffered protocols.
     # def data_received(self, data):
     #     cdef:
     #         char* ptr
@@ -897,11 +910,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
     #
     #     _unpack_bytes_like(data, &ptr, &sz)
     #
-    #     # Leave some space for simd parsers like simdjson, they require extra
-    #     # space beyond normal data to make sure that vector reads
-    #     # don't cause access violation
-    #     if self._read_buffer.size - self._f_new_data_start_pos < (sz + 64):
-    #         self._read_buffer.resize(self._f_new_data_start_pos + sz + 64)
+    #     if self._read_buffer.size - self._f_new_data_start_pos < sz:
+    #         self._read_buffer.resize(self._f_new_data_start_pos + sz)
     #
     #     memcpy(self._read_buffer.data + self._f_new_data_start_pos, ptr, sz)
     #     self._f_new_data_start_pos += sz
