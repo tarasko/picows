@@ -89,6 +89,7 @@ cdef class WSTransport:
         object _loop
         object _logger                          #: Logger
         bint _log_debug_enabled
+        bint _fast_unsafe_ssl_write
         MemoryBuffer _write_buffer
         int _socket
 

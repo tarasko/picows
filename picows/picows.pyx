@@ -320,7 +320,7 @@ cdef class WSListener:
 
 
 cdef class WSTransport:
-    def __init__(self, bint is_client_side, underlying_transport, logger, loop):
+    def __init__(self, bint is_client_side, underlying_transport, logger, loop, bint fast_unsafe_ssl_write):
         self.underlying_transport = underlying_transport
         self.is_client_side = is_client_side
         self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
@@ -334,6 +334,7 @@ cdef class WSTransport:
         self._loop = loop
         self._logger = logger
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
+        self._fast_unsafe_ssl_write = fast_unsafe_ssl_write
         self._write_buffer = MemoryBuffer(1024)
         self._socket = underlying_transport.get_extra_info('socket').fileno()
 
@@ -390,7 +391,11 @@ cdef class WSTransport:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask)
 
         if self.is_secure:
-            self.underlying_transport.write(PyBytes_FromStringAndSize(<char*>header_ptr, total_size))
+            if self._fast_unsafe_ssl_write:
+                self.underlying_transport.write(
+                    PyMemoryView_FromMemory(<char *> header_ptr, total_size, PyBUF_WRITE))
+            else:
+                self.underlying_transport.write(PyBytes_FromStringAndSize(<char*>header_ptr, total_size))
         else:
             self._try_native_write_then_transport_write(<char*>header_ptr, total_size)
 
@@ -720,6 +725,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         bytes _websocket_key_b64
         Py_ssize_t _max_frame_size
 
+        bint _fast_unsafe_ssl_write
         bint _enable_auto_pong
         bint _enable_auto_ping
         double _auto_ping_idle_timeout
@@ -759,7 +765,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                  enable_auto_pong,
                  max_frame_size,
                  extra_headers,
-                 read_buffer_init_size):
+                 read_buffer_init_size,
+                 fast_unsafe_ssl_write):
         self.transport = None
         self.listener = None
 
@@ -782,6 +789,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         self._websocket_key_b64 = b64encode(os.urandom(16))
         self._max_frame_size = max_frame_size
 
+        self._fast_unsafe_ssl_write = fast_unsafe_ssl_write
+
         self._enable_auto_pong = enable_auto_pong
         self._enable_auto_ping = enable_auto_ping
         self._auto_ping_idle_timeout = auto_ping_idle_timeout
@@ -789,8 +798,6 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         self._auto_ping_strategy = auto_ping_strategy
         self._auto_ping_loop_task = None
         self._last_data_time = 0
-
-        self._extra_headers = extra_headers
 
         if self._enable_auto_ping:
             assert self._auto_ping_reply_timeout <= self._auto_ping_idle_timeout, \
@@ -848,7 +855,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                               sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
 
 
-        self.transport = WSTransport(self.is_client_side, transport, self._logger, self._loop)
+        self.transport = WSTransport(self.is_client_side, transport, self._logger, self._loop, self._fast_unsafe_ssl_write)
 
         if self.is_client_side:
             self.transport._send_http_handshake(self._ws_path, self._host_port, self._websocket_key_b64, self._extra_headers)
