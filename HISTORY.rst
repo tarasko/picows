@@ -5,7 +5,7 @@ picows Release History
    :depth: 1
    :local:
 
-1.15.0
+1.15.0 (2026-02-22)
 ------------------
 
 * Expose WSTransport.is_close_frame_sent read-only property
