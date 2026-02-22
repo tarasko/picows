@@ -37,8 +37,10 @@ def multiloop_event_loop_policy():
     """
     # Decide params at factory creation time (import-time for that module)
     uvloop = None
+    winloop = None
     if os.name == "nt":
-        params = ("asyncio",)
+        params = ("asyncio", "winloop")
+        winloop = importlib.import_module("winloop")
     else:
         params = ("asyncio", "uvloop")
         uvloop = importlib.import_module("uvloop")
@@ -56,6 +58,8 @@ def multiloop_event_loop_policy():
             return asyncio.DefaultEventLoopPolicy()
         elif name == "uvloop":
             return uvloop.EventLoopPolicy()
+        elif name == "winloop":
+            return winloop.EventLoopPolicy()
         else:
             raise AssertionError(f"unknown loop: {name!r}")
 
