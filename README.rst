@@ -25,7 +25,7 @@ Introduction
 **picows** is a high-performance Python library designed for building asyncio WebSocket clients and servers.
 Implemented in Cython, it offers exceptional speed and efficiency, surpassing other popular Python WebSocket libraries.
 
-.. image:: https://raw.githubusercontent.com/tarasko/websocket-benchmark/master/results/benchmark-256.png
+.. image:: https://raw.githubusercontent.com/tarasko/websocket-benchmark/master/results/benchmark-Linux-256.png
     :target: https://github.com/tarasko/websocket-benchmark/blob/master
     :align: center
 
