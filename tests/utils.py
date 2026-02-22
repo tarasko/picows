@@ -49,13 +49,11 @@ def multiloop_event_loop_policy():
     def event_loop_policy(request):
         name = request.param
 
-        if os.name == "nt":
-            # only asyncio param
-            return _default_windows_policy()
-
-        # non-Windows
         if name == "asyncio":
-            return asyncio.DefaultEventLoopPolicy()
+            if os.name == "nt":
+                return _default_windows_policy()
+            else:
+                return asyncio.DefaultEventLoopPolicy()
         elif name == "uvloop":
             return uvloop.EventLoopPolicy()
         elif name == "winloop":
