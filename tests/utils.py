@@ -16,13 +16,6 @@ import picows
 TIMEOUT = 1.0
 
 
-def _default_windows_policy():
-    # Matches your current logic
-    if sys.version_info >= (3, 10):
-        return asyncio.DefaultEventLoopPolicy()
-    return asyncio.WindowsSelectorEventLoopPolicy()
-
-
 def multiloop_event_loop_policy():
     """
     Returns a pytest fixture function named `event_loop_policy` (by assignment in the test module).
@@ -37,8 +30,14 @@ def multiloop_event_loop_policy():
     """
     # Decide params at factory creation time (import-time for that module)
     uvloop = None
+    winloop = None
     if os.name == "nt":
-        params = ("asyncio",)
+        # Winloop doesn't work with python 3.9
+        if sys.version_info >= (3, 10):
+            params = ("asyncio", "winloop")
+        else:
+            params = ("asyncio", )
+        winloop = importlib.import_module("winloop")
     else:
         params = ("asyncio", "uvloop")
         uvloop = importlib.import_module("uvloop")
@@ -47,15 +46,18 @@ def multiloop_event_loop_policy():
     def event_loop_policy(request):
         name = request.param
 
-        if os.name == "nt":
-            # only asyncio param
-            return _default_windows_policy()
-
-        # non-Windows
         if name == "asyncio":
-            return asyncio.DefaultEventLoopPolicy()
+            if os.name == "nt":
+                if sys.version_info >= (3, 10):
+                    return asyncio.DefaultEventLoopPolicy()
+                else:
+                    return asyncio.WindowsSelectorEventLoopPolicy()
+            else:
+                return asyncio.DefaultEventLoopPolicy()
         elif name == "uvloop":
             return uvloop.EventLoopPolicy()
+        elif name == "winloop":
+            return winloop.EventLoopPolicy()
         else:
             raise AssertionError(f"unknown loop: {name!r}")
 
