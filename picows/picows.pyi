@@ -14,7 +14,7 @@ WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgra
 WSBuffer = Union[bytes, bytearray, memoryview]
 WSHost = NewType('WSHost', str)
 WSPort = NewType('WSPort', int)
-WSSocketFactory = Callable[[WSHost, WSPort], Union[socket.socket, Awaitable[socket.socket]]]
+WSSocketFactory = Callable[[WSHost, WSPort], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
 
 
 class WSError(RuntimeError):

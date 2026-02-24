@@ -1,6 +1,5 @@
 import socket
 import ssl
-import urllib.parse
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from logging import getLogger

@@ -17,7 +17,7 @@ from .url import parse_url, ParsedURL
 
 
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
-WSSocketFactory = Callable[[WSHost, WSPort], Union[socket.socket, Awaitable[socket.socket]]]
+WSSocketFactory = Callable[[WSHost, WSPort], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
 
 
 def _maybe_handle_redirect(exc: WSError, old_parsed_url: ParsedURL, max_redirects: int) -> ParsedURL:
