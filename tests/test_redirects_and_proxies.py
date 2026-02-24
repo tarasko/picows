@@ -93,7 +93,8 @@ async def redirect_server_2(redirect_server_1):
 
 @pytest.mark.parametrize("proxy_type", ["direct", "http", "http_auth", "socks4", "socks5"])
 @pytest.mark.parametrize("custom_sock", ["none", "new", "connected"])
-async def test_redirect_through_proxy(redirect_server_2, proxy_type: str, custom_sock: str):
+@pytest.mark.parametrize("cb_type", ["cb", "awaitable"])
+async def test_redirect_through_proxy(redirect_server_2, proxy_type: str, custom_sock: str, cb_type: str):
     # This is an absolute masterpiece! Best test I wrote ever!
     #
     # This test under all possible loops (asyncio, uvloop) goes through
@@ -107,7 +108,7 @@ async def test_redirect_through_proxy(redirect_server_2, proxy_type: str, custom
     last_socket = None
 
     async with ProxyServer(proxy_type) as proxy_url:
-        def socket_factory(host, port) -> Optional[socket.socket]:
+        def socket_factory_cb(host, port) -> Optional[socket.socket]:
             nonlocal last_socket
 
             if custom_sock == "none":
@@ -120,6 +121,11 @@ async def test_redirect_through_proxy(redirect_server_2, proxy_type: str, custom
                 last_socket = socket.socket(socket.AF_INET)
                 last_socket.connect((host, port))
                 return last_socket
+
+        async def socket_factory_awaitable(host, port) -> Optional[socket.socket]:
+            return socket_factory_cb(host, port)
+
+        socket_factory = socket_factory_cb if cb_type == "cb" else socket_factory_awaitable
 
         async with ClientAsyncContext(AsyncClient, redirect_server_2, ssl_context=client_ssl_ctx, proxy=proxy_url, socket_factory=socket_factory) as (transport, listener):
             # Check that we are using the same socket that was produced by socket_factory

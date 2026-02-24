@@ -4,7 +4,7 @@ from enum import Enum
 from ssl import SSLContext
 from http import HTTPStatus
 from collections.abc import Callable, Mapping, Iterable
-from typing import Final, Optional, Any, Union, NewType
+from typing import Final, Optional, Any, Union, NewType, Awaitable
 from multidict import CIMultiDict
 
 
@@ -14,7 +14,7 @@ WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgra
 WSBuffer = Union[bytes, bytearray, memoryview]
 WSHost = NewType('WSHost', str)
 WSPort = NewType('WSPort', int)
-WSSocketFactory = Callable[[WSHost, WSPort], socket.socket]
+WSSocketFactory = Callable[[WSHost, WSPort], Union[socket.socket, Awaitable[socket.socket]]]
 
 
 class WSError(RuntimeError):

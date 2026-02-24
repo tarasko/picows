@@ -2,9 +2,10 @@ import asyncio
 import socket
 import urllib.parse
 from dataclasses import dataclass
+from inspect import isawaitable
 from logging import getLogger
 from ssl import SSLContext
-from typing import Callable, Optional, Union, Dict, Any
+from typing import Callable, Optional, Union, Dict, Any, Awaitable
 
 from python_socks.async_.asyncio import Proxy
 
@@ -16,7 +17,7 @@ from .url import parse_url, ParsedURL
 
 
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
-WSSocketFactory = Callable[[WSHost, WSPort], socket.socket]
+WSSocketFactory = Callable[[WSHost, WSPort], Union[socket.socket, Awaitable[socket.socket]]]
 
 
 def _maybe_handle_redirect(exc: WSError, old_parsed_url: ParsedURL, max_redirects: int) -> ParsedURL:
@@ -67,7 +68,12 @@ async def _create_connected_socket(
     if socket_factory is None:
         return None
 
-    sock = socket_factory(host, port)
+    sock_or_awaitable = socket_factory(host, port)
+    if isawaitable(sock_or_awaitable):
+        sock = await sock_or_awaitable
+    else:
+        sock = sock_or_awaitable
+
     if sock is not None:
         sock.setblocking(False)
     if sock is not None:
