@@ -10,7 +10,7 @@ DELIMS = ":/?#[]@!$&'()*+,;="
 
 class WSInvalidURL(WSError):
     """
-    Raised when connecting to a URL that isn't a valid WebSocket URL.
+    Raised by :any:`ws_connect` when connecting to a URL that isn't a valid WebSocket URL.
     """
     def __init__(self, url: str, msg: str) -> None:
         super().__init__(f"{url} isn't a valid URL: {msg}")

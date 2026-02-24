@@ -12,10 +12,10 @@ Functions
 Classes
 -------
 
-.. autoclass:: WSError
+.. autoexception:: WSError
     :members:
 
-.. autoclass:: WSInvalidURL
+.. autoexception:: WSInvalidURL
     :members:
 
 .. autoclass:: WSFrame
@@ -185,7 +185,7 @@ Classes
 
         Send a frame over websocket with a message as its payload.
         This function does not copy message to prepare websocket frames.
-        It reuses the message's memory and appends a WebSocket header at the front.
+        It reuses the message's memory and writes a WebSocket header at the front.
 
         .. attention::
 

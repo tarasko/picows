@@ -5,6 +5,11 @@ picows Release History
    :depth: 1
    :local:
 
+1.16.0
+------------------
+
+* Add socket_factory argument to ws_connect
+
 1.15.0 (2026-02-22)
 ------------------
 
