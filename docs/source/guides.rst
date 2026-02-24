@@ -120,8 +120,6 @@ For :any:`on_ws_frame`, this behavior is configurable via
 
 Auto ping
 --------------
-`Available since 1.4`
-
 The WebSocket protocol includes special frame types, WSMsgType.PING and WSMsgType.PONG, which are useful for detecting stale connections.
 
 From the user's perspective, these frames function like regular frames and may contain payload data. When one side receives a PING frame, it must respond with a PONG frame that includes the same payload as the PING.
@@ -192,8 +190,6 @@ If this applies to your use case, it's better to delay the determination of a po
 
 Auto pong
 ---------
-`Available since 1.6`
-
 By default **picows** always replies to incoming PING messages with PONG.
 This is controlled by `enable_auto_pong` argument to :any:`ws_connect`
 and :any:`ws_create_server`. If disabled, PING messages must be handled
@@ -274,8 +270,6 @@ and closes the connection without waiting for buffered outgoing data.
 
 Measuring/checking round-trip time
 ----------------------------------
-`Available since 1.5`
-
 **picows** allows you to conveniently measure round-trip time to a remote peer using
 :any:`measure_roundtrip_time`. This is done by sending PING requests multiple
 times and measuring response delay.
@@ -310,8 +304,6 @@ Check out an `echo_client_cython.pyx <https://raw.githubusercontent.com/tarasko/
 
 Using proxies
 -------------
-`Available since 1.13`
-
 :any:`ws_connect` supports HTTP, SOCKS4 and SOCKS5 proxies via
 `python-socks <https://github.com/romis2012/python-socks>`_.
 Use the ``proxy`` argument with a proxy URL. HTTPS proxy URLs (``https://...``)
@@ -355,9 +347,31 @@ adjust the raw socket there.
         ...
         def on_ws_connected(transport: WSTransport):
             sock: socket.socket = transport.underlying_transport.get_extra_info("socket")
-            # Example: enlarge kernel socket buffers
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 * 1024 * 1024)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1 * 1024 * 1024)
+
+If a socket option must be configured before ``connect()`` (for example, to
+control connection establishment behavior), use ``socket_factory``:
+
+.. code-block:: python
+
+    import socket
+    from picows import ws_connect
+
+    def socket_factory(host, port):
+        # host/port are provided by picows. Return an unconnected socket and
+        # picows will call connect() for you.
+        # Or you can connect the socket youself.
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 * 1024 * 1024)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1 * 1024 * 1024)
+        return sock
+
+    transport, listener = await ws_connect(
+        Listener,
+        "ws://127.0.0.1:9000/",
+        socket_factory=socket_factory,
+    )
 
 .. note::
     **picows** already enables `TCP_NODELAY` and, when available on the

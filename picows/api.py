@@ -228,20 +228,25 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
         and ``socks5://`` (including authenticated variants).
         HTTPS proxy scheme (``https://``) is currently not supported.
     :param read_buffer_init_size:
-        Initial size of the internal read buffer. The buffer grows exponentially if new data doesn't fit.
-        You may set this to the actual expected maximum frame size but don't push it too much. Contrary to `max_frame_size` which
-        is just a safety check, setting big value here will force **picows** to actually allocate the specified amount of memory.
+        Initial size (in bytes) of the internal read buffer.
+        The buffer grows exponentially when incoming data does not fit.
+        Unlike `max_frame_size` (a safety limit), this value affects actual
+        memory allocation, so very large values increase baseline memory usage.
     :param zero_copy_unsafe_ssl_write:
-        Write a memoryview to the write buffer for SSL connections instead of copying it first into bytes object.
-        This relies on an undocumented feature of SSLTransport.write that guarantees to always
-        copy, process, encrypt the whole data without holding it back.
-        This works for all known asyncio and uvloop versions but may suddenly break in the future.
+        Only for TLS (``wss://``) connections: pass outgoing frame data as
+        ``memoryview`` to SSL transport instead of copying to ``bytes`` first.
+        This relies on undocumented SSL transport behavior (immediate full
+        consumption/copy of the provided buffer). It is validated against known
+        asyncio/uvloop versions, but compatibility is not guaranteed for future
+        Python event loop implementations.
     :param socket_factory:
-        An optional factory function that accepts host and port arguments and returns socket.socket instance.
-        Can be a regular function or a coroutine.
-        The returned socket may be new and not connected yet, or already connected.
-        If the socket is connected then the library expects it to be connected to the passed host and port.
-        If not connected yet, the library will perform connect to host and port on its own.
+        Optional socket factory ``(host, port) -> socket | Awaitable[socket] | None``.
+        Can be a regular function or coroutine. Returning ``None`` falls back to
+        the default connection path.
+        The returned socket may be either already connected to the provided
+        endpoint or unconnected. If unconnected, picows will connect it.
+        If ``proxy`` is set, ``host``/``port`` passed to the factory are proxy
+        endpoint coordinates, not final WebSocket server coordinates.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
 
