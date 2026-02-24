@@ -4,7 +4,7 @@ import urllib.parse
 from dataclasses import dataclass
 from logging import getLogger
 from ssl import SSLContext
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Union, Dict, Any
 
 from python_socks.async_.asyncio import Proxy
 
@@ -44,7 +44,7 @@ def _maybe_handle_redirect(exc: WSError, old_parsed_url: ParsedURL, max_redirect
     return parsed_url
 
 
-def _is_connected(sock: socket.socket):
+def _is_connected(sock: socket.socket) -> bool:
     try:
         sock.getpeername()
         return True
@@ -58,7 +58,12 @@ class _ConnectedSocket:
     port: Optional[WSPort]
 
 
-async def _create_connected_socket(loop, socket_factory, host, port):
+async def _create_connected_socket(
+        loop: asyncio.AbstractEventLoop,
+        socket_factory: Optional[WSSocketFactory],
+        host: WSHost,
+        port: WSPort
+) -> Optional[socket.socket]:
     if socket_factory is None:
         return None
 
@@ -72,7 +77,14 @@ async def _create_connected_socket(loop, socket_factory, host, port):
     return sock
 
 
-async def _connect_through_optional_proxy(loop, parsed_url: ParsedURL, proxy: str, socket_factory: WSSocketFactory, ssl_context, conn_kwargs):
+async def _connect_through_optional_proxy(
+        loop: asyncio.AbstractEventLoop,
+        parsed_url: ParsedURL,
+        proxy: Optional[str],
+        socket_factory: Optional[WSSocketFactory],
+        ssl_context: Optional[Union[SSLContext, bool]],
+        conn_kwargs: Dict[str, Any]
+) -> _ConnectedSocket:
     if proxy is not None and urllib.parse.urlsplit(proxy).scheme.lower() == "https":
         raise ValueError(
             "HTTPS proxy URL scheme is not supported, use http://, socks4:// or socks5://")
@@ -112,10 +124,10 @@ async def _connect_through_optional_proxy(loop, parsed_url: ParsedURL, proxy: st
                     port=parsed_url.port,
                 )
             except ReplyError as e:
-                await stream.close()
-                raise ProxyError(e, error_code=e.error_code)
-            except (asyncio.CancelledError, Exception):  # pragma: no cover
-                await stream.close()
+                await stream.close() # type: ignore[no-untyped-call]
+                raise ProxyError(e, error_code=e.error_code) # type: ignore[no-untyped-call]
+            except (asyncio.CancelledError, Exception):
+                await stream.close() # type: ignore[no-untyped-call]
                 raise
         else:
             proxy_socket = await Proxy.from_url(proxy, loop=loop).connect(
@@ -123,14 +135,14 @@ async def _connect_through_optional_proxy(loop, parsed_url: ParsedURL, proxy: st
                 dest_port=parsed_url.port,
             )
 
-        if ssl_context is not None and "server_hostname" not in conn_kwargs:
+        if ssl_context and "server_hostname" not in conn_kwargs:
             conn_kwargs["server_hostname"] = parsed_url.host
 
         return _ConnectedSocket(proxy_socket, None, None)
     else:
         sock = await _create_connected_socket(loop, socket_factory, parsed_url.host, parsed_url.port)
         if sock is not None:
-            if ssl_context is not None and "server_hostname" not in conn_kwargs:
+            if ssl_context and "server_hostname" not in conn_kwargs:
                 conn_kwargs["server_hostname"] = parsed_url.host
 
             return _ConnectedSocket(sock, None, None)
@@ -265,8 +277,13 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
             conn_socket = await _connect_through_optional_proxy(loop, parsed_url, proxy, socket_factory, ssl, conn_kwargs)
 
             (_, ws_protocol) = await loop.create_connection(
-                ws_protocol_factory, conn_socket.host, conn_socket.port,
-                ssl=ssl, sock=conn_socket.sock, **conn_kwargs) # type: ignore[arg-type]
+                ws_protocol_factory,
+                conn_socket.host,       # type: ignore[arg-type]
+                conn_socket.port,       # type: ignore[arg-type]
+                ssl=ssl,
+                sock=conn_socket.sock,  # type: ignore[arg-type]
+                **conn_kwargs
+            )
 
             await ws_protocol.wait_until_handshake_complete()
             return ws_protocol.transport, ws_protocol.listener

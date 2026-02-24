@@ -48,7 +48,7 @@ class ParsedURL:
         return self.username, self.password
 
 
-def parse_url(url: str, check_scheme=True) -> ParsedURL:
+def parse_url(url: str, check_scheme: bool = True) -> ParsedURL:
     parsed = urllib.parse.urlparse(url)
     if check_scheme and parsed.scheme not in ["ws", "wss"]:
         raise WSInvalidURL(url, "scheme isn't ws or wss")
