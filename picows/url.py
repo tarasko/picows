@@ -2,7 +2,7 @@ import dataclasses
 import urllib.parse
 from typing import Optional
 
-from .types import WSError
+from .types import WSError, WSHost, WSPort
 
 # All characters from the gen-delims and sub-delims sets in RFC 3987.
 DELIMS = ":/?#[]@!$&'()*+,;="
@@ -23,10 +23,10 @@ class ParsedURL:
     url: str
     secure: bool
     netloc: str
-    host: str       # Normalized to lower case.
-    port: int       # Always set
+    host: WSHost       # Normalized to lower case.
+    port: WSPort       # Always set
     path: str
-    query: str      # May be empty if the URL doesn't include a query component.
+    query: str         # May be empty if the URL doesn't include a query component.
     username: Optional[str] = None
     password: Optional[str] = None
 
@@ -48,9 +48,9 @@ class ParsedURL:
         return self.username, self.password
 
 
-def parse_url(url: str) -> ParsedURL:
+def parse_url(url: str, check_scheme=True) -> ParsedURL:
     parsed = urllib.parse.urlparse(url)
-    if parsed.scheme not in ["ws", "wss"]:
+    if check_scheme and parsed.scheme not in ["ws", "wss"]:
         raise WSInvalidURL(url, "scheme isn't ws or wss")
     if parsed.hostname is None:
         raise WSInvalidURL(url, "hostname isn't provided")
@@ -79,4 +79,4 @@ def parse_url(url: str) -> ParsedURL:
             username = urllib.parse.quote(username, safe=DELIMS)
             password = urllib.parse.quote(password, safe=DELIMS)
 
-    return ParsedURL(url, secure, netloc, host, port, path, query, username, password)
+    return ParsedURL(url, secure, netloc, WSHost(host), WSPort(port), path, query, username, password)

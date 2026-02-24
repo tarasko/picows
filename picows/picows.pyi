@@ -1,9 +1,10 @@
 import asyncio
+import socket
 from enum import Enum
 from ssl import SSLContext
 from http import HTTPStatus
 from collections.abc import Callable, Mapping, Iterable
-from typing import Final, Optional, Any, Union
+from typing import Final, Optional, Any, Union, NewType
 from multidict import CIMultiDict
 
 
@@ -11,6 +12,9 @@ PICOWS_DEBUG_LL: Final = 9
 WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
 WSBuffer = Union[bytes, bytearray, memoryview]
+WSHost = NewType('WSHost', str)
+WSPort = NewType('WSPort', int)
+WSSocketFactory = Callable[[WSHost, WSPort], socket.socket]
 
 
 class WSError(RuntimeError):
@@ -191,6 +195,8 @@ async def ws_connect(
     extra_headers: Optional[WSHeadersLike] = None,
     max_redirects: int = 5,
     proxy: Optional[str] = None,
+    read_buffer_init_size: int = 16 * 1024,
+    zero_copy_unsafe_ssl_write: bool = False,
     **kwargs: Any
 ) -> tuple[WSTransport, WSListener]: ...
 
@@ -207,5 +213,8 @@ async def ws_create_server(
     auto_ping_reply_timeout: float = 20,
     auto_ping_strategy: WSAutoPingStrategy = ...,
     enable_auto_pong: bool = True,
+    max_frame_size: int = 10 * 1024 * 1024,
+    read_buffer_init_size: int = 16 * 1024,
+    zero_copy_unsafe_ssl_write: bool = False,
     **kwargs: Any
 ) -> asyncio.Server: ...

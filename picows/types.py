@@ -1,10 +1,11 @@
 from http import HTTPStatus
-from typing import Union, Optional, Mapping, Iterable, Final, cast, Any
-
+from typing import Union, Optional, Mapping, Iterable, Final, cast, Any, NewType
 from multidict import CIMultiDict
 
 PICOWS_DEBUG_LL: Final = 9
 WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
+WSHost = NewType('WSHost', str)
+WSPort = NewType('WSPort', int)
 
 
 def add_extra_headers(headers: CIMultiDict[str], extra_headers: Optional[WSHeadersLike]) -> None:
