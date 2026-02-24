@@ -3,7 +3,8 @@ from .types import (
     WSUpgradeRequest,
     WSUpgradeResponse,
     WSUpgradeResponseWithListener,
-    PICOWS_DEBUG_LL
+    PICOWS_DEBUG_LL,
+    WSHeadersLike,
 )
 
 from .picows import (
@@ -21,7 +22,9 @@ from .url import (
 
 from .api import (
     ws_connect,
-    ws_create_server
+    ws_create_server,
+    WSServerListenerFactory,
+    WSSocketFactory
 )
 
 __all__ = [

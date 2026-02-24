@@ -236,6 +236,12 @@ async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: igno
         This relies on an undocumented feature of SSLTransport.write that guarantees to always
         copy, process, encrypt the whole data without holding it back.
         This works for all known asyncio and uvloop versions but may suddenly break in the future.
+    :param socket_factory:
+        An optional factory function that accepts host and port arguments and returns socket.socket instance.
+        Can be a regular function or a coroutine.
+        The returned socket may be new and not connected yet, or already connected.
+        If the socket is connected then the library expects it to be connected to the passed host and port.
+        If not connected yet, the library will perform connect to host and port on its own.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
 
