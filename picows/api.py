@@ -238,12 +238,14 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
         asyncio/uvloop versions, but compatibility is not guaranteed for future
         Python event loop implementations.
     :param socket_factory:
-        Optional socket factory ``(parsed_url) -> socket | Awaitable[socket] | None``.
-        Can be a regular function or coroutine. Returning ``None`` falls back to
-        the default connection path.
+        Optional socket factory. Can be a regular function or coroutine.
+        Receive WSParsedURL object as the only argument. Returns pre-created socket.
+        Returning ``None`` falls back to the default connection path.
+
         The returned socket may be either already connected to the provided
         endpoint or unconnected. If unconnected, picows will connect it.
-        If ``proxy`` is set, ``parsed_url` passed to the factory are proxy
+
+        If ``proxy`` is set, ``WSParsedURL`` passed to the factory is proxy
         endpoint coordinates, not final WebSocket server coordinates.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """

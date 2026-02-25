@@ -9,7 +9,7 @@ WSPort = NewType('WSPort', int)
 
 
 class WSError(Exception):
-    """Base exception type for all library exceptions"""
+    """Base exception type for websocket-specific exceptions raised by picows."""
     pass
 
 
@@ -146,7 +146,7 @@ class WSUpgradeResponseWithListener:
 
 class WSUpgradeFailure(WSError):
     """
-    Raised by :any:`ws_connect` or :any:`wait_disconnected` for any kind of websocket handshake or protocol errors.
+    Raised by :any:`ws_connect` when websocket HTTP upgrade negotiation fails.
     """
     raw_header: Optional[bytes]
     raw_body: Optional[bytes]

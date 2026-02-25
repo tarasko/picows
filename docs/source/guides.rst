@@ -87,9 +87,14 @@ For example, `ConnectionResetError` from :any:`ws_connect` or `BrokenPipeError`
 from :any:`WSTransport.send`.
 
 **picows** does not wrap these exceptions in its own special exception type.
-Additionally, :any:`ws_connect` may raise :any:`WSError` in cases of websocket
-negotiation errors.
-In general, :any:`WSError` is reserved for errors specific to websockets only.
+Additionally, websocket-specific failures are represented by :any:`WSError`
+and its subclasses:
+
+* :any:`WSUpgradeFailure` for HTTP upgrade negotiation failures (raised by :any:`ws_connect`).
+* :any:`WSProtocolError` for websocket parser/protocol violations (can be re-raised by :any:`WSTransport.wait_disconnected` on client side).
+* :any:`WSInvalidURL` for invalid websocket/proxy URL inputs.
+
+In general, :any:`WSError` is reserved for websocket-specific failures only.
 
 There is also a special exception, `asyncio.CancelledError`, which any coroutine
 can raise when it is externally cancelled. Sometimes you need to handle this

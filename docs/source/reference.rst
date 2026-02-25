@@ -33,6 +33,9 @@ Classes
 
         Original URL that was used to construct this object
 
+    .. py:attribute:: scheme
+        :type: str
+
     .. py:attribute:: is_secure
         :type: bool
 
