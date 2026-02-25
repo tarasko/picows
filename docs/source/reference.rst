@@ -1,3 +1,5 @@
+.. py:currentmodule:: picows
+
 API reference
 ====================
 
@@ -13,13 +15,53 @@ Classes
 -------
 
 .. autoexception:: WSError
-    :members:
+    :show-inheritance:
+
+.. autoexception:: WSUpgradeFailure
+    :show-inheritance:
+
+.. autoexception:: WSProtocolError
+    :show-inheritance:
 
 .. autoexception:: WSInvalidURL
-    :members:
+    :show-inheritance:
+
+.. py:class:: WSParsedURL
+
+    .. py:attribute:: url
+        :type: str
+
+        Original URL that was used to construct this object
+
+    .. py:attribute:: is_secure
+        :type: bool
+
+    .. py:attribute:: host
+        :type: WSHost
+
+    .. py:attribute:: port
+        :type: WSPort
+
+    .. py:attribute:: netloc
+        :type: str
+
+    .. py:attribute:: path
+        :type: str
+
+    .. py:attribute:: query
+        :type: str
+
+        May be empty if the URL doesn't include a query component.
+
+    .. py:attribute:: username
+        :type: Optional[str]
+
+    .. py:attribute:: password
+        :type: Optional[str]
 
 .. autoclass:: WSFrame
     :members:
+    :exclude-members: __new__
 
     .. py:attribute:: msg_type
         :type: WSMsgType
@@ -204,5 +246,10 @@ Enums
 -----
 
 .. autoenum:: WSMsgType
+    :exclude-members: __new__, __init__
+
 .. autoenum:: WSCloseCode
+    :exclude-members: __new__, __init__
+
 .. autoenum:: WSAutoPingStrategy
+    :exclude-members: __new__, __init__

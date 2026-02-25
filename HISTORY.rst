@@ -9,6 +9,7 @@ picows Release History
 ------------------
 
 * Add socket_factory argument to ws_connect
+* Formalize exception hierarchy
 
 1.15.0 (2026-02-22)
 ------------------

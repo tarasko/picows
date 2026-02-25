@@ -8,6 +8,11 @@ WSHost = NewType('WSHost', str)
 WSPort = NewType('WSPort', int)
 
 
+class WSError(Exception):
+    """Base exception type for all library exceptions"""
+    pass
+
+
 def add_extra_headers(headers: CIMultiDict[str], extra_headers: Optional[WSHeadersLike]) -> None:
     if extra_headers:
         sequence = extra_headers.items() if hasattr(extra_headers,
@@ -139,7 +144,7 @@ class WSUpgradeResponseWithListener:
         self.listener = listener
 
 
-class WSError(RuntimeError):
+class WSUpgradeFailure(WSError):
     """
     Raised by :any:`ws_connect` or :any:`wait_disconnected` for any kind of websocket handshake or protocol errors.
     """
@@ -157,12 +162,9 @@ class WSError(RuntimeError):
         self.response = response
 
 
-class _WSParserError(RuntimeError):
+class WSProtocolError(WSError):
     """
     WebSocket protocol parser error.
-
-    Used internally by the parser to notify what kind of close code we should
-    send before disconnect.
     """
 
     def __init__(self, code: Any, message: Any):

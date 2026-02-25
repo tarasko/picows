@@ -17,12 +17,6 @@ WSPort = NewType('WSPort', int)
 WSSocketFactory = Callable[[WSHost, WSPort], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
 
 
-class WSError(RuntimeError):
-    raw_header: Optional[bytes]
-    raw_body: Optional[bytes]
-    response: Optional[WSUpgradeResponse]
-
-
 class WSMsgType(Enum):
     CONTINUATION = 0x0
     TEXT = 0x1
@@ -52,6 +46,23 @@ class WSCloseCode(Enum):
 class WSAutoPingStrategy(Enum):
     PING_WHEN_IDLE = 1
     PING_PERIODICALLY = 2
+
+
+class WSError(Exception): ...
+
+
+class WSUpgradeFailure(WSError):
+    raw_header: Optional[bytes]
+    raw_body: Optional[bytes]
+    response: Optional[WSUpgradeResponse]
+
+
+class WSProtocolError(WSError):
+    code: WSCloseCode
+
+
+class WSInvalidURL(WSError):
+    url: str
 
 
 class WSFrame:

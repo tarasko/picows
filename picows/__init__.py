@@ -1,5 +1,7 @@
 from .types import (
     WSError,
+    WSUpgradeFailure,
+    WSProtocolError,
     WSUpgradeRequest,
     WSUpgradeResponse,
     WSUpgradeResponseWithListener,
@@ -17,7 +19,8 @@ from .picows import (
 )
 
 from .url import (
-    WSInvalidURL
+    WSInvalidURL,
+    WSParsedURL
 )
 
 from .api import (
