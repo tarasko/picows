@@ -1,13 +1,16 @@
+import socket
 import ssl
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from logging import getLogger
+from typing import Optional
 
 import anyio
 import pytest
 from tiny_proxy import HttpProxyHandler, Socks4ProxyHandler, Socks5ProxyHandler
 
 import picows
+from picows.url import parse_url
 from tests.utils import ClientAsyncContext, AsyncClient, \
     create_client_ssl_context, echo_server, multiloop_event_loop_policy, \
     ServerAsyncContext
@@ -88,7 +91,9 @@ async def redirect_server_2(redirect_server_1):
 
 
 @pytest.mark.parametrize("proxy_type", ["direct", "http", "http_auth", "socks4", "socks5"])
-async def test_redirect_through_proxy(redirect_server_2, proxy_type: str):
+@pytest.mark.parametrize("custom_sock", ["none", "new", "connected"])
+@pytest.mark.parametrize("cb_type", ["cb", "awaitable"])
+async def test_redirect_through_proxy(redirect_server_2, proxy_type: str, custom_sock: str, cb_type: str):
     # This is an absolute masterpiece! Best test I wrote ever!
     #
     # This test under all possible loops (asyncio, uvloop) goes through
@@ -99,8 +104,39 @@ async def test_redirect_through_proxy(redirect_server_2, proxy_type: str):
     # God bless pytest!
     client_ssl_ctx = create_client_ssl_context()
 
+    last_socket = None
+
     async with ProxyServer(proxy_type) as proxy_url:
-        async with ClientAsyncContext(AsyncClient, redirect_server_2, ssl_context=client_ssl_ctx, proxy=proxy_url) as (transport, listener):
+        def socket_factory_cb(parsed_url) -> Optional[socket.socket]:
+            nonlocal last_socket
+
+            if custom_sock == "none":
+                last_socket = None
+                return last_socket
+            elif custom_sock == "new":
+                last_socket = socket.socket(socket.AF_INET)
+                return last_socket
+            else:
+                last_socket = socket.socket(socket.AF_INET)
+                last_socket.connect((parsed_url.host, parsed_url.port))
+                return last_socket
+
+        async def socket_factory_awaitable(parsed_url) -> Optional[socket.socket]:
+            return socket_factory_cb(parsed_url)
+
+        socket_factory = socket_factory_cb if cb_type == "cb" else socket_factory_awaitable
+
+        async with ClientAsyncContext(AsyncClient, redirect_server_2, ssl_context=client_ssl_ctx, proxy=proxy_url, socket_factory=socket_factory) as (transport, listener):
+            # Check that we are using the same socket that was produced by socket_factory
+            if last_socket is not None:
+                sock = transport.underlying_transport.get_extra_info('socket')
+                assert last_socket.getsockname() == sock.getsockname()
+                # Check that we are connected to the proxy
+                if proxy_url is not None:
+                    pu = parse_url(proxy_url, False)
+                    peer = sock.getpeername()
+                    assert pu.host == peer[0] and pu.port == peer[1]
+
             transport.send(picows.WSMsgType.BINARY, b"hello over proxy")
             frame = await listener.get_message()
             assert frame.msg_type == picows.WSMsgType.BINARY

@@ -13,7 +13,7 @@ from tests.utils import create_client_ssl_context, echo_server, \
     connected_async_client
 
 
-class MyException(RuntimeError):
+class MyException(Exception):
     pass
 
 

@@ -1,22 +1,21 @@
 import asyncio
+import socket
 from enum import Enum
 from ssl import SSLContext
 from http import HTTPStatus
 from collections.abc import Callable, Mapping, Iterable
-from typing import Final, Optional, Any, Union
+from typing import Final, Optional, Any, Union, NewType, Awaitable
 from multidict import CIMultiDict
 
 
 PICOWS_DEBUG_LL: Final = 9
 WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
+WSListenerFactory = Callable[[], WSListener]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
 WSBuffer = Union[bytes, bytearray, memoryview]
-
-
-class WSError(RuntimeError):
-    raw_header: Optional[bytes]
-    raw_body: Optional[bytes]
-    response: Optional[WSUpgradeResponse]
+WSHost = NewType('WSHost', str)
+WSPort = NewType('WSPort', int)
+WSSocketFactory = Callable[[WSParsedURL], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
 
 
 class WSMsgType(Enum):
@@ -48,6 +47,35 @@ class WSCloseCode(Enum):
 class WSAutoPingStrategy(Enum):
     PING_WHEN_IDLE = 1
     PING_PERIODICALLY = 2
+
+
+class WSError(Exception): ...
+
+
+class WSUpgradeFailure(WSError):
+    raw_header: Optional[bytes]
+    raw_body: Optional[bytes]
+    response: Optional[WSUpgradeResponse]
+
+
+class WSProtocolError(WSError):
+    code: WSCloseCode
+
+
+class WSInvalidURL(WSError):
+    url: str
+
+
+class WSParsedURL:
+    url: str
+    is_secure: bool
+    netloc: str
+    host: WSHost
+    port: WSPort
+    path: str
+    query: str
+    username: Optional[str] = None
+    password: Optional[str] = None
 
 
 class WSFrame:
@@ -176,7 +204,7 @@ class WSUpgradeResponseWithListener:
 
 
 async def ws_connect(
-    ws_listener_factory: Callable[[], WSListener],
+    ws_listener_factory: WSListenerFactory,
     url: str,
     *args: Any,
     ssl_context: Union[SSLContext, None] = None,
@@ -191,6 +219,9 @@ async def ws_connect(
     extra_headers: Optional[WSHeadersLike] = None,
     max_redirects: int = 5,
     proxy: Optional[str] = None,
+    read_buffer_init_size: int = 16 * 1024,
+    zero_copy_unsafe_ssl_write: bool = False,
+    socket_factory: Optional[WSSocketFactory] = None,
     **kwargs: Any
 ) -> tuple[WSTransport, WSListener]: ...
 
@@ -207,5 +238,8 @@ async def ws_create_server(
     auto_ping_reply_timeout: float = 20,
     auto_ping_strategy: WSAutoPingStrategy = ...,
     enable_auto_pong: bool = True,
+    max_frame_size: int = 10 * 1024 * 1024,
+    read_buffer_init_size: int = 16 * 1024,
+    zero_copy_unsafe_ssl_write: bool = False,
     **kwargs: Any
 ) -> asyncio.Server: ...

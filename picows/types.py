@@ -1,10 +1,16 @@
 from http import HTTPStatus
-from typing import Union, Optional, Mapping, Iterable, Final, cast, Any
-
+from typing import Union, Optional, Mapping, Iterable, Final, cast, Any, NewType
 from multidict import CIMultiDict
 
 PICOWS_DEBUG_LL: Final = 9
 WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
+WSHost = NewType('WSHost', str)
+WSPort = NewType('WSPort', int)
+
+
+class WSError(Exception):
+    """Base exception type for websocket-specific exceptions raised by picows."""
+    pass
 
 
 def add_extra_headers(headers: CIMultiDict[str], extra_headers: Optional[WSHeadersLike]) -> None:
@@ -138,9 +144,9 @@ class WSUpgradeResponseWithListener:
         self.listener = listener
 
 
-class WSError(RuntimeError):
+class WSUpgradeFailure(WSError):
     """
-    Raised by :any:`ws_connect` or :any:`wait_disconnected` for any kind of websocket handshake or protocol errors.
+    Raised by :any:`ws_connect` when websocket HTTP upgrade negotiation fails.
     """
     raw_header: Optional[bytes]
     raw_body: Optional[bytes]
@@ -156,12 +162,9 @@ class WSError(RuntimeError):
         self.response = response
 
 
-class _WSParserError(RuntimeError):
+class WSProtocolError(WSError):
     """
     WebSocket protocol parser error.
-
-    Used internally by the parser to notify what kind of close code we should
-    send before disconnect.
     """
 
     def __init__(self, code: Any, message: Any):

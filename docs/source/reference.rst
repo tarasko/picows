@@ -1,3 +1,5 @@
+.. py:currentmodule:: picows
+
 API reference
 ====================
 
@@ -12,14 +14,57 @@ Functions
 Classes
 -------
 
-.. autoclass:: WSError
-    :members:
+.. autoexception:: WSError
+    :show-inheritance:
 
-.. autoclass:: WSInvalidURL
-    :members:
+.. autoexception:: WSUpgradeFailure
+    :show-inheritance:
+
+.. autoexception:: WSProtocolError
+    :show-inheritance:
+
+.. autoexception:: WSInvalidURL
+    :show-inheritance:
+
+.. py:class:: WSParsedURL
+
+    .. py:attribute:: url
+        :type: str
+
+        Original URL that was used to construct this object
+
+    .. py:attribute:: scheme
+        :type: str
+
+    .. py:attribute:: is_secure
+        :type: bool
+
+    .. py:attribute:: host
+        :type: WSHost
+
+    .. py:attribute:: port
+        :type: WSPort
+
+    .. py:attribute:: netloc
+        :type: str
+
+    .. py:attribute:: path
+        :type: str
+
+    .. py:attribute:: query
+        :type: str
+
+        May be empty if the URL doesn't include a query component.
+
+    .. py:attribute:: username
+        :type: Optional[str]
+
+    .. py:attribute:: password
+        :type: Optional[str]
 
 .. autoclass:: WSFrame
     :members:
+    :exclude-members: __new__
 
     .. py:attribute:: msg_type
         :type: WSMsgType
@@ -185,7 +230,7 @@ Classes
 
         Send a frame over websocket with a message as its payload.
         This function does not copy message to prepare websocket frames.
-        It reuses the message's memory and appends a WebSocket header at the front.
+        It reuses the message's memory and writes a WebSocket header at the front.
 
         .. attention::
 
@@ -204,5 +249,10 @@ Enums
 -----
 
 .. autoenum:: WSMsgType
+    :exclude-members: __new__, __init__
+
 .. autoenum:: WSCloseCode
+    :exclude-members: __new__, __init__
+
 .. autoenum:: WSAutoPingStrategy
+    :exclude-members: __new__, __init__

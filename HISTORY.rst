@@ -5,6 +5,12 @@ picows Release History
    :depth: 1
    :local:
 
+1.16.0
+------------------
+
+* Add socket_factory argument to ws_connect
+* Formalize exception hierarchy, new exceptions added: WSProtocolError, WSUpgradeFailure
+
 1.15.0 (2026-02-22)
 ------------------
 
@@ -37,7 +43,7 @@ picows Release History
 ------------------
 
 * #71: add support for HTTP redirects
-* Following discussion #68 added raw_header, raw_body and response attributes to WSError exception.
+* Following discussion #68 added raw_header, raw_body and response attributes to WSUpgradeFailure exception.
 * Added additional checks for URL and WSInvalidURL exception
 * Some non-latency critical code has been "de-cythonized" for better debugging experience.
 * WSUpgradeRequest, WSUpgradeResponse, WSUpgradeResponseWithListener moved to a pure python module

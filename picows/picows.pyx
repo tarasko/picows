@@ -24,7 +24,7 @@ from libc.stdlib cimport rand
 
 from .types import (PICOWS_DEBUG_LL, WSUpgradeRequest, WSUpgradeResponse,
                     WSUpgradeResponseWithListener,
-                    WSError, _WSParserError, add_extra_headers)
+                    WSUpgradeFailure, WSProtocolError, add_extra_headers)
 
 # When picows would like to disconnect peer (due to protocol violation or other failures), CLOSE frame is sent first.
 # Then disconnect is scheduled with a small delay. Otherwise, some old asyncio versions do not transmit CLOSE frame,
@@ -538,7 +538,7 @@ cdef class WSTransport:
           the original exception is transferred here and re-raised by this
           coroutine when awaited.
         * client side: websocket/protocol failures may also be re-raised here
-          (for example :any:`WSError`).
+          (for example :any:`WSProtocolError`).
         * server side: always completes normally (no per-client exception
           propagation via this coroutine).
 
@@ -1215,7 +1215,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
         # check handshake
         if not response_status_line_str.startswith("http/1.1 " ):
-            raise WSError(f"cannot upgrade, unknown protocol (expected HTTP/1.1) in upgrade response: {response_status_line_str}", raw_headers, tail)
+            raise WSUpgradeFailure(f"cannot upgrade, unknown protocol (expected HTTP/1.1) in upgrade response: {response_status_line_str}", raw_headers, tail)
 
         cdef bytes status_code
         response = WSUpgradeResponse()
@@ -1230,25 +1230,25 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             response.headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
 
         if response.status != HTTPStatus.SWITCHING_PROTOCOLS:
-            raise WSError(f"expected upgrade response with status 101 Switching Protocols, but received {response.status}", raw_headers, tail, response)
+            raise WSUpgradeFailure(f"expected upgrade response with status 101 Switching Protocols, but received {response.status}", raw_headers, tail, response)
 
         if response.headers.get("transfer-encoding") == "chunked":
-            raise WSError(f"101 response cannot have Transfer-Encoding but it has", raw_headers, tail, response)
+            raise WSUpgradeFailure(f"101 response cannot have Transfer-Encoding but it has", raw_headers, tail, response)
 
         cdef Py_ssize_t content_length = int(response.headers.get("content-length", "0"))
 
         if content_length != 0:
-            raise WSError(f"101 response has non-zero Content-Length, but it can't have body", raw_headers, tail, response)
+            raise WSUpgradeFailure(f"101 response has non-zero Content-Length, but it can't have body", raw_headers, tail, response)
 
         connection_value = response.headers.get("connection")
         connection_value = connection_value if connection_value is None else connection_value.lower()
         if connection_value != "upgrade":
-            raise WSError(f"cannot upgrade, invalid connection header: {response.headers['connection']}", raw_headers, tail, response)
+            raise WSUpgradeFailure(f"cannot upgrade, invalid connection header: {response.headers['connection']}", raw_headers, tail, response)
 
         r_key = response.headers.get("sec-websocket-accept")
         match = b64encode(sha1(self._websocket_key_b64 + _WS_KEY).digest()).decode()
         if r_key != match:
-            raise WSError(f"cannot upgrade, invalid sec-websocket-accept response", raw_headers, tail, response)
+            raise WSUpgradeFailure(f"cannot upgrade, invalid sec-websocket-accept response", raw_headers, tail, response)
 
         memmove(self._read_buffer.data, self._read_buffer.data + len(raw_headers) + 4, self._read_buffer.size - len(raw_headers) - 4)
         self._f_new_data_start_pos = len(tail)
@@ -1262,14 +1262,14 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         cdef WSFrame frame
         try:
             return self._get_next_frame_impl()
-        except _WSParserError as ex:
+        except WSProtocolError as ex:
             self._logger.error("WS parser error: %s, initiate disconnect", ex.args)
-            self._disconnect_exception = WSError(str(ex))
+            self._disconnect_exception = ex
             self.transport.send_close(ex.args[0], ex.args[1].encode())
             self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
         except BaseException as ex:
             self._logger.exception("WS parser failure, initiate disconnect")
-            self._disconnect_exception = WSError(str(ex))
+            self._disconnect_exception = ex
             self.transport.send_close(WSCloseCode.PROTOCOL_ERROR)
             self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 
@@ -1303,13 +1303,13 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                     self._read_buffer.data + self._f_curr_state_start_pos,
                     max(self._f_new_data_start_pos - self._f_curr_state_start_pos, 64)
                 )
-                raise _WSParserError(
+                raise WSProtocolError(
                     WSCloseCode.PROTOCOL_ERROR,
                     f"Received frame with non-zero reserved bits, rsv2={rsv2}, rsv3={rsv3}, msg_type={self._f_msg_type}: {mem_dump}",
                 )
 
             if self._f_msg_type > 0x7 and not self._f_fin:
-                raise _WSParserError(
+                raise WSProtocolError(
                     WSCloseCode.PROTOCOL_ERROR,
                     "Received fragmented control frame",
                 )
@@ -1318,7 +1318,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             self._f_payload_length_flag = second_byte & 0x7F
 
             if self._f_msg_type > 0x7 and self._f_payload_length_flag > 125:
-                raise _WSParserError(
+                raise WSProtocolError(
                     WSCloseCode.PROTOCOL_ERROR,
                     "Control frame payload cannot be larger than 125 bytes",
                 )
@@ -1348,7 +1348,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 self._state = WSParserState.READ_PAYLOAD
 
             if self._f_payload_length > self._max_frame_size:
-                raise _WSParserError(WSCloseCode.PROTOCOL_ERROR, f"Frame payload size violates max allowed size {self._f_payload_length} > {self._max_frame_size}")
+                raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR, f"Frame payload size violates max allowed size {self._f_payload_length} > {self._max_frame_size}")
 
         # read payload mask
         if self._state == WSParserState.READ_PAYLOAD_MASK:
@@ -1385,11 +1385,11 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
             if frame.msg_type == WSMsgType.CLOSE:
                 if frame.get_close_code() < 3000 and frame.get_close_code() not in _ALLOWED_CLOSE_CODES:
-                    raise _WSParserError(WSCloseCode.PROTOCOL_ERROR,
+                    raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
                                          f"Invalid close code: {frame.get_close_code()}")
 
                 if frame.payload_size > 0 and frame.payload_size < 2:
-                    raise _WSParserError(WSCloseCode.PROTOCOL_ERROR,
+                    raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
                                          f"Invalid close frame: {frame.fin} {frame.msg_type} {frame.get_payload_as_bytes()}")
 
             return frame
