@@ -10,6 +10,7 @@ from multidict import CIMultiDict
 
 PICOWS_DEBUG_LL: Final = 9
 WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
+WSListenerFactory = Callable[[], WSListener]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
 WSBuffer = Union[bytes, bytearray, memoryview]
 WSHost = NewType('WSHost', str)
@@ -191,7 +192,7 @@ class WSUpgradeResponseWithListener:
 
 
 async def ws_connect(
-    ws_listener_factory: Callable[[], WSListener],
+    ws_listener_factory: WSListenerFactory,
     url: str,
     *args: Any,
     ssl_context: Union[SSLContext, None] = None,

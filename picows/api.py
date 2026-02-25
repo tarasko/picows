@@ -16,6 +16,7 @@ from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: igno
 from .url import parse_url, WSParsedURL
 
 
+WSListenerFactory = Callable[[], WSListener]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
 WSSocketFactory = Callable[[WSHost, WSPort], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
 
@@ -156,7 +157,7 @@ async def _connect_through_optional_proxy(
             return _ConnectedSocket(None, parsed_url.host, parsed_url.port)
 
 
-async def ws_connect(ws_listener_factory: Callable[[], WSListener], # type: ignore [no-untyped-def]
+async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-untyped-def]
                      url: str,
                      *,
                      ssl_context: Optional[SSLContext] = None,

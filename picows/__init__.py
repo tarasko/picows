@@ -5,8 +5,12 @@ from .types import (
     WSUpgradeRequest,
     WSUpgradeResponse,
     WSUpgradeResponseWithListener,
-    PICOWS_DEBUG_LL,
-    WSHeadersLike,
+    PICOWS_DEBUG_LL
+)
+
+from .url import (
+    WSInvalidURL,
+    WSParsedURL
 )
 
 from .picows import (
@@ -18,33 +22,30 @@ from .picows import (
     WSListener,
 )
 
-from .url import (
-    WSInvalidURL,
-    WSParsedURL
-)
-
 from .api import (
     ws_connect,
     ws_create_server,
-    WSServerListenerFactory,
-    WSSocketFactory
 )
 
 __all__ = [
     'WSError',
+    'WSUpgradeFailure',
+    'WSProtocolError',
+    'WSUpgradeRequest',
+    'WSUpgradeResponse',
+    'WSUpgradeResponseWithListener',
+    'PICOWS_DEBUG_LL',
+    'WSInvalidURL',
+    'WSParsedURL',
     'WSMsgType',
     'WSCloseCode',
     'WSAutoPingStrategy',
     'WSFrame',
     'WSTransport',
     'WSListener',
-    'WSUpgradeRequest',
-    'WSUpgradeResponse',
-    'WSUpgradeResponseWithListener',
     'ws_connect',
     'ws_create_server',
-    'PICOWS_DEBUG_LL'
 ]
 
-__version__ = "1.15.0"
+__version__ = "1.16.0"
 __author__ = "Taras Kozlov"
