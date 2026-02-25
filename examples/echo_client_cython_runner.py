@@ -20,8 +20,7 @@ async def main(url, msg_size, ssl_context):
     transport, client = await ws_connect(
         lambda: ClientListenerCython(msg_size),
         url,
-        ssl_context=ssl_context,
-        zero_copy_unsafe_ssl_write=True)
+        ssl_context=ssl_context)
     await transport.wait_disconnected()
 
 

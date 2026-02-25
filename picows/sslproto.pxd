@@ -119,10 +119,14 @@ cdef class SSLProtocol(SSLProtocolBase):
 
     # Outgoing flow
 
+    cdef inline write(self, data, context)
+    cdef inline writelines(self, data, context)
+
     cdef inline bint _is_protocol_ready(self) except -1
     cdef inline _check_and_enqueue_appdata(self, data)
     cdef inline _flush_write_backlog(self, object context)
     cdef inline _do_write(self)
+    cdef inline _materialized_write_backlog(self)
     cdef inline _process_outgoing(self)
 
     # Incoming flow

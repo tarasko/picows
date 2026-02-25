@@ -5,6 +5,7 @@ from logging import getLogger
 
 from cpython.contextvars cimport (
     PyContext_CopyCurrent,
+    PyContext_Copy,
     PyContext_Enter,
     PyContext_Exit
 )
@@ -200,11 +201,7 @@ cdef class SSLTransport:
         This does not block; it buffers the data and arranges for it
         to be sent out asynchronously.
         """
-        if not self._ssl_protocol._is_protocol_ready():
-            return
-
-        self._ssl_protocol._check_and_enqueue_appdata(data)
-        self._ssl_protocol._flush_write_backlog(self.context.copy())
+        self._ssl_protocol.write(data, PyContext_Copy(self.context))
 
     def writelines(self, list_of_data):
         """Write a list (or any iterable) of data bytes to the transport.
@@ -212,22 +209,7 @@ cdef class SSLTransport:
         The default implementation concatenates the arguments and
         calls write() on the result.
         """
-        if not self._ssl_protocol._is_protocol_ready():
-            return
-
-        cdef Py_ssize_t backlog_len_before = len(self._ssl_protocol._write_backlog)
-        cdef size_t backlog_size_before = self._ssl_protocol._write_buffer_size
-
-        try:
-            for data in list_of_data:
-                self._ssl_protocol._check_and_enqueue_appdata(data)
-        except:
-            # Remove already enqueued items on exception
-            del self._ssl_protocol._write_backlog[backlog_len_before:]
-            self._ssl_protocol._write_buffer_size = backlog_size_before
-            raise
-
-        self._ssl_protocol._flush_write_backlog(self.context.copy())
+        self._ssl_protocol.writelines(list_of_data, PyContext_Copy(self.context))
 
     def write_eof(self):
         """Close the write end after flushing buffered data.
@@ -252,10 +234,6 @@ cdef class SSLTransport:
     def _force_close(self, exc):
         self._closed = True
         self._ssl_protocol._abort(exc)
-
-    def _test__append_write_backlog(self, data):
-        # for test only
-        self._ssl_protocol._write_backlog.append(data)
 
 
 cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
@@ -713,6 +691,39 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
     # Outgoing flow
 
+    cdef write(self, data, context):
+        """Write some data bytes to the transport.
+
+        This does not block; it buffers the data and arranges for it
+        to be sent out asynchronously.
+        """
+        if not self._is_protocol_ready():
+            return''
+
+        self._check_and_enqueue_appdata(data)
+        self._flush_write_backlog(context)
+
+    cdef writelines(self, list_of_data, context):
+        """Write a list (or any iterable) of data bytes to the transport.
+
+        The default implementation concatenates the arguments and
+        calls write() on the result.
+        """
+        if not self._is_protocol_ready():
+            return
+
+        cdef Py_ssize_t backlog_len_before = len(self._write_backlog)
+
+        try:
+            for data in list_of_data:
+                self._check_and_enqueue_appdata(data)
+        except:
+            # Remove already enqueued items on exception
+            del self._write_backlog[backlog_len_before:]
+            raise
+
+        self._flush_write_backlog(context)
+
     cdef bint _is_protocol_ready(self) except -1:
         if self._state in (FLUSHING, SHUTDOWN, UNWRAPPED):
             if self._conn_lost >= LOG_THRESHOLD_FOR_CONNLOST_WRITES:
@@ -744,6 +755,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         """Do SSL write, consumes write backlog and fills outgoing BIO."""
         cdef Py_ssize_t data_len, bytes_written
         cdef Py_ssize_t idx = 0
+        cdef bint materialize_write_backlog = False
 
         try:
             while idx < len(self._write_backlog):
@@ -758,14 +770,27 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
                     data = PyMemoryView_FromObject(data)
                 self._write_backlog[0] = data[bytes_written:]
         except (ssl.SSLWantReadError, ssl.SSLSyscallError) as exc:
-            pass
+            # This is rare but still possible. SSL refused to send data
+            # because of re-negotiation. In such case we need to materialize
+            # all objects in write_backlog. There could be memoryviews or bytearrays
+            # containing high-level protocol write buffer.
+            materialize_write_backlog = True
         finally:
             del self._write_backlog[:idx]
+
+        if materialize_write_backlog:
+            self._materialized_write_backlog()
+
+    cdef _materialized_write_backlog(self):
+        cdef Py_ssize_t i
+        for i in range(len(self._write_backlog)):
+            if not isinstance(self._write_backlog[i], bytes):
+                self._write_backlog[i] = bytes(self._write_backlog[i])
 
     cdef _process_outgoing(self):
         """Send bytes from the outgoing BIO."""
         data = self._outgoing_read()
-        if len(data):
+        if data:
             self._transport.write(data)
 
     # Incoming flow
