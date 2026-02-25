@@ -4,7 +4,7 @@ import ssl
 import uvloop
 
 from picows import ws_connect
-from .echo_client_cython import ClientListenerCython
+from examples.echo_client_cython import ClientListenerCython
 
 
 def create_client_ssl_context():
@@ -28,4 +28,4 @@ async def main(url, msg_size, ssl_context):
 if __name__ == '__main__':
     # uvloop.install()
     ssl_context = create_client_ssl_context()
-    asyncio.run(main("wss://127.0.0.1:9002", 5000000, ssl_context))
+    asyncio.run(main("wss://127.0.0.1:9002", 256, ssl_context))
