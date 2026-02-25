@@ -121,7 +121,7 @@ cdef class SSLTransport:
         return self._ssl_protocol._get_extra_info(name, default)
 
     def set_protocol(self, protocol):
-        self._ssl_protocol._set_app_protocol(protocol)
+        self._ssl_protocol.set_app_protocol(protocol)
 
     def get_protocol(self):
         return self._ssl_protocol._app_protocol
@@ -342,7 +342,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         self._write_buffer_size = 0
 
         self._loop = asyncio.get_running_loop()
-        self._set_app_protocol(app_protocol)
+        self.set_app_protocol(app_protocol)
         self._app_transport = None
         # transport, ex: SelectorSocketTransport
         self._transport = None
@@ -384,7 +384,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
         self.ssl_handshake_complete_fut = self._loop.create_future()
 
-    cdef _set_app_protocol(self, app_protocol):
+    cpdef set_app_protocol(self, app_protocol):
         self._app_protocol = app_protocol
         if (hasattr(app_protocol, 'get_buffer') and
                 not isinstance(app_protocol, asyncio.Protocol)):
@@ -398,6 +398,9 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             if self._ssl_read_buffer is None:
                 self._ssl_read_buffer = PyByteArray_FromStringAndSize(
                     NULL, SSL_READ_MAX_SIZE)
+
+    cpdef get_app_protocol(self):
+        return self._app_protocol
 
     cdef _wakeup_waiter(self, exc=None):
         if not self.ssl_handshake_complete_fut.done():

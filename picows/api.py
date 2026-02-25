@@ -298,14 +298,14 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                 loop, parsed_url, parsed_proxy_url, socket_factory, ssl, conn_kwargs)
 
             if ssl:
-                ws_protocol = ws_protocol_factory()
-
                 server_hostname = conn_kwargs.pop('server_hostname', None)
                 ssl_handshake_timeout = conn_kwargs.pop('ssl_handshake_timeout', None)
                 ssl_shutdown_timeout = conn_kwargs.pop('ssl_shutdown_timeout', None)
                 ssl_protocol: SSLProtocol
 
                 def ssl_protocol_factory():
+                    ws_protocol = ws_protocol_factory()
+
                     return SSLProtocol(ws_protocol, ssl, False,
                                        server_hostname,
                                        True,
@@ -322,6 +322,7 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                 )
 
                 await ssl_protocol.ssl_handshake_complete_fut
+                ws_protocol = ssl_protocol.get_app_protocol()
             else:
                 (_, ws_protocol) = await loop.create_connection(
                     ws_protocol_factory,
@@ -449,8 +450,25 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
             zero_copy_unsafe_ssl_write
         )
 
+    ssl = kwargs.pop('ssl', None)
+    ssl_handshake_timeout = kwargs.pop('ssl_handshake_timeout', None)
+    ssl_shutdown_timeout = kwargs.pop('ssl_shutdown_timeout', None)
+
+    if not ssl:
+        return await asyncio.get_running_loop().create_server(
+            ws_protocol_factory,
+            host=host,
+            port=port,
+            **kwargs)
+
+    def ssl_protocol_factory():
+        ws_protocol = ws_protocol_factory()
+        ssl_protocol = SSLProtocol(ws_protocol, ssl, True, None, True, ssl_handshake_timeout, ssl_shutdown_timeout)
+        return ssl_protocol
+
     return await asyncio.get_running_loop().create_server(
-        ws_protocol_factory,
+        ssl_protocol_factory,
         host=host,
         port=port,
         **kwargs)
+
