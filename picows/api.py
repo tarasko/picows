@@ -15,6 +15,8 @@ from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: igno
                      WSProtocol)
 from .url import parse_url, WSInvalidURL, WSParsedURL
 
+from .sslproto import SSLProtocol
+
 
 WSListenerFactory = Callable[[], WSListener]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
@@ -295,14 +297,39 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
             conn_socket = await _connect_through_optional_proxy(
                 loop, parsed_url, parsed_proxy_url, socket_factory, ssl, conn_kwargs)
 
-            (_, ws_protocol) = await loop.create_connection(
-                ws_protocol_factory,
-                conn_socket.host,       # type: ignore[arg-type]
-                conn_socket.port,       # type: ignore[arg-type]
-                ssl=ssl,
-                sock=conn_socket.sock,  # type: ignore[arg-type]
-                **conn_kwargs
-            )
+            if ssl:
+                ws_protocol = ws_protocol_factory()
+
+                server_hostname = conn_kwargs.pop('server_hostname', None)
+                ssl_handshake_timeout = conn_kwargs.pop('ssl_handshake_timeout', None)
+                ssl_shutdown_timeout = conn_kwargs.pop('ssl_shutdown_timeout', None)
+                ssl_protocol: SSLProtocol
+
+                def ssl_protocol_factory():
+                    return SSLProtocol(ws_protocol, ssl, False,
+                                       server_hostname,
+                                       True,
+                                       ssl_handshake_timeout,
+                                       ssl_shutdown_timeout
+                                       )
+
+                (_, ssl_protocol) = await loop.create_connection(
+                    ssl_protocol_factory,
+                    conn_socket.host,       # type: ignore[arg-type]
+                    conn_socket.port,       # type: ignore[arg-type]
+                    sock=conn_socket.sock,  # type: ignore[arg-type]
+                    **conn_kwargs
+                )
+
+                await ssl_protocol.ssl_handshake_complete_fut
+            else:
+                (_, ws_protocol) = await loop.create_connection(
+                    ws_protocol_factory,
+                    conn_socket.host,       # type: ignore[arg-type]
+                    conn_socket.port,       # type: ignore[arg-type]
+                    sock=conn_socket.sock,  # type: ignore[arg-type]
+                    **conn_kwargs
+                )
 
             await ws_protocol.wait_until_handshake_complete()
             return ws_protocol.transport, ws_protocol.listener

@@ -15,6 +15,7 @@ else:
 
 pkg_extensions = [
     Extension("picows.picows", ["picows/picows.pyx"], libraries=libraries),
+    Extension("picows.sslproto", ["picows/sslproto.pyx"], libraries=libraries),
 ]
 
 example_extensions = [
