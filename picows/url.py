@@ -20,6 +20,7 @@ class WSInvalidURL(WSError):
 @dataclass(eq=False, frozen=True)
 class WSParsedURL:
     url: str
+    scheme: str
     is_secure: bool
     netloc: str
     host: WSHost       # Normalized to lower case.
@@ -58,10 +59,9 @@ def parse_url(url: str, check_scheme: bool = True) -> WSParsedURL:
     if parsed.fragment != "":
         raise WSInvalidURL(url, "fragment identifier is meaningless")
 
-    secure = parsed.scheme == "wss"
-    netloc = parsed.netloc
+    is_secure = parsed.scheme in ("wss", "https")
     host = parsed.hostname
-    port = parsed.port or (443 if secure else 80)
+    port = parsed.port or (443 if is_secure else 80)
     path = parsed.path
     query = parsed.query
     username = parsed.username
@@ -80,4 +80,6 @@ def parse_url(url: str, check_scheme: bool = True) -> WSParsedURL:
             username = urllib.parse.quote(username, safe=DELIMS)
             password = urllib.parse.quote(password, safe=DELIMS)
 
-    return WSParsedURL(url, secure, netloc, WSHost(host), WSPort(port), path, query, username, password)
+    return WSParsedURL(url, parsed.scheme, is_secure, parsed.netloc,
+                       WSHost(host), WSPort(port), path, query,
+                       username, password)

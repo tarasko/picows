@@ -107,7 +107,7 @@ async def test_redirect_through_proxy(redirect_server_2, proxy_type: str, custom
     last_socket = None
 
     async with ProxyServer(proxy_type) as proxy_url:
-        def socket_factory_cb(host, port) -> Optional[socket.socket]:
+        def socket_factory_cb(parsed_url) -> Optional[socket.socket]:
             nonlocal last_socket
 
             if custom_sock == "none":
@@ -118,11 +118,11 @@ async def test_redirect_through_proxy(redirect_server_2, proxy_type: str, custom
                 return last_socket
             else:
                 last_socket = socket.socket(socket.AF_INET)
-                last_socket.connect((host, port))
+                last_socket.connect((parsed_url.host, parsed_url.port))
                 return last_socket
 
-        async def socket_factory_awaitable(host, port) -> Optional[socket.socket]:
-            return socket_factory_cb(host, port)
+        async def socket_factory_awaitable(parsed_url) -> Optional[socket.socket]:
+            return socket_factory_cb(parsed_url)
 
         socket_factory = socket_factory_cb if cb_type == "cb" else socket_factory_awaitable
 

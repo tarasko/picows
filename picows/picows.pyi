@@ -15,7 +15,7 @@ WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgra
 WSBuffer = Union[bytes, bytearray, memoryview]
 WSHost = NewType('WSHost', str)
 WSPort = NewType('WSPort', int)
-WSSocketFactory = Callable[[WSHost, WSPort], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
+WSSocketFactory = Callable[[WSParsedURL], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
 
 
 class WSMsgType(Enum):
@@ -64,6 +64,18 @@ class WSProtocolError(WSError):
 
 class WSInvalidURL(WSError):
     url: str
+
+
+class WSParsedURL:
+    url: str
+    is_secure: bool
+    netloc: str
+    host: WSHost
+    port: WSPort
+    path: str
+    query: str
+    username: Optional[str] = None
+    password: Optional[str] = None
 
 
 class WSFrame:
@@ -209,6 +221,7 @@ async def ws_connect(
     proxy: Optional[str] = None,
     read_buffer_init_size: int = 16 * 1024,
     zero_copy_unsafe_ssl_write: bool = False,
+    socket_factory: Optional[WSSocketFactory] = None,
     **kwargs: Any
 ) -> tuple[WSTransport, WSListener]: ...
 
