@@ -20,7 +20,7 @@ WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgra
 WSSocketFactory = Callable[[WSHost, WSPort], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
 
 
-def _maybe_handle_redirect(exc: WSError, old_parsed_url: WSParsedURL, max_redirects: int) -> WSParsedURL:
+def _maybe_handle_redirect(exc: WSUpgradeFailure, old_parsed_url: WSParsedURL, max_redirects: int) -> WSParsedURL:
     if max_redirects <= 0:
         raise exc
     if exc.response is None:
