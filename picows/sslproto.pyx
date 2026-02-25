@@ -186,50 +186,13 @@ cdef class SSLTransport:
         concurrently.
         """
         self._ssl_protocol._set_write_buffer_limits(high, low)
-        self._ssl_protocol._control_app_writing(self.context.copy())
 
     def get_write_buffer_limits(self):
-        return (self._ssl_protocol._outgoing_low_water,
-                self._ssl_protocol._outgoing_high_water)
+        return self._ssl_protocol._get_write_buffer_limits()
 
     def get_write_buffer_size(self):
         """Return the current size of the write buffers."""
         return self._ssl_protocol._get_write_buffer_size()
-
-    def set_read_buffer_limits(self, high=None, low=None):
-        """Set the high- and low-water limits for read flow control.
-
-        These two values control when to call the upstream transport's
-        pause_reading() and resume_reading() methods.  If specified,
-        the low-water limit must be less than or equal to the
-        high-water limit.  Neither value can be negative.
-
-        The defaults are implementation-specific.  If only the
-        high-water limit is given, the low-water limit defaults to an
-        implementation-specific value less than or equal to the
-        high-water limit.  Setting high to zero forces low to zero as
-        well, and causes pause_reading() to be called whenever the
-        buffer becomes non-empty.  Setting low to zero causes
-        resume_reading() to be called only once the buffer is empty.
-        Use of zero for either limit is generally sub-optimal as it
-        reduces opportunities for doing I/O and computation
-        concurrently.
-        """
-        self._ssl_protocol._set_read_buffer_limits(high, low)
-        self._ssl_protocol._control_ssl_reading()
-
-    def get_read_buffer_limits(self):
-        return (self._ssl_protocol._incoming_low_water,
-                self._ssl_protocol._incoming_high_water)
-
-    def get_read_buffer_size(self):
-        """Return the current size of the read buffer."""
-        return self._ssl_protocol._get_read_buffer_size()
-
-    @property
-    def _protocol_paused(self):
-        # Required for sendfile fallback pause_writing/resume_writing logic
-        return self._ssl_protocol._app_writing_paused
 
     def write(self, data):
         """Write some data bytes to the transport.
@@ -293,7 +256,6 @@ cdef class SSLTransport:
     def _test__append_write_backlog(self, data):
         # for test only
         self._ssl_protocol._write_backlog.append(data)
-        self._ssl_protocol._write_buffer_size += len(data)
 
 
 cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
@@ -339,7 +301,6 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
         # App data write buffering
         self._write_backlog = []
-        self._write_buffer_size = 0
 
         self._loop = asyncio.get_running_loop()
         self.set_app_protocol(app_protocol)
@@ -369,18 +330,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         # Flow Control
 
         self._ssl_writing_paused = False
-
         self._app_reading_paused = False
-
-        self._ssl_reading_paused = False
-        self._incoming_high_water = 0
-        self._incoming_low_water = 0
-        self._set_read_buffer_limits()
-
-        self._app_writing_paused = False
-        self._outgoing_high_water = 0
-        self._outgoing_low_water = 0
-        self._set_write_buffer_limits()
 
         self.ssl_handshake_complete_fut = self._loop.create_future()
 
@@ -721,11 +671,10 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             self._do_read_into_void(context)
             self._do_write()
             self._process_outgoing()
-            self._control_ssl_reading()
         except Exception as ex:
             self._on_shutdown_complete(ex)
         else:
-            if not self._get_write_buffer_size():
+            if not self._get_ssl_write_buffer_size():
                 self._set_state(SHUTDOWN)
                 self._do_shutdown(context)
 
@@ -740,7 +689,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
                 self._process_outgoing()
             else:
                 self._process_outgoing()
-                if not self._get_write_buffer_size():
+                if not self._get_ssl_write_buffer_size():
                     self._on_shutdown_complete(None)
         except Exception as ex:
             self._on_shutdown_complete(ex)
@@ -781,14 +730,12 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             return
 
         self._write_backlog.append(data)
-        self._write_buffer_size += len(data)
 
     cdef _flush_write_backlog(self, object context):
         try:
-            if self._state == WRAPPED and self._write_buffer_size > 0:
+            if self._state == WRAPPED and self._write_backlog:
                 self._do_write()
                 self._process_outgoing()
-                self._control_app_writing(context)
 
         except Exception as ex:
             self._fatal_error(ex, 'Fatal error on SSL protocol')
@@ -804,14 +751,12 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
                 data_len = len(data)
                 bytes_written = self._sslobj_write(data)
                 if bytes_written == data_len:
-                    self._write_buffer_size -= data_len
                     idx += 1
                     continue
 
                 if not PyMemoryView_Check(data):
                     data = PyMemoryView_FromObject(data)
                 self._write_backlog[0] = data[bytes_written:]
-                self._write_buffer_size -= bytes_written
         except (ssl.SSLWantReadError, ssl.SSLSyscallError) as exc:
             pass
         finally:
@@ -819,10 +764,9 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
     cdef _process_outgoing(self):
         """Send bytes from the outgoing BIO."""
-        if not self._ssl_writing_paused:
-            data = self._outgoing_read()
-            if len(data):
-                self._transport.write(data)
+        data = self._outgoing_read()
+        if len(data):
+            self._transport.write(data)
 
     # Incoming flow
 
@@ -838,8 +782,6 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
                 if self._write_backlog:
                     self._do_write()
                 self._process_outgoing()
-                self._control_app_writing()
-            self._control_ssl_reading()
         except Exception as ex:
             self._fatal_error(ex, 'Fatal error on SSL protocol')
 
@@ -990,114 +932,47 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
                     aio_logger.warning('returning true from eof_received() '
                                        'has no effect when using ssl')
 
-    # Flow control for writes from APP socket
-
-    cdef _control_app_writing(self, object context=None):
-        cdef Py_ssize_t size = self._get_write_buffer_size()
-        if size >= self._outgoing_high_water and not self._app_writing_paused:
-            self._app_writing_paused = True
-            try:
-                if context is None:
-                    # If the caller didn't provide a context, we assume the
-                    # caller is already in the right context, which is usually
-                    # inside the upstream callbacks like buffer_updated()
-                    self._app_protocol.pause_writing()
-                else:
-                    _run_in_context(context, self._app_protocol.pause_writing)
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException as exc:
-                self._loop.call_exception_handler({
-                    'message': 'protocol.pause_writing() failed',
-                    'exception': exc,
-                    'transport': self._app_transport,
-                    'protocol': self,
-                })
-        elif size <= self._outgoing_low_water and self._app_writing_paused:
-            self._app_writing_paused = False
-            try:
-                if context is None:
-                    # If the caller didn't provide a context, we assume the
-                    # caller is already in the right context, which is usually
-                    # inside the upstream callbacks like resume_writing()
-                    self._app_protocol.resume_writing()
-                else:
-                    _run_in_context(context, self._app_protocol.resume_writing)
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException as exc:
-                self._loop.call_exception_handler({
-                    'message': 'protocol.resume_writing() failed',
-                    'exception': exc,
-                    'transport': self._app_transport,
-                    'protocol': self,
-                })
-
-    cdef Py_ssize_t _get_write_buffer_size(self):
-        return self._write_buffer_size + <Py_ssize_t>self._outgoing.pending
-
-    cdef _set_write_buffer_limits(self, high=None, low=None):
-        high, low = _add_flowcontrol_defaults(
-            high, low, FLOW_CONTROL_HIGH_WATER_SSL_WRITE)
-        self._outgoing_high_water = high
-        self._outgoing_low_water = low
-
     # Flow control for reads to APP socket
 
     cdef _pause_reading(self):
         self._app_reading_paused = True
+        self._transport.pause_reading()
 
     cdef _resume_reading(self, object context):
         if self._app_reading_paused:
             self._app_reading_paused = False
             if self._state == WRAPPED:
                 self._loop.call_soon(self._do_read)
-
-    # Flow control for reads from SSL socket
-
-    cdef _control_ssl_reading(self):
-        cdef Py_ssize_t size = self._get_read_buffer_size()
-        if size >= self._incoming_high_water and not self._ssl_reading_paused:
-            self._ssl_reading_paused = True
-            self._transport.pause_reading()
-        elif size <= self._incoming_low_water and self._ssl_reading_paused:
-            self._ssl_reading_paused = False
-            self._transport.resume_reading()
-
-    cdef _set_read_buffer_limits(self, high=None, low=None):
-        high, low = _add_flowcontrol_defaults(
-            high, low, FLOW_CONTROL_HIGH_WATER_SSL_READ)
-        self._incoming_high_water = high
-        self._incoming_low_water = low
-
-    cdef Py_ssize_t _get_read_buffer_size(self):
-        return <Py_ssize_t>self._incoming.pending
+        self._transport.resume_reading()
 
     # Flow control for writes to SSL socket
 
-    def pause_writing(self):
+    cpdef pause_writing(self):
         """Called when the low-level transport's buffer goes over
         the high-water mark.
         """
-        assert not self._ssl_writing_paused
-        self._ssl_writing_paused = True
+        self._app_protocol.pause_writing()
 
-    def resume_writing(self):
+    cpdef resume_writing(self):
         """Called when the low-level transport's buffer drains below
         the low-water mark.
         """
-        assert self._ssl_writing_paused
-        self._ssl_writing_paused = False
+        self._app_protocol.resume_writing()
 
-        if self._state == WRAPPED:
-            self._process_outgoing()
-            self._control_app_writing()
+    cdef Py_ssize_t _get_ssl_write_buffer_size(self):
+        cdef Py_ssize_t bytes_in_backlog = 0
+        for data in self._write_backlog:
+            bytes_in_backlog += len(data)
+        return bytes_in_backlog + <Py_ssize_t>self._outgoing.pending
 
-        elif self._state == FLUSHING:
-            self._do_flush()
+    cdef Py_ssize_t _get_write_buffer_size(self):
+        return self._get_ssl_write_buffer_size() + self._transport.get_write_buffer_size()
 
-        elif self._state == SHUTDOWN:
-            self._do_shutdown()
+    cdef _get_write_buffer_limits(self):
+        return self._transport.get_write_buffer_limits()
+
+    cdef _set_write_buffer_limits(self, high=None, low=None):
+        return self._transport.set_write_buffer_limits(high, low)
 
     cdef _fatal_error(self, exc, message='Fatal error on transport'):
         if self._app_transport:

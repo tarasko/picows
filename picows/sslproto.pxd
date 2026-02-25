@@ -78,14 +78,6 @@ cdef class SSLProtocol(SSLProtocolBase):
         bint _ssl_writing_paused
         bint _app_reading_paused
 
-        Py_ssize_t _incoming_high_water
-        Py_ssize_t _incoming_low_water
-        bint _ssl_reading_paused
-
-        bint _app_writing_paused
-        Py_ssize_t _outgoing_high_water
-        Py_ssize_t _outgoing_low_water
-
         object _app_protocol
         bint _app_protocol_is_buffer
         object _app_protocol_get_buffer
@@ -142,8 +134,12 @@ cdef class SSLProtocol(SSLProtocolBase):
 
     # Flow control for writes from APP socket
 
-    cdef inline _control_app_writing(self, object context=*)
+    cpdef pause_writing(self)
+    cpdef resume_writing(self)
+
+    cdef inline Py_ssize_t _get_ssl_write_buffer_size(self)
     cdef inline Py_ssize_t _get_write_buffer_size(self)
+    cdef inline _get_write_buffer_limits(self)
     cdef inline _set_write_buffer_limits(self, high=*, low=*)
 
     # Flow control for reads to APP socket
@@ -151,9 +147,4 @@ cdef class SSLProtocol(SSLProtocolBase):
     cdef inline _pause_reading(self)
     cdef inline _resume_reading(self, object context)
 
-    # Flow control for reads from SSL socket
-
-    cdef inline _control_ssl_reading(self)
-    cdef inline _set_read_buffer_limits(self, high=*, low=*)
-    cdef inline Py_ssize_t _get_read_buffer_size(self)
     cdef inline _fatal_error(self, exc, message=*)
