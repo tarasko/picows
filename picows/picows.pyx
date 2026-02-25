@@ -538,7 +538,7 @@ cdef class WSTransport:
           the original exception is transferred here and re-raised by this
           coroutine when awaited.
         * client side: websocket/protocol failures may also be re-raised here
-          (for example :any:`WSError`).
+          (for example :any:`WSProtocolError`).
         * server side: always completes normally (no per-client exception
           propagation via this coroutine).
 
