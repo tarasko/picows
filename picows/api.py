@@ -300,8 +300,9 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                 def ssl_protocol_factory():
                     ws_protocol = ws_protocol_factory()
 
-                    return SSLProtocol(ws_protocol, ssl, False,
-                                       server_hostname,
+                    return SSLProtocol(ws_protocol, ssl,
+                                       False,
+                                       parsed_url.host,
                                        True,
                                        ssl_handshake_timeout,
                                        ssl_shutdown_timeout
