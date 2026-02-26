@@ -2,10 +2,31 @@ import ssl
 
 from cpython.unicode cimport PyUnicode_FromStringAndSize, PyUnicode_FromString
 from cpython.ref cimport PyObject
-from cpython.bytes cimport PyBytes_CheckExact, PyBytes_AS_STRING, PyBytes_GET_SIZE, PyBytes_FromStringAndSize, _PyBytes_Resize
+from cpython.bytes cimport PyBytes_CheckExact, PyBytes_AS_STRING, PyBytes_GET_SIZE, _PyBytes_Resize, PyBytes_FromString
 from cpython.bytearray cimport PyByteArray_CheckExact, PyByteArray_AS_STRING, PyByteArray_GET_SIZE
 from cpython.buffer cimport PyBUF_SIMPLE, PyObject_GetBuffer, PyBuffer_Release
 from cpython.ref cimport Py_INCREF, Py_DECREF
+
+_lib_to_name = {
+    ERR_LIB_SSL: "SSL",
+    ERR_LIB_X509: "X509",
+    ERR_LIB_X509V3: "X509V3",
+    ERR_LIB_PEM: "PEM",
+    ERR_LIB_ASN1: "ASN1",
+    ERR_LIB_EVP: "EVP",
+    ERR_LIB_BIO: "BIO",
+    ERR_LIB_SYS: "SYS",
+    ERR_LIB_PKCS12: "PKCS12",
+    ERR_LIB_PKCS7: "PKCS7",
+    ERR_LIB_RAND: "RAND",
+    ERR_LIB_CONF: "CONF",
+    ERR_LIB_ENGINE: "ENGINE",
+    ERR_LIB_OCSP: "OCSP",
+    ERR_LIB_UI: "UI",
+    ERR_LIB_TS: "TS",
+    ERR_LIB_CMS: "CMS",
+    ERR_LIB_CRYPTO: "CRYPTO",
+}
 
 # cdef extern from *:
 # We intentionally mirror ONLY the initial prefix of CPython's PySSLContext:
@@ -44,19 +65,40 @@ cdef unsigned long get_last_error():
     return err_code
 
 
-cdef make_ssl_exc(unsigned long err_code, str reason):
-    # TODO:
-    # Make ssl.CertificateError on certificate verification failures
+cdef make_exc_from_last_error(str descr, server_hostname=None, SSL* ssl_object=NULL, logger=None):
+    cdef unsigned long last_error = get_last_error()
+    cdef int lib = ERR_GET_LIB(last_error)
+    cdef int reason = ERR_GET_REASON(last_error)
 
-    cdef char err_string[256]
-    ERR_error_string_n(err_code, err_string, sizeof(err_string))
-    raise ssl.SSLError(f"{reason}: ec={err_code}, {err_string.decode()}")
+    if logger is not None:
+        log_ssl_error_queue(logger)
 
+    lib_name = _lib_to_name.get(lib, "UNKNOWN")
+    reason_name = PyUnicode_FromString(ERR_reason_error_string(last_error))
+    reason_name = reason_name.upper().replace(" ", "_")
 
-cdef raise_last_error(str reason):
-    cdef unsigned long err_code = get_last_error()
-    assert err_code != 0, "raise_last_error called and ERR_peek_last_error() == 0"
-    raise make_ssl_exc(err_code, reason)
+    if reason == SSL_R_CERTIFICATE_VERIFY_FAILED:
+        assert server_hostname is not None
+        assert ssl_object != NULL
+        verify_code = SSL_get_verify_result(ssl_object)
+        if verify_code == X509_V_ERR_HOSTNAME_MISMATCH:
+            txt = f"Hostname mismatch, certificate is not valid for '{server_hostname}'"
+        elif verify_code == X509_V_ERR_IP_ADDRESS_MISMATCH:
+            txt = f"IP address mismatch, certificate is not valid for '{server_hostname}'"
+        else:
+            verify_str = X509_verify_cert_error_string(verify_code)
+            txt = PyUnicode_FromString(verify_str) if verify_str != NULL else ""
+        str_error = f"[{lib_name}: {reason_name}] {descr}: {txt}"
+        exc = ssl.SSLCertVerificationError()
+        exc.verify_code = verify_code
+        exc.verify_message = txt
+    else:
+        str_error = f"[{lib_name}: {reason_name}] {descr}"
+        exc = ssl.SSLError()
+    exc.strerror = str_error
+    exc.library = lib_name
+    exc.reason = reason_name
+    return exc
 
 
 cdef unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* msg_size_out):
@@ -82,14 +124,7 @@ cdef unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* ms
 cdef Py_ssize_t bio_pending(BIO* bio):
     cdef int pending = BIO_pending(bio)
     if pending < 0:
-        raise_last_error("unable to get pending len from BIO")
-    return pending
-
-
-cdef Py_ssize_t ssl_object_pending(SSL* bio):
-    cdef int pending = SSL_pending(bio)
-    if pending < 0:
-        raise_last_error("unable to get pending len from SSL object")
+        raise make_exc_from_last_error("unable to get pending len from BIO")
     return pending
 
 
@@ -106,10 +141,13 @@ cdef class SSLConnection:
     def __init__(self, logger, ssl_context, bint is_server, str server_hostname):
         ERR_clear_error()
 
+        self.logger = logger
+        self.ssl_ctx_py = ssl_context
         self.ssl_ctx = get_ssl_ctx_ptr(ssl_context)
         self.incoming = BIO_new(BIO_s_mem())
         self.outgoing = BIO_new(BIO_s_mem())
         self.ssl_object = SSL_new(self.ssl_ctx)
+        self.server_hostname = server_hostname
         if is_server:
             SSL_set_accept_state(self.ssl_object)
         else:
@@ -132,18 +170,37 @@ cdef class SSLConnection:
 
         SSL_set_mode(self.ssl_object, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER | SSL_MODE_AUTO_RETRY)
 
-        if server_hostname is not None:
-            self._configure_hostname(logger, ssl_context, server_hostname)
+        if self.server_hostname is not None:
+            self._configure_hostname()
 
     def __dealloc__(self):
         # Free SSL and its BIO
         SSL_free(self.ssl_object)
 
-    cdef _configure_hostname(self, logger, ssl_context, str server_hostname):
-        if not server_hostname or server_hostname.startswith("."):
+    cdef make_exc_from_ssl_error(self, str descr, int err_code):
+        assert err_code != SSL_ERROR_NONE, "check logic"
+        cdef char err_string[256]
+        cdef unsigned long last_error
+        cdef int lib, reason
+
+        if err_code == SSL_ERROR_WANT_READ:
+            return ssl.SSLWantReadError(descr)
+        elif err_code == SSL_ERROR_WANT_WRITE:
+            return ssl.SSLWantWriteError(descr)
+        elif err_code == SSL_ERROR_ZERO_RETURN:
+            return ssl.SSLZeroReturnError(descr)
+        elif err_code == SSL_ERROR_SYSCALL:
+            return ssl.SSLSyscallError(descr)
+        elif err_code == SSL_ERROR_SSL:
+            return make_exc_from_last_error(descr, self.server_hostname, self.ssl_object, self.logger)
+        else:
+            return ssl.SSLError(f"{descr}, unknown error_code={err_code}")
+
+    cdef _configure_hostname(self):
+        if not self.server_hostname or self.server_hostname.startswith("."):
             raise ValueError("server_hostname cannot be an empty string or start with a leading dot.")
 
-        cdef bytes server_hostname_b = server_hostname.encode()
+        cdef bytes server_hostname_b = self.server_hostname.encode()
         cdef char* server_hostname_ptr = PyBytes_AS_STRING(server_hostname_b)
 
         cdef ASN1_OCTET_STRING* ip = a2i_IPADDRESS(PyBytes_AS_STRING(server_hostname_b))
@@ -155,11 +212,11 @@ cdef class SSLConnection:
             # Only send SNI extension for non-IP hostnames
             if ip == NULL:
                 if not SSL_set_tlsext_host_name(self.ssl_object, server_hostname_ptr):
-                    log_ssl_error_queue(logger)
+                    log_ssl_error_queue(self.logger)
                     ERR_clear_error()
                     raise ssl.SSLError("SSL_set_tlsext_host_name failed")
 
-            if ssl_context.check_hostname:
+            if self.ssl_ctx_py.check_hostname:
                 ssl_verification_params = SSL_get0_param(self.ssl_object)
                 if ip == NULL:
                     if not X509_VERIFY_PARAM_set1_host(ssl_verification_params, server_hostname_ptr, len(server_hostname_b)):
@@ -192,7 +249,7 @@ cdef class SSLConnection:
 
     cdef dict getpeercert(self):
         if SSL_is_init_finished(self.ssl_object) != 1:
-            raise_last_error("ssl handshake is not done yet")
+            raise ssl.SSLError("SSL_is_init_finished failed")
 
         cdef X509* peer_cert = SSL_get_peer_certificate(self.ssl_object)
         if peer_cert == NULL:

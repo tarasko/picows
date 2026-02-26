@@ -47,8 +47,11 @@ class ClientListener(WSListener):
 
 async def main(url):
     asyncio.get_event_loop().set_debug(True)
-    transport, client = await ws_connect(ClientListener, url, ssl_context=create_strict_client_ssl_context())
-    await transport.wait_disconnected()
+    try:
+        transport, client = await ws_connect(ClientListener, url, ssl_context=create_strict_client_ssl_context())
+        await transport.wait_disconnected()
+    except Exception as exc:
+        print(exc)
 
 
 if __name__ == '__main__':

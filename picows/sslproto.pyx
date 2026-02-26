@@ -517,12 +517,12 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             self._on_handshake_complete(None)
             return
 
-        cdef int last_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
-        if last_error in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
+        cdef int ssl_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
+        if ssl_error in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
             self._process_outgoing()
             return
 
-        self._on_handshake_complete(make_ssl_exc(last_error, "ssl handshake failed"))
+        self._on_handshake_complete(self._ssl_connection.make_exc_from_ssl_error("ssl handshake failed", ssl_error))
 
     cdef _on_handshake_complete(self, handshake_exc):
         if self._handshake_timeout_handle is not None:
@@ -608,15 +608,15 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
                           PyByteArray_GET_SIZE(buffer),
                           &bytes_read)
 
-        cdef int err_code = SSL_get_error(self._ssl_connection.ssl_object, rc)
-        if err_code in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
+        cdef int ssl_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
+        if ssl_error in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
             return
 
-        if err_code == SSL_ERROR_ZERO_RETURN:
+        if ssl_error == SSL_ERROR_ZERO_RETURN:
             self._call_eof_received(context)
             return
 
-        raise make_ssl_exc(err_code, "SSL_read_ex failed")
+        raise self._ssl_connection.make_exc_from_ssl_error("SSL_read_ex failed", ssl_error)
 
     cdef _do_flush(self, object context=None):
         """Flush the write backlog, discarding new data received.
@@ -658,7 +658,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
                 self._process_outgoing()
                 return
 
-            raise make_ssl_exc(err_code, "SSL_shutdown failed")
+            raise self._ssl_connection.make_exc_from_ssl_error("SSL_shutdown failed", err_code)
         except Exception as ex:
             self._on_shutdown_complete(ex)
 
@@ -770,7 +770,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         if rc:
             return
 
-        cdef int err_code = SSL_get_error(self._ssl_connection.ssl_object, rc)
+        cdef int ssl_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
 
         # This is rare but still possible. SSL maybe refused to send data
         # because of re-negotiation. In such case we need to materialize
@@ -782,10 +782,10 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             if not PyBytes_CheckExact(data):
                 self._write_backlog[k] = PyBytes_FromObject(data)
 
-        if err_code in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
+        if ssl_error in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
             return
 
-        raise make_ssl_exc(err_code, "SSL_write_ex failed")
+        raise self._ssl_connection.make_exc_from_ssl_error("SSL_write_ex failed", ssl_error)
 
     cdef _process_outgoing(self):
         """Send bytes from the outgoing BIO."""
@@ -871,10 +871,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             self._start_shutdown()
             return
 
-        if last_error == SSL_ERROR_SSL:
-            log_ssl_error_queue(aio_logger)
-
-        raise make_ssl_exc(last_error, "SSL_read_ex failed")
+        raise self._ssl_connection.make_exc_from_ssl_error("SSL_read_ex failed", last_error)
 
     cdef _do_read__copied(self):
         cdef:
@@ -885,7 +882,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             int rc
 
         while True:
-            bytes_estimated = (ssl_object_pending(self._ssl_connection.ssl_object) +
+            bytes_estimated = (SSL_pending(self._ssl_connection.ssl_object) +
                                bio_pending(self._ssl_connection.incoming))
             bytes_estimated = max(1024, bytes_estimated)
 
@@ -921,7 +918,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             self._start_shutdown()
             return
 
-        raise make_ssl_exc(last_error, "SSL_read_ex failed")
+        raise self._ssl_connection.make_exc_from_ssl_error("SSL_read_ex failed", last_error)
 
     cdef _call_eof_received(self, object context=None):
         if self._app_state == STATE_CON_MADE:

@@ -75,6 +75,7 @@ cdef extern from "openssl/ssl.h" nogil:
     int SSL_shutdown(SSL *ssl)
     int SSL_get_shutdown(const SSL *ssl)
     int SSL_get_error(const SSL *ssl, int ret)
+    long SSL_get_verify_result(const SSL *ssl)
 
     const SSL_CIPHER *SSL_get_current_cipher(const SSL *ssl)
     const char *SSL_CIPHER_get_name(const SSL_CIPHER *cipher)
@@ -90,16 +91,48 @@ cdef extern from "openssl/ssl.h" nogil:
     int X509_VERIFY_PARAM_set1_host(X509_VERIFY_PARAM *param, const char *name, size_t namelen)
     int X509_VERIFY_PARAM_set1_ip(X509_VERIFY_PARAM *param, const unsigned char *ip, size_t iplen)
     const X509_NAME *X509_get_subject_name(const X509 *x)
+    const char *X509_verify_cert_error_string(long n)
     void X509_free(X509 *a)
 
 
 cdef extern from "openssl/err.h" nogil:
+    enum:
+        ERR_LIB_SSL
+        ERR_LIB_X509
+        ERR_LIB_X509V3
+        ERR_LIB_PEM
+        ERR_LIB_ASN1
+        ERR_LIB_EVP
+        ERR_LIB_BIO
+        ERR_LIB_SYS
+        ERR_LIB_PKCS12
+        ERR_LIB_PKCS7
+        ERR_LIB_RAND
+        ERR_LIB_CONF
+        ERR_LIB_ENGINE
+        ERR_LIB_OCSP
+        ERR_LIB_UI
+        ERR_LIB_TS
+        ERR_LIB_CMS
+        ERR_LIB_CRYPTO
+
+    enum:
+        SSL_R_CERTIFICATE_VERIFY_FAILED
+
+    enum:
+        X509_V_ERR_HOSTNAME_MISMATCH
+        X509_V_ERR_IP_ADDRESS_MISMATCH
+
     unsigned long ERR_peek_last_error()
     void ERR_clear_error()
     void ERR_error_string_n(unsigned long e, char *buf, size_t len)
+    const char* ERR_lib_error_string(unsigned long e)
+    const char* ERR_reason_error_string(unsigned long e)
     void ERR_print_errors_fp(FILE *fp)
     void ERR_print_errors_cb(int (*cb)(const char *str, size_t len, void *u),
                              void *u)
+    int ERR_GET_LIB(unsigned long e)
+    int ERR_GET_REASON(unsigned long e)
 
 
 cdef extern from "openssl/asn1.h" nogil:
@@ -115,29 +148,26 @@ cdef extern from "openssl/x509v3.h" nogil:
     ASN1_OCTET_STRING* a2i_IPADDRESS(const char *ipasc)
 
 
-cdef SSL_CTX* get_ssl_ctx_ptr(object py_ctx) except NULL
-cdef unsigned long get_last_error()
-cdef make_ssl_exc(unsigned long err_code, str reason)
-cdef raise_last_error(str reason)
-cdef log_ssl_error_queue(logger)
-
 # TODO: Keep it here until we find a better place for this function
 cdef unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* msg_size_out)
 
 cdef bytes shrink_bytes(bytes obj, Py_ssize_t new_size)
 cdef Py_ssize_t bio_pending(BIO* bio)
-cdef Py_ssize_t ssl_object_pending(SSL* bio)
 
 
 cdef class SSLConnection:
     cdef:
+        object logger
+        object ssl_ctx_py
         SSL_CTX* ssl_ctx
         BIO* incoming
         BIO* outgoing
         SSL* ssl_object
+        str server_hostname
 
+    cdef inline make_exc_from_ssl_error(self, str descr, int err_code)
     cdef inline dict getpeercert(self)
     cdef inline tuple cipher(self)
     cdef inline str compression(self)
     cdef inline _decode_certificate(self, X509* certificate)
-    cdef inline _configure_hostname(self, logger, ssl_context, str server_hostname)
+    cdef inline _configure_hostname(self)
