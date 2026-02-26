@@ -11,10 +11,11 @@ if vi < (3, 9):
 if os.name == 'nt':
     libraries = ["Ws2_32"]
 else:
-    libraries = None
+    libraries = ["ssl", "crypto"]
 
 pkg_extensions = [
     Extension("picows.picows", ["picows/picows.pyx"], libraries=libraries),
+    Extension("picows.ssl", ["picows/ssl.pyx"], libraries=libraries),
     Extension("picows.sslproto", ["picows/sslproto.pyx"], libraries=libraries),
 ]
 
@@ -39,7 +40,7 @@ setup(
             'optimize.use_switch': False,
             'cdivision': True
         },
-        annotate=False,
+        annotate=True,
         gdb_debug=False,
     ),
     include_package_data=True,
