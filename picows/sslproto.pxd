@@ -44,10 +44,8 @@ cdef class SSLProtocol(SSLProtocolBase):
         object _sslcontext
         SSLConnection _ssl_connection
 
-        object _extra
-
+        dict _extra
         list _write_backlog
-        Py_ssize_t _write_buffer_size
 
         object _loop
         SSLTransport _app_transport
@@ -56,27 +54,13 @@ cdef class SSLProtocol(SSLProtocolBase):
         object _ssl_handshake_timeout
         object _ssl_shutdown_timeout
 
-        SSLConnection _ssl_conn
-
-        # object _sslobj
-        # object _sslobj_read
-        # object _sslobj_write
-        # object _sslobj_pending
-        # object _incoming
-        # object _incoming_write
-        # object _outgoing
-        # object _outgoing_read
-
-        # Buffer for the underlying UVStream buffered reads
+        # Buffer for the underlying TCP protocol buffered reads
         bytearray _tcp_read_buffer
-        # Cached long object for SSLObject.read calls
-        object _ssl_read_max_size_obj
 
         SSLProtocolState _state
         size_t _conn_lost
         AppProtocolState _app_state
 
-        bint _ssl_writing_paused
         bint _app_reading_paused
 
         object _app_protocol

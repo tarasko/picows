@@ -123,6 +123,7 @@ cdef Py_ssize_t bio_pending(BIO* bio)
 cdef Py_ssize_t ssl_object_pending(SSL* bio)
 cdef bytes read_from_bio(BIO* bio)
 
+
 cdef class SSLConnection:
     cdef:
         SSL_CTX* ssl_ctx

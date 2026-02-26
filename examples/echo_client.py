@@ -35,4 +35,4 @@ async def main(url):
 
 if __name__ == '__main__':
     logging.basicConfig(level=9)
-    asyncio.run(main("wss://127.0.0.1:9002"))
+    asyncio.run(main("wss://echo.websocket.org"))

@@ -82,9 +82,6 @@ cdef inline _run_in_context(context, method):
 
 
 cdef inline _create_transport_context(server_side, server_hostname):
-    if server_side:
-        raise ValueError('Server side SSL needs a valid SSLContext')
-
     # Client side may pass ssl=True to use a default
     # context; in that case the sslcontext passed is None.
     # The default is secure for client connections.
@@ -251,15 +248,14 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
                 f"ssl_shutdown_timeout should be a positive number, "
                 f"got {ssl_shutdown_timeout}")
 
+        if server_side and not sslcontext:
+            raise ValueError('Server side SSL needs a valid SSLContext')
+
         if not sslcontext:
-            sslcontext = _create_transport_context(
-                server_side, server_hostname)
+            sslcontext = _create_transport_context(server_side, server_hostname)
 
         self._server_side = server_side
-        if server_hostname and not server_side:
-            self._server_hostname = server_hostname
-        else:
-            self._server_hostname = None
+        self._server_hostname = None if server_side else server_hostname
         self._sslcontext = sslcontext
         self._ssl_connection = None
         # SSL-specific extra info. More info are set when the handshake
@@ -276,16 +272,8 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         self._transport = None
         self._ssl_handshake_timeout = ssl_handshake_timeout
         self._ssl_shutdown_timeout = ssl_shutdown_timeout
-        # SSL and state machine
-        # self._sslobj = None
-        # self._incoming = ssl.MemoryBIO()
-        # self._incoming_write = self._incoming.write
-        # self._outgoing = ssl.MemoryBIO()
-        # self._outgoing_read = self._outgoing.read
-
         self._tcp_read_buffer = PyByteArray_FromStringAndSize(
             NULL, SSL_READ_DEFAULT_SIZE)
-        self._ssl_read_max_size_obj = SSL_READ_MAX_SIZE
 
         self._state = UNWRAPPED
         self._conn_lost = 0  # Set when connection_lost called
@@ -296,7 +284,6 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
         # Flow Control
 
-        self._ssl_writing_paused = False
         self._app_reading_paused = False
 
         self.ssl_handshake_complete_fut = self._loop.create_future()
