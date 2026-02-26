@@ -550,10 +550,9 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
         # Add extra info that becomes available after handshake.
         # TODO: add compression
-        # TODO: add cipher
         self._extra.update(
             peercert=peercert,
-            cipher=None,
+            cipher=self._ssl_connection.cipher(),
             ssl_object=self._ssl_connection,
             compression=None
         )

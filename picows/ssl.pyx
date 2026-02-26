@@ -1,6 +1,6 @@
 import ssl
 
-from cpython.unicode cimport PyUnicode_FromStringAndSize
+from cpython.unicode cimport PyUnicode_FromStringAndSize, PyUnicode_FromString
 from cpython.ref cimport PyObject
 from cpython.bytes cimport PyBytes_CheckExact, PyBytes_AS_STRING, PyBytes_GET_SIZE, PyBytes_FromStringAndSize, _PyBytes_Resize
 from cpython.bytearray cimport PyByteArray_CheckExact, PyByteArray_AS_STRING, PyByteArray_GET_SIZE
@@ -184,6 +184,19 @@ cdef class SSLConnection:
         finally:
             if ip != NULL:
                 ASN1_OCTET_STRING_free(ip)
+
+    cdef tuple cipher(self):
+        cdef const SSL_CIPHER* c = SSL_get_current_cipher(self.ssl_object)
+
+        cdef const char* name = SSL_CIPHER_get_name(c)
+        name_obj = PyUnicode_FromString(name) if name != NULL else None
+
+        cdef const char* protocol = SSL_CIPHER_get_version(c)
+        protocol_obj = PyUnicode_FromString(protocol) if name != NULL else None
+
+        cdef int bits = SSL_CIPHER_get_bits(c, NULL)
+
+        return (name_obj, protocol_obj, bits)
 
     cdef dict getpeercert(self):
         if SSL_is_init_finished(self.ssl_object) != 1:

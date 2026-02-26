@@ -23,6 +23,9 @@ cdef extern from "openssl/ssl.h" nogil:
     ctypedef struct X509_VERIFY_PARAM:
         pass
 
+    ctypedef struct SSL_CIPHER:
+        pass
+
     enum:
         SSL_ERROR_NONE
         SSL_ERROR_SSL
@@ -63,9 +66,9 @@ cdef extern from "openssl/ssl.h" nogil:
     int SSL_in_before(const SSL *s)
     int SSL_is_init_finished(const SSL *s)
     int SSL_pending(const SSL *ssl)
-
     int SSL_in_connect_init(SSL *s)
     int SSL_in_accept_init(SSL *s)
+    int SSL_do_handshake(SSL *ssl)
     int SSL_accept(SSL *ssl)
     int SSL_read_ex(SSL *ssl, void *buf, size_t num, size_t *readbytes)
     int SSL_write_ex(SSL *s, const void *buf, size_t num, size_t *written)
@@ -73,7 +76,10 @@ cdef extern from "openssl/ssl.h" nogil:
     int SSL_get_shutdown(const SSL *ssl)
     int SSL_get_error(const SSL *ssl, int ret)
 
-    int SSL_do_handshake(SSL *ssl)
+    const SSL_CIPHER *SSL_get_current_cipher(const SSL *ssl)
+    const char *SSL_CIPHER_get_name(const SSL_CIPHER *cipher)
+    const char *SSL_CIPHER_get_version(const SSL_CIPHER *cipher)
+    int SSL_CIPHER_get_bits(const SSL_CIPHER *cipher, int *alg_bits)
 
     X509 *SSL_get_peer_certificate(const SSL *ssl)
     X509_VERIFY_PARAM *SSL_get0_param(SSL *ssl)
@@ -132,5 +138,6 @@ cdef class SSLConnection:
         SSL* ssl_object
 
     cdef inline dict getpeercert(self)
+    cdef inline tuple cipher(self)
     cdef inline _decode_certificate(self, X509* certificate)
     cdef inline _configure_hostname(self, logger, ssl_context, str server_hostname)
