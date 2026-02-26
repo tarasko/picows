@@ -127,7 +127,6 @@ cdef unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* ms
 cdef bytes shrink_bytes(bytes obj, Py_ssize_t new_size)
 cdef Py_ssize_t bio_pending(BIO* bio)
 cdef Py_ssize_t ssl_object_pending(SSL* bio)
-cdef bytes read_from_bio(BIO* bio)
 
 
 cdef class SSLConnection:

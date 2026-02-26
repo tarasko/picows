@@ -102,20 +102,6 @@ cdef bytes shrink_bytes(bytes obj, Py_ssize_t new_size):
     return maybe_new_obj
 
 
-cdef bytes read_from_bio(BIO* bio):
-    cdef int pending = bio_pending(bio)
-    if pending == 0:
-        return None
-
-    cdef bytes retval = PyBytes_FromStringAndSize(NULL, pending)
-
-    cdef int bytes_read = BIO_read(bio, PyBytes_AS_STRING(retval), pending)
-    if bytes_read < 0:
-        raise_last_error("unable to read from BIO")
-
-    return shrink_bytes(retval, bytes_read)
-
-
 cdef class SSLConnection:
     def __init__(self, logger, ssl_context, bint is_server, str server_hostname):
         ERR_clear_error()

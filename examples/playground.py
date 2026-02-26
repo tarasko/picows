@@ -33,13 +33,14 @@ class ClientListener(WSListener):
         peercert = ut.get_extra_info("peercert")
         cipher = ut.get_extra_info("cipher")
         compression = ut.get_extra_info("compression")
-        transport.send(WSMsgType.TEXT, b"Hello world")
+        # transport.send(WSMsgType.TEXT, b"Hello world")
+        transport.send(WSMsgType.TEXT, b"b"*1024*256)
 
     def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
         if b"Request served" in frame.get_payload_as_bytes():
             return
 
-        _logger.info(f"Echo reply: {frame.get_payload_as_ascii_text()}")
+        # _logger.info(f"Echo reply: {frame.get_payload_as_ascii_text()}")
         transport.send_close(WSCloseCode.OK)
         transport.disconnect()
 
@@ -52,5 +53,5 @@ async def main(url):
 
 if __name__ == '__main__':
     basicConfig(level=9)
-    asyncio.run(main("wss://echo.websocket.org"))
-#    asyncio.run(main("wss://127.0.0.1:9002"))
+#    asyncio.run(main("wss://echo.websocket.org"))
+    asyncio.run(main("wss://127.0.0.1:9002"))

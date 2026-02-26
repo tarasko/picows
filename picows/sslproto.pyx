@@ -390,9 +390,9 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
                 nbytes)
 
         if bytes_written <= 0:
-            raise_last_error("cannot write to the incoming BIO")
+            raise ssl.SSLError(f"incoming BIO: write failed, rc={bytes_written}")
         elif bytes_written != nbytes:
-            raise_last_error(f"not all bytes written to the incoming BIO: {bytes_written} < {nbytes}")
+            raise ssl.SSLError(f"incoming BIO: not all bytes have been written: {bytes_written} < {nbytes}")
 
         if self._state == DO_HANDSHAKE:
             self._do_handshake()
@@ -517,7 +517,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             self._on_handshake_complete(None)
             return
 
-        cdef unsigned long last_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
+        cdef int last_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
         if last_error in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
             self._process_outgoing()
             return
@@ -789,9 +789,21 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
     cdef _process_outgoing(self):
         """Send bytes from the outgoing BIO."""
-        data = read_from_bio(self._ssl_connection.outgoing)
-        if data is not None:
-            self._transport.write(data)
+        cdef int pending = bio_pending(self._ssl_connection.outgoing)
+        if pending == 0:
+            return None
+
+        # Hypothetically, it is possible to avoid copying if we implement or our
+        # BIO method.
+        cdef bytes data = PyBytes_FromStringAndSize(NULL, pending)
+
+        cdef int bytes_read = BIO_read(self._ssl_connection.outgoing, PyBytes_AS_STRING(data), pending)
+        if bytes_read <= 0:
+            raise ssl.SSLError(f"outgoing BIO: BIO_read failed, rc={bytes_read}")
+
+        data = shrink_bytes(data, bytes_read)
+        self._transport.write(data)
+
 
     # Incoming flow
 
