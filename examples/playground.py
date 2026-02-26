@@ -32,6 +32,7 @@ class ClientListener(WSListener):
         ssl_object = ut.get_extra_info("ssl_object")
         peercert = ut.get_extra_info("peercert")
         cipher = ut.get_extra_info("cipher")
+        compression = ut.get_extra_info("compression")
         transport.send(WSMsgType.TEXT, b"Hello world")
 
     def on_ws_frame(self, transport: WSTransport, frame: WSFrame):

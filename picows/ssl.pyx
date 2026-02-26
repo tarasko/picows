@@ -185,6 +185,12 @@ cdef class SSLConnection:
             if ip != NULL:
                 ASN1_OCTET_STRING_free(ip)
 
+    # TODO: I don't think people would need this.
+    # For now I return None but if somebody asks can be made compatible with
+    # python implementation
+    cdef str compression(self):
+        return None
+
     cdef tuple cipher(self):
         cdef const SSL_CIPHER* c = SSL_get_current_cipher(self.ssl_object)
 
@@ -212,6 +218,7 @@ cdef class SSLConnection:
         finally:
             X509_free(peer_cert)
 
+    # TODO: Implement this
     cdef _decode_certificate(self, X509* certificate):
         cdef dict retval = dict()
         return retval

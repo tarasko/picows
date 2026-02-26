@@ -438,7 +438,9 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             raise
 
     cdef _get_extra_info(self, name, default=None):
-        if name in self._extra:
+        if name == "ssl_object":
+            return self._ssl_connection
+        elif name in self._extra:
             return self._extra[name]
         elif self._transport is not None:
             return self._transport.get_extra_info(name, default)
@@ -532,8 +534,6 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
                 self._set_state(WRAPPED)
             else:
                 raise handshake_exc
-
-            peercert = self._ssl_connection.getpeercert()
         except Exception as exc:
             self._set_state(UNWRAPPED)
             if isinstance(exc, ssl.CertificateError):
@@ -551,10 +551,9 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         # Add extra info that becomes available after handshake.
         # TODO: add compression
         self._extra.update(
-            peercert=peercert,
+            peercert=self._ssl_connection.getpeercert(),
             cipher=self._ssl_connection.cipher(),
-            ssl_object=self._ssl_connection,
-            compression=None
+            compression=self._ssl_connection.compression()
         )
         if self._app_state == STATE_INIT:
             self._app_state = STATE_CON_MADE

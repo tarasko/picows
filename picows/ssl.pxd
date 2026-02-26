@@ -139,5 +139,6 @@ cdef class SSLConnection:
 
     cdef inline dict getpeercert(self)
     cdef inline tuple cipher(self)
+    cdef inline str compression(self)
     cdef inline _decode_certificate(self, X509* certificate)
     cdef inline _configure_hostname(self, logger, ssl_context, str server_hostname)
