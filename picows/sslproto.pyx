@@ -101,7 +101,7 @@ cdef inline _create_transport_context(server_side, server_hostname):
     # context; in that case the sslcontext passed is None.
     # The default is secure for client connections.
     # Python 3.4+: use up-to-date strong settings.
-    sslcontext = ssl.create_default_context()
+    sslcontext = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
     if not server_hostname:
         sslcontext.check_hostname = False
     return sslcontext
@@ -263,7 +263,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
                 f"ssl_shutdown_timeout should be a positive number, "
                 f"got {ssl_shutdown_timeout}")
 
-        if not sslcontext:
+        if not sslcontext or sslcontext == True:
             sslcontext = _create_transport_context(
                 server_side, server_hostname)
 
