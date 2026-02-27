@@ -15,9 +15,9 @@ else:
 
 pkg_extensions = [
     Extension("picows.picows", ["picows/picows.pyx"], libraries=libraries),
-    Extension("picows.ssl", ["picows/ssl.pyx"], libraries=libraries),
-    Extension("picows.sslproto", ["picows/sslproto.pyx"], libraries=libraries),
-    Extension("picows.sslproto_stdlib", ["picows/sslproto_stdlib.pyx"], libraries=libraries),
+    Extension("aiofastnet.ssl", ["aiofastnet/ssl.pyx"], libraries=libraries),
+    Extension("aiofastnet.sslproto", ["aiofastnet/sslproto.pyx"], libraries=libraries),
+    Extension("aiofastnet.sslproto_stdlib", ["aiofastnet/sslproto_stdlib.pyx"], libraries=libraries),
 ]
 
 example_extensions = [

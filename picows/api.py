@@ -15,7 +15,7 @@ from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: igno
                      WSProtocol)
 from .url import parse_url, WSInvalidURL, WSParsedURL
 
-from .sslproto import SSLProtocol
+from aiofastnet.sslproto import SSLProtocol
 
 
 WSListenerFactory = Callable[[], WSListener]
@@ -305,7 +305,8 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                 def ssl_protocol_factory():
                     ws_protocol = ws_protocol_factory()
 
-                    return SSLProtocol(ws_protocol, ssl,
+                    return SSLProtocol(loop,
+                                       ws_protocol, ssl,
                                        False,
                                        server_hostname or parsed_url.host,
                                        True,
@@ -459,7 +460,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
 
     def ssl_protocol_factory():
         ws_protocol = ws_protocol_factory()
-        ssl_protocol = SSLProtocol(ws_protocol, ssl, True, None, True, ssl_handshake_timeout, ssl_shutdown_timeout)
+        ssl_protocol = SSLProtocol(asyncio.get_running_loop(), ws_protocol, ssl, True, None, True, ssl_handshake_timeout, ssl_shutdown_timeout)
         return ssl_protocol
 
     return await asyncio.get_running_loop().create_server(

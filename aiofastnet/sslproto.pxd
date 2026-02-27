@@ -1,4 +1,4 @@
-from picows.ssl cimport SSLConnection
+from aiofastnet.ssl cimport SSLConnection
 
 
 cpdef enum SSLProtocolState:
