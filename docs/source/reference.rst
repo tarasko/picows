@@ -17,7 +17,7 @@ Classes
 .. autoexception:: WSError
     :show-inheritance:
 
-.. autoexception:: WSUpgradeFailure
+.. autoexception:: WSHandshakeError
     :show-inheritance:
 
 .. autoexception:: WSProtocolError

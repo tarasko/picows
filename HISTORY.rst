@@ -5,12 +5,13 @@ picows Release History
    :depth: 1
    :local:
 
-1.16.0
+1.16.0 (2026-02-27)
 ------------------
 
 * Add socket_factory argument to ws_connect
 * Formalize exception hierarchy, new exceptions added: WSProtocolError, WSHandshakeError
 * Send CLOSE(MESSAGE_TO_BIG) instead of CLOSE(PROTOCOL_ERROR) on frame size violation
+* Deprecate zero_copy_unsafe_ssl_write in ws_connect and ws_create_server
 
 1.15.0 (2026-02-22)
 ------------------
