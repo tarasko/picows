@@ -3,8 +3,6 @@ import ssl
 import warnings
 from logging import getLogger
 
-from libc.stdio cimport FILE, stderr, stdout
-
 from cpython.contextvars cimport (
     PyContext_CopyCurrent,
     PyContext_Copy,
@@ -14,8 +12,6 @@ from cpython.contextvars cimport (
 
 from cpython.memoryview cimport (
     PyMemoryView_FromMemory,
-    PyMemoryView_FromObject,
-    PyMemoryView_Check,
 )
 
 from cpython.buffer cimport (
