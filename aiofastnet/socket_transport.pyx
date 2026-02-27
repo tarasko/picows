@@ -7,12 +7,62 @@ from asyncio.trsock import TransportSocket
 from asyncio import BufferedProtocol, Transport
 from logging import getLogger
 
+from .system cimport *
+from libc cimport errno
+
 from . import constants
+
+from cpython.buffer cimport (
+    PyObject_GetBuffer,
+    PyBuffer_Release,
+    PyBUF_SIMPLE
+)
+
+from cpython.object cimport (
+    PyObject
+)
+
+from cpython.exc cimport (
+    PyErr_SetFromErrno, PyErr_SetExcFromWindowsErr
+)
+
+cdef extern from "Python.h":
+    cdef PyObject* PyExc_OSError
+
 
 cdef _logger = getLogger('fastnet')
 
 cdef bint _HAS_SENDMSG = _get_has_sendmsg()
 cdef Py_ssize_t _SC_IOV_MAX = os.sysconf('SC_IOV_MAX') if _HAS_SENDMSG else 0
+
+
+cdef Py_ssize_t _aiofn_recv(
+        int sockfd,
+        void* buf,
+        Py_ssize_t len
+) except? -1:
+    cdef:
+        ssize_t bytes_read
+        int last_error
+
+    while True:
+        bytes_read = recv(sockfd, buf, len, 0)
+        if bytes_read >= 0:
+            return bytes_read
+
+        last_error = aiofn_get_last_error()
+        if last_error in (AIOFN_EWOULDBLOCK, AIOFN_EAGAIN):
+            return bytes_read
+
+        if not AIOFN_IS_WINDOWS and last_error == errno.EINTR:
+            continue
+
+        if AIOFN_IS_APPLE and last_error == errno.EPROTOTYPE:
+            continue
+
+        aiofn_set_exc_from_error(last_error)
+
+        return bytes_read
 
 
 cdef _get_has_sendmsg():
@@ -186,41 +236,56 @@ cdef class SelectorSocketTransport:
             self._read_ready__data_received()
 
     cdef inline _read_ready__get_buffer(self):
-        if self._conn_lost:
-            return
+        cdef:
+            object buf
+            Py_buffer pybuf
+            char* buf_ptr
+            Py_ssize_t buf_len
+            Py_ssize_t bytes_read
 
-        try:
-            buf = self._protocol.get_buffer(-1)
-            if not len(buf):
-                raise RuntimeError('get_buffer() returned an empty buffer')
-        except (SystemExit, KeyboardInterrupt):
-            raise
-        except BaseException as exc:
-            self._fatal_error(
-                exc, 'Fatal error: protocol.get_buffer() call failed.')
-            return
+        while True:
+            if self._conn_lost:
+                return
 
-        try:
-            nbytes = self._sock.recv_into(buf)
-        except (BlockingIOError, InterruptedError):
-            return
-        except (SystemExit, KeyboardInterrupt):
-            raise
-        except BaseException as exc:
-            self._fatal_error(exc, 'Fatal read error on socket transport')
-            return
+            try:
+                buf = self._protocol.get_buffer(-1)
+                if not len(buf):
+                    raise RuntimeError('get_buffer() returned an empty buffer')
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except BaseException as exc:
+                self._fatal_error(
+                    exc, 'Fatal error: protocol.get_buffer() call failed.')
+                return
 
-        if not nbytes:
-            self._read_ready__on_eof()
-            return
+            try:
+                PyObject_GetBuffer(buf, &pybuf, PyBUF_SIMPLE)
+                buf_ptr = <char*> pybuf.buf
+                buf_len = pybuf.len
+                PyBuffer_Release(&pybuf)
 
-        try:
-            self._protocol.buffer_updated(nbytes)
-        except (SystemExit, KeyboardInterrupt):
-            raise
-        except BaseException as exc:
-            self._fatal_error(
-                exc, 'Fatal error: protocol.buffer_updated() call failed.')
+                bytes_read = _aiofn_recv(self._sock_fd, buf_ptr, buf_len)
+                if bytes_read == -1:    # without exception this means EGAIN
+                    return
+            except (BlockingIOError, InterruptedError):
+                return
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except BaseException as exc:
+                self._fatal_error(exc, 'Fatal read error on socket transport')
+                return
+
+            if bytes_read == 0:
+                self._read_ready__on_eof()
+                return
+
+            try:
+                self._protocol.buffer_updated(bytes_read)
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except BaseException as exc:
+                self._fatal_error(
+                    exc, 'Fatal error: protocol.buffer_updated() call failed.')
 
     cdef inline _read_ready__data_received(self):
         if self._conn_lost:
@@ -511,7 +576,9 @@ cdef class SelectorSocketTransport:
             })
         self._force_close(exc)
 
-    cdef inline _force_close(self, exc):
+    # May be used by create_connection/create_server
+    # Keep cpdef
+    cpdef _force_close(self, exc):
         if self._conn_lost:
             return
         if self._buffer:

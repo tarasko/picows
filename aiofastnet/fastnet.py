@@ -236,8 +236,7 @@ async def create_server(
         else:
             hosts = host
 
-        fs = [loop._create_server_getaddrinfo(host, port, family=family,
-                                              flags=flags)
+        fs = [_create_server_getaddrinfo(loop, host, port, family=family, flags=flags)
               for host in hosts]
         infos = await asyncio.gather(*fs)
         infos = set(itertools.chain.from_iterable(infos))
@@ -392,7 +391,7 @@ class Server(asyncio.AbstractServer):
         self._sockets = None
 
         for sock in sockets:
-            self._loop._stop_serving(sock)
+            _stop_serving(self._loop, sock)
 
         self._serving = False
 
@@ -800,3 +799,7 @@ async def _create_server_getaddrinfo(loop, host, port, family, flags):
         raise OSError(f'getaddrinfo({host!r}) returned empty list')
     return infos
 
+
+def _stop_serving(loop, sock):
+    loop.remove_reader(sock.fileno())
+    sock.close()
