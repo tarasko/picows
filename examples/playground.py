@@ -48,7 +48,7 @@ class ClientListener(WSListener):
 async def main(url):
     asyncio.get_event_loop().set_debug(True)
     try:
-        transport, client = await ws_connect(ClientListener, url, ssl_context=create_strict_client_ssl_context())
+        transport, client = await ws_connect(ClientListener, url, ssl_context=create_client_ssl_context())
         await transport.wait_disconnected()
     except Exception as exc:
         print(exc)
@@ -56,5 +56,5 @@ async def main(url):
 
 if __name__ == '__main__':
     basicConfig(level=9)
-    asyncio.run(main("wss://echo.websocket.org"))
-#    asyncio.run(main("wss://127.0.0.1:9002"))
+#     asyncio.run(main("wss://echo.websocket.org"))
+    asyncio.run(main("wss://127.0.0.1:9002"))

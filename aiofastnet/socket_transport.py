@@ -1,6 +1,5 @@
 import collections
 import os
-import selectors
 import socket
 import warnings
 import itertools
@@ -17,9 +16,6 @@ if _HAS_SENDMSG:
     except OSError:
         # Fallback to send
         _HAS_SENDMSG = False
-
-
-LOG_THRESHOLD_FOR_CONNLOST_WRITES = 5
 
 
 def _set_result_unless_cancelled(fut, result):
@@ -172,7 +168,6 @@ class SelectorTransport(_FlowControlMixin):
         self._closing = False  # Set when close() called.
         self._paused = False  # Set when pause_reading() called
 
-        assert self._server is None, "not supported yet"
         # self._loop._transports[self._sock_fd] = self
 
     def __repr__(self):

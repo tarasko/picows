@@ -13,6 +13,8 @@ import asyncio
 import sys
 import weakref
 from logging import getLogger
+
+from . import constants
 from .sslproto import SSLProtocol
 from .socket_transport import SelectorSocketTransport
 from asyncio.trsock import TransportSocket
@@ -365,7 +367,8 @@ class Server(asyncio.AbstractServer):
         self._serving = True
         for sock in self._sockets:
             sock.listen(self._backlog)
-            self._loop._start_serving(
+            _start_serving(
+                self._loop,
                 self._protocol_factory, sock, self._ssl_context,
                 self, self._backlog, self._ssl_handshake_timeout,
                 self._ssl_shutdown_timeout)
@@ -462,6 +465,118 @@ class Server(asyncio.AbstractServer):
         waiter = self._loop.create_future()
         self._waiters.append(waiter)
         await waiter
+
+
+def _accept_connection(
+        loop, protocol_factory, sock,
+        sslcontext=None, server=None, backlog=100,
+        ssl_handshake_timeout=constants.SSL_HANDSHAKE_TIMEOUT,
+        ssl_shutdown_timeout=constants.SSL_SHUTDOWN_TIMEOUT):
+    # This method is only called once for each event loop tick where the
+    # listening socket has triggered an EVENT_READ. There may be multiple
+    # connections waiting for an .accept() so it is called in a loop.
+    # See https://bugs.python.org/issue27906 for more details.
+    for _ in range(backlog + 1):
+        try:
+            conn, addr = sock.accept()
+            if loop.get_debug():
+                _logger.debug("%r got a new connection from %r: %r",
+                              server, addr, conn)
+            conn.setblocking(False)
+        except ConnectionAbortedError:
+            # Discard connections that were aborted before accept().
+            continue
+        except (BlockingIOError, InterruptedError):
+            # Early exit because of a signal or
+            # the socket accept buffer is empty.
+            return
+        except OSError as exc:
+            # There's nowhere to send the error, so just log it.
+            if exc.errno in (errno.EMFILE, errno.ENFILE,
+                             errno.ENOBUFS, errno.ENOMEM):
+                # Some platforms (e.g. Linux keep reporting the FD as
+                # ready, so we remove the read handler temporarily.
+                # We'll try again in a while.
+                loop.call_exception_handler({
+                    'message': 'socket.accept() out of system resource',
+                    'exception': exc,
+                    'socket': TransportSocket(sock),
+                })
+                loop.remove_reader(sock.fileno())
+                loop.call_later(constants.ACCEPT_RETRY_DELAY,
+                                _start_serving,
+                                loop, protocol_factory, sock, sslcontext, server,
+                                backlog, ssl_handshake_timeout,
+                                ssl_shutdown_timeout)
+            else:
+                raise  # The event loop will catch, log and ignore it.
+        else:
+            extra = {'peername': addr}
+            accept = _accept_connection2(
+                loop, protocol_factory, conn, extra, sslcontext, server,
+                ssl_handshake_timeout, ssl_shutdown_timeout)
+            asyncio.create_task(accept)
+
+
+async def _accept_connection2(
+        loop,
+        protocol_factory, conn, extra,
+        sslcontext=None, server=None,
+        ssl_handshake_timeout=constants.SSL_HANDSHAKE_TIMEOUT,
+        ssl_shutdown_timeout=constants.SSL_SHUTDOWN_TIMEOUT):
+    protocol = None
+    transport = None
+    try:
+        protocol = protocol_factory()
+        waiter = loop.create_future()
+        if sslcontext:
+            transport = _make_ssl_transport(
+                loop,
+                conn, protocol, sslcontext, waiter=waiter,
+                server_side=True, extra=extra, server=server,
+                ssl_handshake_timeout=ssl_handshake_timeout,
+                ssl_shutdown_timeout=ssl_shutdown_timeout)
+        else:
+            transport = _make_socket_transport(
+                loop,
+                conn, protocol, waiter=waiter, extra=extra,
+                server=server)
+
+        try:
+            await waiter
+        except BaseException:
+            transport.close()
+            # gh-109534: When an exception is raised by the SSLProtocol object the
+            # exception set in this future can keep the protocol object alive and
+            # cause a reference cycle.
+            waiter = None
+            raise
+            # It's now up to the protocol to handle the connection.
+
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except BaseException as exc:
+        if loop.get_debug():
+            context = {
+                'message':
+                    'Error on transport creation for incoming connection',
+                'exception': exc,
+            }
+            if protocol is not None:
+                context['protocol'] = protocol
+            if transport is not None:
+                context['transport'] = transport
+            loop.call_exception_handler(context)
+
+
+def _start_serving(loop, protocol_factory, sock,
+                   sslcontext=None, server=None, backlog=100,
+                   ssl_handshake_timeout=constants.SSL_HANDSHAKE_TIMEOUT,
+                   ssl_shutdown_timeout=constants.SSL_SHUTDOWN_TIMEOUT):
+    loop.add_reader(sock.fileno(), _accept_connection, loop,
+                    protocol_factory, sock, sslcontext, server, backlog,
+                    ssl_handshake_timeout, ssl_shutdown_timeout)
+
 
 
 async def _ensure_resolved(address, *,
