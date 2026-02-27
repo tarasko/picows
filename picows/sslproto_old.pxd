@@ -1,7 +1,6 @@
-from picows.ssl cimport SSLConnection
+import asyncio
 
-
-cpdef enum SSLProtocolState:
+cdef enum SSLProtocolState:
     UNWRAPPED = 0
     DO_HANDSHAKE = 1
     WRAPPED = 2
@@ -42,10 +41,11 @@ cdef class SSLProtocol(SSLProtocolBase):
         bint _server_side
         str _server_hostname
         object _sslcontext
-        SSLConnection _ssl_connection
 
-        dict _extra
+        object _extra
+
         list _write_backlog
+        Py_ssize_t _write_buffer_size
 
         object _loop
         SSLTransport _app_transport
@@ -54,13 +54,28 @@ cdef class SSLProtocol(SSLProtocolBase):
         object _ssl_handshake_timeout
         object _ssl_shutdown_timeout
 
-        # Buffer for the underlying TCP protocol buffered reads
+        object _sslobj
+        object _sslobj_read
+        object _sslobj_write
+        object _sslobj_pending
+        object _incoming
+        object _incoming_write
+        object _outgoing
+        object _outgoing_read
+
+        # Buffer for the underlying UVStream buffered reads
         bytearray _tcp_read_buffer
+        # Buffer for SSLObject.read calls
+        # Only allocated when user pass non-buffered Protocol instance
+        bytearray _ssl_read_buffer
+        # Cached long object for SSLObject.read calls
+        object _ssl_read_max_size_obj
 
         SSLProtocolState _state
         size_t _conn_lost
         AppProtocolState _app_state
 
+        bint _ssl_writing_paused
         bint _app_reading_paused
 
         object _app_protocol
@@ -111,6 +126,7 @@ cdef class SSLProtocol(SSLProtocolBase):
     cdef inline _check_and_enqueue_appdata(self, data)
     cdef inline _flush_write_backlog(self, object context)
     cdef inline _do_write(self)
+    cdef inline _materialized_write_backlog(self)
     cdef inline _process_outgoing(self)
 
     # Incoming flow

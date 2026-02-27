@@ -149,7 +149,7 @@ async def test_redirect_through_proxy(redirect_server_2, proxy_type: str, custom
             await picows.ws_connect(AsyncClient, redirect_server_2, max_redirects=1, proxy=proxy_url)
 
 
-@pytest.mark.parametrize("proxy_type", ["http", "socks4", "socks5"])
+@pytest.mark.parametrize("proxy_type", ["direct", "http", "socks4", "socks5"])
 async def test_proxy_dns_resolution(proxy_type):
     client_ssl_ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
 

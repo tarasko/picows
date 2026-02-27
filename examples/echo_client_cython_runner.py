@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import ssl
 
 import uvloop
@@ -17,6 +18,7 @@ def create_client_ssl_context():
 
 
 async def main(url, msg_size, ssl_context):
+    # asyncio.get_running_loop().set_debug(True)
     transport, client = await ws_connect(
         lambda: ClientListenerCython(msg_size),
         url,
@@ -26,5 +28,6 @@ async def main(url, msg_size, ssl_context):
 
 if __name__ == '__main__':
     # uvloop.install()
+    # logging.basicConfig(level=9)
     ssl_context = create_client_ssl_context()
-    asyncio.run(main("wss://127.0.0.1:9002", 256, ssl_context))
+    asyncio.run(main("wss://127.0.0.1:9002", 8192, ssl_context))
