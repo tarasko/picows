@@ -28,114 +28,6 @@ _lib_to_name = {
     ERR_LIB_CRYPTO: "CRYPTO",
 }
 
-# cdef extern from *:
-# We intentionally mirror ONLY the initial prefix of CPython's PySSLContext:
-# PyObject_HEAD + SSL_CTX *ctx;
-# This is NOT ABI-stable and may break across Python versions/build options.
-
-ctypedef struct PySSLContextHack:
-    PyObject ob_base
-    SSL_CTX *ctx
-
-
-cdef SSL_CTX* get_ssl_ctx_ptr(object py_ctx) except NULL:
-    # Minimal runtime sanity check (still not foolproof)
-    if not isinstance(py_ctx, ssl.SSLContext):
-        raise TypeError("expected ssl.SSLContext")
-
-    # Layout-cast hack:
-    return (<PySSLContextHack*> <PyObject*> py_ctx).ctx
-
-
-cdef int _log_cb(const char* str, size_t len, void* u) noexcept nogil:
-    with gil:
-        logger = <object><PyObject*>u
-        err_str = PyUnicode_FromStringAndSize(str, len)
-        logger.error(err_str)
-
-
-cdef log_ssl_error_queue(logger):
-    cdef void* u = <PyObject*>logger
-    ERR_print_errors_cb(&_log_cb, u)
-
-
-cdef unsigned long get_last_error():
-    cdef unsigned long err_code = ERR_peek_last_error()
-    ERR_clear_error()
-    return err_code
-
-
-cdef make_exc_from_last_error(str descr, server_hostname=None, SSL* ssl_object=NULL, logger=None):
-    cdef unsigned long last_error = get_last_error()
-    cdef int lib = ERR_GET_LIB(last_error)
-    cdef int reason = ERR_GET_REASON(last_error)
-
-    if logger is not None:
-        log_ssl_error_queue(logger)
-
-    lib_name = _lib_to_name.get(lib, "UNKNOWN")
-    reason_name = PyUnicode_FromString(ERR_reason_error_string(last_error))
-    reason_name = reason_name.upper().replace(" ", "_")
-
-    if reason == SSL_R_CERTIFICATE_VERIFY_FAILED:
-        assert server_hostname is not None
-        assert ssl_object != NULL
-        verify_code = SSL_get_verify_result(ssl_object)
-        if verify_code == X509_V_ERR_HOSTNAME_MISMATCH:
-            txt = f"Hostname mismatch, certificate is not valid for '{server_hostname}'"
-        elif verify_code == X509_V_ERR_IP_ADDRESS_MISMATCH:
-            txt = f"IP address mismatch, certificate is not valid for '{server_hostname}'"
-        else:
-            verify_str = X509_verify_cert_error_string(verify_code)
-            txt = PyUnicode_FromString(verify_str) if verify_str != NULL else ""
-        str_error = f"[{lib_name}: {reason_name}] {descr}: {txt}"
-        exc = ssl.SSLCertVerificationError()
-        exc.verify_code = verify_code
-        exc.verify_message = txt
-    else:
-        str_error = f"[{lib_name}: {reason_name}] {descr}"
-        exc = ssl.SSLError()
-    exc.strerror = str_error
-    exc.library = lib_name
-    exc.reason = reason_name
-    return exc
-
-
-cdef unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* msg_size_out):
-    cdef Py_buffer msg_buffer
-
-    if PyBytes_CheckExact(bytes_like_obj):
-        msg_ptr_out[0] = PyBytes_AS_STRING(bytes_like_obj)
-        msg_size_out[0] = PyBytes_GET_SIZE(bytes_like_obj)
-    elif PyByteArray_CheckExact(bytes_like_obj):
-        msg_ptr_out[0] = PyByteArray_AS_STRING(bytes_like_obj)
-        msg_size_out[0] = PyByteArray_GET_SIZE(bytes_like_obj)
-    elif bytes_like_obj is None:
-        msg_ptr_out[0] = NULL
-        msg_size_out[0] = 0
-    else:
-        PyObject_GetBuffer(bytes_like_obj, &msg_buffer, PyBUF_SIMPLE)
-        msg_ptr_out[0] = <char*>msg_buffer.buf
-        msg_size_out[0] = msg_buffer.len
-        # We can already release because we still keep the reference to the message
-        PyBuffer_Release(&msg_buffer)
-
-
-cdef Py_ssize_t bio_pending(BIO* bio):
-    cdef int pending = BIO_pending(bio)
-    if pending < 0:
-        raise make_exc_from_last_error("unable to get pending len from BIO")
-    return pending
-
-
-cdef bytes shrink_bytes(bytes obj, Py_ssize_t new_size):
-    cdef PyObject* raw = <PyObject*>obj
-    Py_INCREF(obj)
-    _PyBytes_Resize(&raw, new_size)
-    cdef bytes maybe_new_obj = <bytes>raw
-    Py_DECREF(obj)
-    return maybe_new_obj
-
 
 cdef class SSLConnection:
     def __init__(self, logger, ssl_context, bint is_server, str server_hostname):
@@ -265,3 +157,120 @@ cdef class SSLConnection:
     cdef _decode_certificate(self, X509* certificate):
         cdef dict retval = dict()
         return retval
+
+
+# A memory layout hack to extract SSL_CTX* ptr from python SSLContext object.
+#
+# I intentionally mirror ONLY the initial prefix of CPython's PySSLContext:
+# PyObject_HEAD + SSL_CTX *ctx
+#
+# This is NOT ABI-stable and may break across Python versions/build options.
+# I know it is ugly, but who cares, in some million years the sun will destroy
+# all life on earth, so everything is meaningless anyway.
+#
+# The guys from python are reluctant to expose it directly:
+# https://bugs.python.org/issue43902
+
+ctypedef struct PySSLContextHack:
+    PyObject ob_base
+    SSL_CTX *ctx
+
+
+cdef SSL_CTX* get_ssl_ctx_ptr(object py_ctx) except NULL:
+    # Minimal runtime sanity check (still not foolproof)
+    if not isinstance(py_ctx, ssl.SSLContext):
+        raise TypeError("expected ssl.SSLContext")
+
+    # Layout-cast hack:
+    return (<PySSLContextHack*> <PyObject*> py_ctx).ctx
+
+
+cdef int _log_cb(const char* str, size_t len, void* u) noexcept nogil:
+    with gil:
+        logger = <object><PyObject*>u
+        err_str = PyUnicode_FromStringAndSize(str, len)
+        logger.error(err_str)
+
+
+cdef log_ssl_error_queue(logger):
+    cdef void* u = <PyObject*>logger
+    ERR_print_errors_cb(&_log_cb, u)
+
+
+cdef unsigned long get_last_error():
+    cdef unsigned long err_code = ERR_peek_last_error()
+    ERR_clear_error()
+    return err_code
+
+
+cdef make_exc_from_last_error(str descr, server_hostname=None, SSL* ssl_object=NULL, logger=None):
+    cdef unsigned long last_error = get_last_error()
+    cdef int lib = ERR_GET_LIB(last_error)
+    cdef int reason = ERR_GET_REASON(last_error)
+
+    if logger is not None:
+        log_ssl_error_queue(logger)
+
+    lib_name = _lib_to_name.get(lib, "UNKNOWN")
+    reason_name = PyUnicode_FromString(ERR_reason_error_string(last_error))
+    reason_name = reason_name.upper().replace(" ", "_")
+
+    if reason == SSL_R_CERTIFICATE_VERIFY_FAILED:
+        assert server_hostname is not None
+        assert ssl_object != NULL
+        verify_code = SSL_get_verify_result(ssl_object)
+        if verify_code == X509_V_ERR_HOSTNAME_MISMATCH:
+            txt = f"Hostname mismatch, certificate is not valid for '{server_hostname}'"
+        elif verify_code == X509_V_ERR_IP_ADDRESS_MISMATCH:
+            txt = f"IP address mismatch, certificate is not valid for '{server_hostname}'"
+        else:
+            verify_str = X509_verify_cert_error_string(verify_code)
+            txt = PyUnicode_FromString(verify_str) if verify_str != NULL else ""
+        str_error = f"[{lib_name}: {reason_name}] {descr}: {txt}"
+        exc = ssl.SSLCertVerificationError()
+        exc.verify_code = verify_code
+        exc.verify_message = txt
+    else:
+        str_error = f"[{lib_name}: {reason_name}] {descr}"
+        exc = ssl.SSLError()
+    exc.strerror = str_error
+    exc.library = lib_name
+    exc.reason = reason_name
+    return exc
+
+
+cdef unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* msg_size_out):
+    cdef Py_buffer msg_buffer
+
+    if PyBytes_CheckExact(bytes_like_obj):
+        msg_ptr_out[0] = PyBytes_AS_STRING(bytes_like_obj)
+        msg_size_out[0] = PyBytes_GET_SIZE(bytes_like_obj)
+    elif PyByteArray_CheckExact(bytes_like_obj):
+        msg_ptr_out[0] = PyByteArray_AS_STRING(bytes_like_obj)
+        msg_size_out[0] = PyByteArray_GET_SIZE(bytes_like_obj)
+    elif bytes_like_obj is None:
+        msg_ptr_out[0] = NULL
+        msg_size_out[0] = 0
+    else:
+        PyObject_GetBuffer(bytes_like_obj, &msg_buffer, PyBUF_SIMPLE)
+        msg_ptr_out[0] = <char*>msg_buffer.buf
+        msg_size_out[0] = msg_buffer.len
+        # We can already release because we still keep the reference to the message
+        PyBuffer_Release(&msg_buffer)
+
+
+cdef Py_ssize_t bio_pending(BIO* bio):
+    cdef int pending = BIO_pending(bio)
+    if pending < 0:
+        raise make_exc_from_last_error("unable to get pending len from BIO")
+    return pending
+
+
+cdef bytes shrink_bytes(bytes obj, Py_ssize_t new_size):
+    cdef PyObject* raw = <PyObject*>obj
+    Py_INCREF(obj)
+    _PyBytes_Resize(&raw, new_size)
+    cdef bytes maybe_new_obj = <bytes>raw
+    Py_DECREF(obj)
+    return maybe_new_obj
+

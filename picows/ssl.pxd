@@ -1,6 +1,3 @@
-from libc.stdio cimport FILE, stderr, stdout
-
-
 cdef extern from "openssl/ssl.h" nogil:
     ctypedef struct SSL_CTX:
         pass
@@ -128,7 +125,6 @@ cdef extern from "openssl/err.h" nogil:
     void ERR_error_string_n(unsigned long e, char *buf, size_t len)
     const char* ERR_lib_error_string(unsigned long e)
     const char* ERR_reason_error_string(unsigned long e)
-    void ERR_print_errors_fp(FILE *fp)
     void ERR_print_errors_cb(int (*cb)(const char *str, size_t len, void *u),
                              void *u)
     int ERR_GET_LIB(unsigned long e)
@@ -148,13 +144,6 @@ cdef extern from "openssl/x509v3.h" nogil:
     ASN1_OCTET_STRING* a2i_IPADDRESS(const char *ipasc)
 
 
-# TODO: Keep it here until we find a better place for this function
-cdef unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* msg_size_out)
-
-cdef bytes shrink_bytes(bytes obj, Py_ssize_t new_size)
-cdef Py_ssize_t bio_pending(BIO* bio)
-
-
 cdef class SSLConnection:
     cdef:
         object logger
@@ -171,3 +160,10 @@ cdef class SSLConnection:
     cdef inline str compression(self)
     cdef inline _decode_certificate(self, X509* certificate)
     cdef inline _configure_hostname(self)
+
+
+# TODO: Keep it here until we find a better place for this function
+cdef unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* msg_size_out)
+cdef bytes shrink_bytes(bytes obj, Py_ssize_t new_size)
+cdef Py_ssize_t bio_pending(BIO* bio)
+
