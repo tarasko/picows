@@ -15,8 +15,7 @@ from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: igno
                      WSProtocol)
 from .url import parse_url, WSInvalidURL, WSParsedURL
 
-from aiofastnet.sslproto import SSLProtocol
-from aiofastnet.fastnet import create_connection
+from aiofastnet import create_connection, create_server
 
 
 WSListenerFactory = Callable[[], WSListener]
@@ -415,33 +414,41 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
             read_buffer_init_size
         )
 
-    ssl = kwargs.pop('ssl', None)
-    ssl_handshake_timeout = kwargs.pop('ssl_handshake_timeout', None)
-    ssl_shutdown_timeout = kwargs.pop('ssl_shutdown_timeout', None)
-
-    if not ssl:
-        return await asyncio.get_running_loop().create_server(
-            ws_protocol_factory,
-            host=host,
-            port=port,
-            **kwargs)
-
-    def ssl_protocol_factory():
-        ws_protocol = ws_protocol_factory()
-        ssl_protocol = SSLProtocol(
-            asyncio.get_running_loop(),
-            ws_protocol,
-            ssl,
-            server_side=True,
-            server_hostname=None,
-            call_connection_made=True,
-            ssl_handshake_timeout=ssl_handshake_timeout,
-            ssl_shutdown_timeout=ssl_shutdown_timeout)
-        return ssl_protocol
-
-    return await asyncio.get_running_loop().create_server(
-        ssl_protocol_factory,
+    return await create_server(
+        asyncio.get_running_loop(),
+        ws_protocol_factory,
         host=host,
         port=port,
         **kwargs)
+    #
+    #
+    # ssl = kwargs.pop('ssl', None)
+    # ssl_handshake_timeout = kwargs.pop('ssl_handshake_timeout', None)
+    # ssl_shutdown_timeout = kwargs.pop('ssl_shutdown_timeout', None)
+    #
+    # if not ssl:
+    #     return await asyncio.get_running_loop().create_server(
+    #         ws_protocol_factory,
+    #         host=host,
+    #         port=port,
+    #         **kwargs)
+    #
+    # def ssl_protocol_factory():
+    #     ws_protocol = ws_protocol_factory()
+    #     ssl_protocol = SSLProtocol(
+    #         asyncio.get_running_loop(),
+    #         ws_protocol,
+    #         ssl,
+    #         server_side=True,
+    #         server_hostname=None,
+    #         call_connection_made=True,
+    #         ssl_handshake_timeout=ssl_handshake_timeout,
+    #         ssl_shutdown_timeout=ssl_shutdown_timeout)
+    #     return ssl_protocol
+    #
+    # return await asyncio.get_running_loop().create_server(
+    #     ssl_protocol_factory,
+    #     host=host,
+    #     port=port,
+    #     **kwargs)
 
