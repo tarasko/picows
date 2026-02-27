@@ -77,6 +77,7 @@ cdef class SSLProtocol(SSLProtocolBase):
     # Instead of doing python calls, c methods *_impl are called directly
     # from stream.pyx
 
+    cpdef get_app_transport(self, context=*)
     cpdef set_app_protocol(self, app_protocol)
     cpdef get_app_protocol(self)
 

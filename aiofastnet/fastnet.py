@@ -9,6 +9,8 @@ import socket
 import ssl
 import asyncio
 from logging import getLogger
+from .sslproto import SSLProtocol
+from .socket_transport import SelectorSocketTransport
 
 _HAS_IPv6 = hasattr(socket, 'AF_INET6')
 _logger = getLogger('fastnet')
@@ -353,18 +355,18 @@ def _make_ssl_transport(
         ssl_handshake_timeout=60.0,
         ssl_shutdown_timeout=30.0,
 ):
-    ssl_protocol = sslproto.SSLProtocol(
+    ssl_protocol = SSLProtocol(
         loop, protocol, sslcontext, waiter,
         server_side, server_hostname,
         ssl_handshake_timeout=ssl_handshake_timeout,
         ssl_shutdown_timeout=ssl_shutdown_timeout
     )
-    _SelectorSocketTransport(loop, rawsock, ssl_protocol,
-                             extra=extra, server=server)
-    return ssl_protocol._app_transport
+    SelectorSocketTransport(loop, rawsock, ssl_protocol,
+                            extra=extra, server=server)
+    return ssl_protocol.get_app_transport()
 
 
 def _make_socket_transport(loop, sock, protocol, waiter=None, *,
                            extra=None, server=None):
-    return _SelectorSocketTransport(loop, sock, protocol, waiter,
-                                    extra, server)
+    return SelectorSocketTransport(loop, sock, protocol, waiter,
+                                   extra, server)
