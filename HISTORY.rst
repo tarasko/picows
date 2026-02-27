@@ -10,6 +10,7 @@ picows Release History
 
 * Add socket_factory argument to ws_connect
 * Formalize exception hierarchy, new exceptions added: WSProtocolError, WSHandshakeError
+* Send CLOSE(MESSAGE_TO_BIG) instead of CLOSE(PROTOCOL_ERROR) on frame size violation
 
 1.15.0 (2026-02-22)
 ------------------
