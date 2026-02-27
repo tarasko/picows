@@ -53,6 +53,7 @@ cdef class SSLProtocol(SSLProtocolBase):
         object _transport
         object _ssl_handshake_timeout
         object _ssl_shutdown_timeout
+        object _ssl_handshake_complete_waiter
 
         # Buffer for the underlying TCP protocol buffered reads
         bytearray _tcp_read_buffer
@@ -72,8 +73,6 @@ cdef class SSLProtocol(SSLProtocolBase):
         object _handshake_start_time
         object _handshake_timeout_handle
         object _shutdown_timeout_handle
-
-        readonly object ssl_handshake_complete_fut
 
     # Instead of doing python calls, c methods *_impl are called directly
     # from stream.pyx

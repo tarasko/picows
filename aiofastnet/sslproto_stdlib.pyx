@@ -247,6 +247,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
                  loop,
                  app_protocol,
                  sslcontext,
+                 ssl_handshake_complete_waiter=None,
                  server_side=False, server_hostname=None,
                  call_connection_made=True,
                  ssl_handshake_timeout=None,
@@ -288,6 +289,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         self._transport = None
         self._ssl_handshake_timeout = ssl_handshake_timeout
         self._ssl_shutdown_timeout = ssl_shutdown_timeout
+        self._ssl_handshake_complete_waiter = ssl_handshake_complete_waiter
         # SSL and state machine
         self._sslobj = None
         self._incoming = ssl.MemoryBIO()
@@ -311,8 +313,6 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         self._ssl_writing_paused = False
         self._app_reading_paused = False
 
-        self.ssl_handshake_complete_fut = self._loop.create_future()
-
     cpdef set_app_protocol(self, app_protocol):
         self._app_protocol = app_protocol
         if (hasattr(app_protocol, 'get_buffer') and
@@ -332,11 +332,12 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         return self._app_protocol
 
     cdef _wakeup_waiter(self, exc=None):
-        if not self.ssl_handshake_complete_fut.done():
+        if (self._ssl_handshake_complete_waiter is not None and
+                not self._ssl_handshake_complete_waiter.done()):
             if exc is not None:
-                self.ssl_handshake_complete_fut.set_exception(exc)
+                self._ssl_handshake_complete_waiter.set_exception(exc)
             else:
-                self.ssl_handshake_complete_fut.set_result(None)
+                self._ssl_handshake_complete_waiter.set_result(None)
 
     def _get_app_transport(self, context=None):
         if self._app_transport is None:

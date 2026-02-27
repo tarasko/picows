@@ -359,12 +359,12 @@ def _make_ssl_transport(
         ssl_handshake_timeout=ssl_handshake_timeout,
         ssl_shutdown_timeout=ssl_shutdown_timeout
     )
-    _SelectorSocketTransport(self, rawsock, ssl_protocol,
+    _SelectorSocketTransport(loop, rawsock, ssl_protocol,
                              extra=extra, server=server)
     return ssl_protocol._app_transport
 
 
 def _make_socket_transport(loop, sock, protocol, waiter=None, *,
                            extra=None, server=None):
-    return _SelectorSocketTransport(self, sock, protocol, waiter,
+    return _SelectorSocketTransport(loop, sock, protocol, waiter,
                                     extra, server)

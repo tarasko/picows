@@ -305,13 +305,12 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                 def ssl_protocol_factory():
                     ws_protocol = ws_protocol_factory()
 
-                    return SSLProtocol(loop,
-                                       ws_protocol, ssl,
-                                       False,
-                                       server_hostname or parsed_url.host,
-                                       True,
-                                       ssl_handshake_timeout,
-                                       ssl_shutdown_timeout
+                    return SSLProtocol(loop, ws_protocol, ssl,
+                                       server_side=False,
+                                       server_hostname=server_hostname or parsed_url.host,
+                                       call_connection_made=True,
+                                       ssl_handshake_timeout=ssl_handshake_timeout,
+                                       ssl_shutdown_timeout=ssl_shutdown_timeout
                                        )
 
                 (_, ssl_protocol) = await loop.create_connection(
@@ -322,7 +321,6 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                     **conn_kwargs
                 )
 
-                await ssl_protocol.ssl_handshake_complete_fut
                 ws_protocol = ssl_protocol.get_app_protocol()
             else:
                 (_, ws_protocol) = await loop.create_connection(
@@ -460,7 +458,15 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
 
     def ssl_protocol_factory():
         ws_protocol = ws_protocol_factory()
-        ssl_protocol = SSLProtocol(asyncio.get_running_loop(), ws_protocol, ssl, True, None, True, ssl_handshake_timeout, ssl_shutdown_timeout)
+        ssl_protocol = SSLProtocol(
+            asyncio.get_running_loop(),
+            ws_protocol,
+            ssl,
+            server_side=True,
+            server_hostname=None,
+            call_connection_made=True,
+            ssl_handshake_timeout=ssl_handshake_timeout,
+            ssl_shutdown_timeout=ssl_shutdown_timeout)
         return ssl_protocol
 
     return await asyncio.get_running_loop().create_server(
