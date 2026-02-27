@@ -89,7 +89,7 @@ async def test_max_frame_size_violation_huge_frame_from_client(echo_server):
         transport.send(picows.WSMsgType.BINARY, msg)
         frame = await listener.get_message()
         assert frame.msg_type == picows.WSMsgType.CLOSE
-        assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
+        assert frame.close_code == picows.WSCloseCode.MESSAGE_TOO_BIG
 
 
 async def test_max_frame_size_violation_huge_frame_from_server(echo_server):
