@@ -11,12 +11,12 @@ from tests.utils import AsyncClient, ServerEchoListener, ServerAsyncContext, Cli
 
 
 async def test_redirect_location():
-    exc = picows.WSUpgradeFailure("initial redirect")
+    exc = picows.WSHandshakeError("initial redirect")
     parsed_url = parse_url("ws://test_login:test_pws@my.domain.org/ws?param=val")
     assert not parsed_url.is_secure
 
     # Test empty response in exception
-    with pytest.raises(picows.WSUpgradeFailure, match="initial redirect"):
+    with pytest.raises(picows.WSHandshakeError, match="initial redirect"):
         _maybe_handle_redirect(exc, parsed_url, 1)
 
     response = WSUpgradeResponse()
@@ -28,13 +28,13 @@ async def test_redirect_location():
     exc.response = response
 
     # Test no Location header
-    with pytest.raises(picows.WSUpgradeFailure, match="without Location header"):
+    with pytest.raises(picows.WSHandshakeError, match="without Location header"):
         _maybe_handle_redirect(exc, parsed_url, 1)
 
     response.headers["Location"] = "/new_rel_path"
 
     # Check that redirect are done when max_redirects=0
-    with pytest.raises(picows.WSUpgradeFailure, match="initial redirect"):
+    with pytest.raises(picows.WSHandshakeError, match="initial redirect"):
         _maybe_handle_redirect(exc, parsed_url, 0)
 
     new_parsed_url = _maybe_handle_redirect(exc, parsed_url, 1)
@@ -66,6 +66,6 @@ async def test_redirect_location():
     assert parsed_url.is_secure
     response.headers["Location"] = "ws://my.domain.org:8080/"
 
-    with pytest.raises(picows.WSUpgradeFailure, match="non-secure URL"):
+    with pytest.raises(picows.WSHandshakeError, match="non-secure URL"):
         _maybe_handle_redirect(exc, parsed_url, 1)
 

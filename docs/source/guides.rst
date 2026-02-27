@@ -90,7 +90,7 @@ from :any:`WSTransport.send`.
 Additionally, websocket-specific failures are represented by :any:`WSError`
 and its subclasses:
 
-* :any:`WSUpgradeFailure` for HTTP upgrade negotiation failures (raised by :any:`ws_connect`).
+* :any:`WSHandshakeError` for HTTP upgrade negotiation failures (raised by :any:`ws_connect`).
 * :any:`WSProtocolError` for websocket parser/protocol violations (can be re-raised by :any:`WSTransport.wait_disconnected` on client side).
 * :any:`WSInvalidURL` for invalid websocket/proxy URL inputs.
 

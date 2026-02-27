@@ -1,6 +1,6 @@
 from .types import (
     WSError,
-    WSUpgradeFailure,
+    WSHandshakeError,
     WSProtocolError,
     WSUpgradeRequest,
     WSUpgradeResponse,
@@ -29,7 +29,7 @@ from .api import (
 
 __all__ = [
     'WSError',
-    'WSUpgradeFailure',
+    'WSHandshakeError',
     'WSProtocolError',
     'WSUpgradeRequest',
     'WSUpgradeResponse',

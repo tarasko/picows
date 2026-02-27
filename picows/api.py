@@ -10,7 +10,7 @@ from typing import Callable, Optional, Union, Dict, Any, Awaitable
 from python_socks.async_.asyncio import Proxy
 
 from .types import (WSHeadersLike, WSUpgradeRequest, WSHost, WSPort,
-                    WSUpgradeResponseWithListener, WSUpgradeFailure)
+                    WSUpgradeResponseWithListener, WSHandshakeError)
 from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: ignore [attr-defined]
                      WSProtocol)
 from .url import parse_url, WSInvalidURL, WSParsedURL
@@ -23,7 +23,7 @@ WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgra
 WSSocketFactory = Callable[[WSParsedURL], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
 
 
-def _maybe_handle_redirect(exc: WSUpgradeFailure, old_parsed_url: WSParsedURL, max_redirects: int) -> WSParsedURL:
+def _maybe_handle_redirect(exc: WSHandshakeError, old_parsed_url: WSParsedURL, max_redirects: int) -> WSParsedURL:
     if max_redirects <= 0:
         raise exc
     if exc.response is None:
@@ -34,14 +34,14 @@ def _maybe_handle_redirect(exc: WSUpgradeFailure, old_parsed_url: WSParsedURL, m
     location = exc.response.headers.get("Location")
 
     if location is None:
-        raise WSUpgradeFailure("received redirect HTTP response without Location header",
-                       exc.raw_header, exc.raw_body, exc.response) from exc
+        raise WSHandshakeError("received redirect HTTP response without Location header",
+                               exc.raw_header, exc.raw_body, exc.response) from exc
 
     url = urllib.parse.urljoin(old_parsed_url.url, location)
     parsed_url = parse_url(url)
 
     if old_parsed_url.is_secure and not parsed_url.is_secure:
-        raise WSUpgradeFailure(
+        raise WSHandshakeError(
             f"cannot follow redirect to non-secure URL {parsed_url.url}",
             exc.raw_header, exc.raw_body, exc.response)
 
@@ -292,7 +292,6 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                 loop, parsed_url, parsed_proxy_url, socket_factory, ssl, conn_kwargs)
 
             if ssl:
-                server_hostname = conn_kwargs.pop('server_hostname', None)
                 ssl_handshake_timeout = conn_kwargs.pop('ssl_handshake_timeout', None)
                 ssl_shutdown_timeout = conn_kwargs.pop('ssl_shutdown_timeout', None)
                 ssl_protocol: SSLProtocol
@@ -329,7 +328,7 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
 
             await ws_protocol.wait_until_handshake_complete()
             return ws_protocol.transport, ws_protocol.listener
-        except WSUpgradeFailure as exc:
+        except WSHandshakeError as exc:
             new_parsed_url = _maybe_handle_redirect(exc, parsed_url, max_redirects)
             logger.info("%s replied with HTTP redirect to %s, (status = %s)",
                         parsed_url.url, new_parsed_url.url, exc.response.status) # type: ignore [union-attr]

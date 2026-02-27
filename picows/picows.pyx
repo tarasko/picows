@@ -24,7 +24,7 @@ from libc.stdlib cimport rand
 
 from .types import (PICOWS_DEBUG_LL, WSUpgradeRequest, WSUpgradeResponse,
                     WSUpgradeResponseWithListener,
-                    WSUpgradeFailure, WSProtocolError, add_extra_headers)
+                    WSHandshakeError, WSProtocolError, add_extra_headers)
 
 # When picows would like to disconnect peer (due to protocol violation or other failures), CLOSE frame is sent first.
 # Then disconnect is scheduled with a small delay. Otherwise, some old asyncio versions do not transmit CLOSE frame,
@@ -1207,7 +1207,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
         # check handshake
         if not response_status_line_str.startswith("http/1.1 " ):
-            raise WSUpgradeFailure(f"cannot upgrade, unknown protocol (expected HTTP/1.1) in upgrade response: {response_status_line_str}", raw_headers, tail)
+            raise WSHandshakeError(f"cannot upgrade, unknown protocol (expected HTTP/1.1) in upgrade response: {response_status_line_str}", raw_headers, tail)
 
         cdef bytes status_code
         response = WSUpgradeResponse()
@@ -1222,25 +1222,25 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             response.headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
 
         if response.status != HTTPStatus.SWITCHING_PROTOCOLS:
-            raise WSUpgradeFailure(f"expected upgrade response with status 101 Switching Protocols, but received {response.status}", raw_headers, tail, response)
+            raise WSHandshakeError(f"expected upgrade response with status 101 Switching Protocols, but received {response.status}", raw_headers, tail, response)
 
         if response.headers.get("transfer-encoding") == "chunked":
-            raise WSUpgradeFailure(f"101 response cannot have Transfer-Encoding but it has", raw_headers, tail, response)
+            raise WSHandshakeError(f"101 response cannot have Transfer-Encoding but it has", raw_headers, tail, response)
 
         cdef Py_ssize_t content_length = int(response.headers.get("content-length", "0"))
 
         if content_length != 0:
-            raise WSUpgradeFailure(f"101 response has non-zero Content-Length, but it can't have body", raw_headers, tail, response)
+            raise WSHandshakeError(f"101 response has non-zero Content-Length, but it can't have body", raw_headers, tail, response)
 
         connection_value = response.headers.get("connection")
         connection_value = connection_value if connection_value is None else connection_value.lower()
         if connection_value != "upgrade":
-            raise WSUpgradeFailure(f"cannot upgrade, invalid connection header: {response.headers['connection']}", raw_headers, tail, response)
+            raise WSHandshakeError(f"cannot upgrade, invalid connection header: {response.headers['connection']}", raw_headers, tail, response)
 
         r_key = response.headers.get("sec-websocket-accept")
         match = b64encode(sha1(self._websocket_key_b64 + _WS_KEY).digest()).decode()
         if r_key != match:
-            raise WSUpgradeFailure(f"cannot upgrade, invalid sec-websocket-accept response", raw_headers, tail, response)
+            raise WSHandshakeError(f"cannot upgrade, invalid sec-websocket-accept response", raw_headers, tail, response)
 
         memmove(self._read_buffer.data, self._read_buffer.data + len(raw_headers) + 4, self._read_buffer.size - len(raw_headers) - 4)
         self._f_new_data_start_pos = len(tail)
@@ -1340,7 +1340,10 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 self._state = WSParserState.READ_PAYLOAD
 
             if self._f_payload_length > self._max_frame_size:
-                raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR, f"Frame payload size violates max allowed size {self._f_payload_length} > {self._max_frame_size}")
+                raise WSProtocolError(
+                    WSCloseCode.MESSAGE_TOO_BIG,
+                    f"Frame payload size violates max allowed size "
+                    f"{self._f_payload_length} > {self._max_frame_size}")
 
         # read payload mask
         if self._state == WSParserState.READ_PAYLOAD_MASK:
