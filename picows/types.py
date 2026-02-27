@@ -144,7 +144,7 @@ class WSUpgradeResponseWithListener:
         self.listener = listener
 
 
-class WSUpgradeFailure(WSError):
+class WSHandshakeError(WSError):
     """
     Raised by :any:`ws_connect` when websocket HTTP upgrade negotiation fails.
     """
@@ -164,7 +164,11 @@ class WSUpgradeFailure(WSError):
 
 class WSProtocolError(WSError):
     """
-    WebSocket protocol parser error.
+    Raised when receiving or sending frames that break the protocol or
+    violates max_frame_size limit.
+
+    Before raising this exception **picows** send CLOSE frame with error code
+    and initiate disconnect.
     """
 
     def __init__(self, code: Any, message: Any):

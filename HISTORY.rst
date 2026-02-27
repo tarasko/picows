@@ -9,7 +9,7 @@ picows Release History
 ------------------
 
 * Add socket_factory argument to ws_connect
-* Formalize exception hierarchy, new exceptions added: WSProtocolError, WSUpgradeFailure
+* Formalize exception hierarchy, new exceptions added: WSProtocolError, WSHandshakeError
 
 1.15.0 (2026-02-22)
 ------------------

@@ -10,7 +10,7 @@ from typing import Callable, Optional, Union, Dict, Any, Awaitable
 from python_socks.async_.asyncio import Proxy
 
 from .types import (WSHeadersLike, WSUpgradeRequest, WSHost, WSPort,
-                    WSUpgradeResponseWithListener, WSUpgradeFailure)
+                    WSUpgradeResponseWithListener, WSHandshakeError)
 from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: ignore [attr-defined]
                      WSProtocol)
 from .url import parse_url, WSInvalidURL, WSParsedURL
@@ -21,7 +21,7 @@ WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgra
 WSSocketFactory = Callable[[WSParsedURL], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
 
 
-def _maybe_handle_redirect(exc: WSUpgradeFailure, old_parsed_url: WSParsedURL, max_redirects: int) -> WSParsedURL:
+def _maybe_handle_redirect(exc: WSHandshakeError, old_parsed_url: WSParsedURL, max_redirects: int) -> WSParsedURL:
     if max_redirects <= 0:
         raise exc
     if exc.response is None:
@@ -32,14 +32,14 @@ def _maybe_handle_redirect(exc: WSUpgradeFailure, old_parsed_url: WSParsedURL, m
     location = exc.response.headers.get("Location")
 
     if location is None:
-        raise WSUpgradeFailure("received redirect HTTP response without Location header",
-                       exc.raw_header, exc.raw_body, exc.response) from exc
+        raise WSHandshakeError("received redirect HTTP response without Location header",
+                               exc.raw_header, exc.raw_body, exc.response) from exc
 
     url = urllib.parse.urljoin(old_parsed_url.url, location)
     parsed_url = parse_url(url)
 
     if old_parsed_url.is_secure and not parsed_url.is_secure:
-        raise WSUpgradeFailure(
+        raise WSHandshakeError(
             f"cannot follow redirect to non-secure URL {parsed_url.url}",
             exc.raw_header, exc.raw_body, exc.response)
 
@@ -171,7 +171,6 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                      max_redirects: int = 5,
                      proxy: Optional[str] = None,
                      read_buffer_init_size: int = 16 * 1024,
-                     zero_copy_unsafe_ssl_write: bool = False,
                      socket_factory: Optional[WSSocketFactory] = None,
                      **kwargs
                      ) -> tuple[WSTransport, WSListener]:
@@ -230,13 +229,6 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
         The buffer grows exponentially when incoming data does not fit.
         Unlike `max_frame_size` (a safety limit), this value affects actual
         memory allocation, so very large values increase baseline memory usage.
-    :param zero_copy_unsafe_ssl_write:
-        Only for TLS (``wss://``) connections: pass outgoing frame data as
-        ``memoryview`` to SSL transport instead of copying to ``bytes`` first.
-        This relies on undocumented SSL transport behavior (immediate full
-        consumption/copy of the provided buffer). It is validated against known
-        asyncio/uvloop versions, but compatibility is not guaranteed for future
-        Python event loop implementations.
     :param socket_factory:
         Optional socket factory. Can be a regular function or coroutine.
         Receive WSParsedURL object as the only argument. Returns pre-created socket.
@@ -255,6 +247,8 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
     assert "all_errors" not in kwargs, "explicit 'all_errors' argument for loop.create_connection is not supported"
     assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), \
         "invalid value of auto_ping_strategy parameter"
+
+    kwargs.pop("zero_copy_unsafe_ssl_write", None)
 
     logger = getLogger(f"picows.{logger_name}")
     parsed_url = parse_url(url)
@@ -286,8 +280,7 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                 enable_auto_pong,
                 max_frame_size,
                 extra_headers,
-                read_buffer_init_size,
-                zero_copy_unsafe_ssl_write
+                read_buffer_init_size
             )
 
         try:
@@ -306,7 +299,7 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
 
             await ws_protocol.wait_until_handshake_complete()
             return ws_protocol.transport, ws_protocol.listener
-        except WSUpgradeFailure as exc:
+        except WSHandshakeError as exc:
             new_parsed_url = _maybe_handle_redirect(exc, parsed_url, max_redirects)
             logger.info("%s replied with HTTP redirect to %s, (status = %s)",
                         parsed_url.url, new_parsed_url.url, exc.response.status) # type: ignore [union-attr]
@@ -328,7 +321,6 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
                            enable_auto_pong: bool = True,
                            max_frame_size: int = 10 * 1024 * 1024,
                            read_buffer_init_size: int = 16 * 1024,
-                           zero_copy_unsafe_ssl_write: bool = False,
                            **kwargs
                            ) -> asyncio.Server:
     """
@@ -394,15 +386,12 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
         Initial size of the internal read buffer. The buffer grows exponentially if new data doesn't fit.
         You may set this to the actual expected maximum frame size but don't push it too much. Contrary to `max_frame_size` which
         is just a safety check, setting big value here will force **picows** to actually allocate the specified amount of memory.
-    :param zero_copy_unsafe_ssl_write:
-        Write a memoryview to the write buffer for SSL connections instead of copying it first into bytes object.
-        This relies on an undocumented feature of SSLTransport.write that guarantees to always
-        copy, process, encrypt the whole data without holding it back.
-        This works for all known asyncio and uvloop versions but may suddenly break in the future.
     :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
 
     assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), "invalid value of auto_ping_strategy parameter"
+
+    kwargs.pop("zero_copy_unsafe_ssl_write", None)
 
     def ws_protocol_factory() -> WSProtocol:
         return WSProtocol(
@@ -418,8 +407,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
             enable_auto_pong,
             max_frame_size,
             None,            # extra_headers,
-            read_buffer_init_size,
-            zero_copy_unsafe_ssl_write
+            read_buffer_init_size
         )
 
     return await asyncio.get_running_loop().create_server(

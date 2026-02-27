@@ -24,7 +24,7 @@ from libc.stdlib cimport rand
 
 from .types import (PICOWS_DEBUG_LL, WSUpgradeRequest, WSUpgradeResponse,
                     WSUpgradeResponseWithListener,
-                    WSUpgradeFailure, WSProtocolError, add_extra_headers)
+                    WSHandshakeError, WSProtocolError, add_extra_headers)
 
 # When picows would like to disconnect peer (due to protocol violation or other failures), CLOSE frame is sent first.
 # Then disconnect is scheduled with a small delay. Otherwise, some old asyncio versions do not transmit CLOSE frame,
@@ -320,7 +320,7 @@ cdef class WSListener:
 
 
 cdef class WSTransport:
-    def __init__(self, bint is_client_side, underlying_transport, logger, loop, bint zero_copy_unsafe_ssl_write):
+    def __init__(self, bint is_client_side, underlying_transport, logger, loop):
         self.underlying_transport = underlying_transport
         self.is_client_side = is_client_side
         self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
@@ -334,7 +334,6 @@ cdef class WSTransport:
         self._loop = loop
         self._logger = logger
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
-        self._zero_copy_unsafe_ssl_write = zero_copy_unsafe_ssl_write
         self._write_buffer = MemoryBuffer(1024)
         self._socket = underlying_transport.get_extra_info('socket').fileno()
 
@@ -391,11 +390,8 @@ cdef class WSTransport:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask)
 
         if self.is_secure:
-            if self._zero_copy_unsafe_ssl_write:
-                self.underlying_transport.write(
-                    PyMemoryView_FromMemory(<char *> header_ptr, total_size, PyBUF_WRITE))
-            else:
-                self.underlying_transport.write(PyBytes_FromStringAndSize(<char*>header_ptr, total_size))
+            self.underlying_transport.write(
+                PyMemoryView_FromMemory(<char *> header_ptr, total_size, PyBUF_WRITE))
         else:
             self._try_native_write_then_transport_write(<char*>header_ptr, total_size)
 
@@ -725,7 +721,6 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         bytes _websocket_key_b64
         Py_ssize_t _max_frame_size
 
-        bint _zero_copy_unsafe_ssl_write
         bint _enable_auto_pong
         bint _enable_auto_ping
         double _auto_ping_idle_timeout
@@ -765,8 +760,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                  enable_auto_pong,
                  max_frame_size,
                  extra_headers,
-                 read_buffer_init_size,
-                 zero_copy_unsafe_ssl_write):
+                 read_buffer_init_size):
         self.transport = None
         self.listener = None
 
@@ -788,8 +782,6 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
         self._websocket_key_b64 = b64encode(os.urandom(16))
         self._max_frame_size = max_frame_size
-
-        self._zero_copy_unsafe_ssl_write = zero_copy_unsafe_ssl_write
 
         self._enable_auto_pong = enable_auto_pong
         self._enable_auto_ping = enable_auto_ping
@@ -855,7 +847,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                               sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
 
 
-        self.transport = WSTransport(self.is_client_side, transport, self._logger, self._loop, self._zero_copy_unsafe_ssl_write)
+        self.transport = WSTransport(self.is_client_side, transport, self._logger, self._loop)
 
         if self.is_client_side:
             self.transport._send_http_handshake(self._ws_path, self._host_port, self._websocket_key_b64, self._extra_headers)
@@ -1215,7 +1207,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
         # check handshake
         if not response_status_line_str.startswith("http/1.1 " ):
-            raise WSUpgradeFailure(f"cannot upgrade, unknown protocol (expected HTTP/1.1) in upgrade response: {response_status_line_str}", raw_headers, tail)
+            raise WSHandshakeError(f"cannot upgrade, unknown protocol (expected HTTP/1.1) in upgrade response: {response_status_line_str}", raw_headers, tail)
 
         cdef bytes status_code
         response = WSUpgradeResponse()
@@ -1230,25 +1222,25 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             response.headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
 
         if response.status != HTTPStatus.SWITCHING_PROTOCOLS:
-            raise WSUpgradeFailure(f"expected upgrade response with status 101 Switching Protocols, but received {response.status}", raw_headers, tail, response)
+            raise WSHandshakeError(f"expected upgrade response with status 101 Switching Protocols, but received {response.status}", raw_headers, tail, response)
 
         if response.headers.get("transfer-encoding") == "chunked":
-            raise WSUpgradeFailure(f"101 response cannot have Transfer-Encoding but it has", raw_headers, tail, response)
+            raise WSHandshakeError(f"101 response cannot have Transfer-Encoding but it has", raw_headers, tail, response)
 
         cdef Py_ssize_t content_length = int(response.headers.get("content-length", "0"))
 
         if content_length != 0:
-            raise WSUpgradeFailure(f"101 response has non-zero Content-Length, but it can't have body", raw_headers, tail, response)
+            raise WSHandshakeError(f"101 response has non-zero Content-Length, but it can't have body", raw_headers, tail, response)
 
         connection_value = response.headers.get("connection")
         connection_value = connection_value if connection_value is None else connection_value.lower()
         if connection_value != "upgrade":
-            raise WSUpgradeFailure(f"cannot upgrade, invalid connection header: {response.headers['connection']}", raw_headers, tail, response)
+            raise WSHandshakeError(f"cannot upgrade, invalid connection header: {response.headers['connection']}", raw_headers, tail, response)
 
         r_key = response.headers.get("sec-websocket-accept")
         match = b64encode(sha1(self._websocket_key_b64 + _WS_KEY).digest()).decode()
         if r_key != match:
-            raise WSUpgradeFailure(f"cannot upgrade, invalid sec-websocket-accept response", raw_headers, tail, response)
+            raise WSHandshakeError(f"cannot upgrade, invalid sec-websocket-accept response", raw_headers, tail, response)
 
         memmove(self._read_buffer.data, self._read_buffer.data + len(raw_headers) + 4, self._read_buffer.size - len(raw_headers) - 4)
         self._f_new_data_start_pos = len(tail)
@@ -1348,7 +1340,10 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 self._state = WSParserState.READ_PAYLOAD
 
             if self._f_payload_length > self._max_frame_size:
-                raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR, f"Frame payload size violates max allowed size {self._f_payload_length} > {self._max_frame_size}")
+                raise WSProtocolError(
+                    WSCloseCode.MESSAGE_TOO_BIG,
+                    f"Frame payload size violates max allowed size "
+                    f"{self._f_payload_length} > {self._max_frame_size}")
 
         # read payload mask
         if self._state == WSParserState.READ_PAYLOAD_MASK:
