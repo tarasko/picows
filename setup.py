@@ -15,6 +15,7 @@ else:
 
 pkg_extensions = [
     Extension("picows.picows", ["picows/picows.pyx"], libraries=libraries),
+    Extension("aiofastnet.socket_transport", ["aiofastnet/socket_transport.pyx"], libraries=libraries),
     Extension("aiofastnet.ssl", ["aiofastnet/ssl.pyx"], libraries=libraries),
     Extension("aiofastnet.sslproto", ["aiofastnet/sslproto.pyx"], libraries=libraries),
     Extension("aiofastnet.sslproto_stdlib", ["aiofastnet/sslproto_stdlib.pyx"], libraries=libraries),
