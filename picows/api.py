@@ -292,6 +292,12 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                 loop, parsed_url, parsed_proxy_url, socket_factory, ssl, conn_kwargs)
 
             if ssl:
+                # We need to remove ssl related parameters from conn_kwargs
+                # and pass the to our own SSLProtocol. If we accidentally pass them
+                # create_connection it will fail because it thinks that
+                # we establish a simple tcp connection
+
+                server_hostname = conn_kwargs.pop('server_hostname', None)
                 ssl_handshake_timeout = conn_kwargs.pop('ssl_handshake_timeout', None)
                 ssl_shutdown_timeout = conn_kwargs.pop('ssl_shutdown_timeout', None)
                 ssl_protocol: SSLProtocol
@@ -301,7 +307,7 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
 
                     return SSLProtocol(ws_protocol, ssl,
                                        False,
-                                       parsed_url.host,
+                                       server_hostname or parsed_url.host,
                                        True,
                                        ssl_handshake_timeout,
                                        ssl_shutdown_timeout
