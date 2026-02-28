@@ -389,11 +389,11 @@ cdef class WSTransport:
         if self.is_client_side:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask)
 
-        # self.underlying_transport.write(
-        #     PyMemoryView_FromMemory(<char *> header_ptr, total_size, PyBUF_WRITE))
-
         self.underlying_transport.write(
-            PyBytes_FromStringAndSize(<char *> header_ptr, total_size))
+            PyMemoryView_FromMemory(<char *> header_ptr, total_size, PyBUF_WRITE))
+
+        # self.underlying_transport.write(
+        #     PyBytes_FromStringAndSize(<char *> header_ptr, total_size))
 
         # if self.is_secure:
         #     self.underlying_transport.write(
