@@ -22,7 +22,7 @@ from libc cimport errno
 from libc.string cimport memmove, memcpy
 from libc.stdlib cimport rand
 
-from aiofastnet.transport cimport Transport
+from aiofastnet.transport cimport Transport, Protocol
 
 from .types import (PICOWS_DEBUG_LL, WSUpgradeRequest, WSUpgradeResponse,
                     WSUpgradeResponseWithListener,
@@ -674,10 +674,6 @@ cdef class WSTransport:
         self.underlying_transport.write(PyBytes_FromStringAndSize(<char *> ptr, sz))
 
 
-cdef class WSProtocolBase:
-    pass
-
-
 # uvloop and asyncio use different checks to detect BufferedProtocol
 #
 # uvloop looks at the presence of get_buffer attribute and check that
@@ -701,7 +697,7 @@ cdef class WSProtocolBase:
 #     )
 
 
-cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
+cdef class WSProtocol(Protocol, asyncio.BufferedProtocol):
     cdef:
         readonly WSTransport transport
         readonly WSListener listener
@@ -921,7 +917,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
     #
     #     self._process_new_data()
 
-    def get_buffer(self, Py_ssize_t size_hint):
+    cpdef get_buffer(self, Py_ssize_t size_hint):
         # size_hint is un-reliable, uvloop provides a fixed value of 65536
         # and asyncio just always pass -1
         # Therefore, ignore it and just implement exponential buffer grow
@@ -941,7 +937,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             self._read_buffer.size - self._f_new_data_start_pos,
             PyBUF_WRITE)
 
-    def buffer_updated(self, Py_ssize_t nbytes):
+    cpdef buffer_updated(self, Py_ssize_t nbytes):
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
                              self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)

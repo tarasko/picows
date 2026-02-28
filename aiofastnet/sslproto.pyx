@@ -10,45 +10,28 @@ from cpython.contextvars cimport (
     PyContext_Exit
 )
 
-from cpython.memoryview cimport (
-    PyMemoryView_FromMemory,
-)
-
 from cpython.buffer cimport (
-    PyObject_GetBuffer,
-    PyBuffer_Release,
     PyBUF_WRITE,
     PyBUF_WRITABLE,
-    PyBUF_SIMPLE
 )
 
 from cpython.bytearray cimport (
     PyByteArray_FromStringAndSize,
-    PyByteArray_GET_SIZE,
     PyByteArray_Resize,
-    PyByteArray_AS_STRING
 )
 
-from cpython.bytes cimport (
-    PyBytes_FromStringAndSize,
-    PyBytes_CheckExact,
-    PyBytes_FromObject,
-    PyBytes_GET_SIZE,
-    PyBytes_AS_STRING
-)
-
+from . import constants
 from .system cimport *
-
 from .ssl cimport *
+from .transport cimport (
+    is_buffered_protocol,
+    call_get_buffer,
+    call_buffer_updated,
+    call_data_received
+)
 
 
 cdef enum:
-    FLOW_CONTROL_HIGH_WATER = 64  # KiB
-    FLOW_CONTROL_HIGH_WATER_SSL_READ = 256  # KiB
-    FLOW_CONTROL_HIGH_WATER_SSL_WRITE = 512  # KiB
-
-    LOG_THRESHOLD_FOR_CONNLOST_WRITES = 5
-
     SSL_READ_DEFAULT_SIZE = 64 * 1024
     SSL_READ_MAX_SIZE = 256 * 1024
 
@@ -222,7 +205,7 @@ cdef class SSLTransport:
         self._ssl_protocol._abort(exc)
 
 
-cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
+cdef class SSLProtocol:
     """SSL protocol.
 
     Implementation of SSL on top of a socket using incoming and outgoing
@@ -290,27 +273,15 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
         self._app_reading_paused = False
 
+    cpdef is_buffered_protocol(self):
+        return True
+
     cpdef set_app_protocol(self, app_protocol):
         self._app_protocol = app_protocol
-        if (hasattr(app_protocol, 'get_buffer') and
-                not isinstance(app_protocol, asyncio.Protocol)):
-            self._app_protocol_get_buffer = app_protocol.get_buffer
-            self._app_protocol_buffer_updated = app_protocol.buffer_updated
-            self._app_protocol_is_buffer = True
-        else:
-            self._app_protocol_is_buffer = False
-            self._app_protocol_data_received = app_protocol.data_received
+        self._app_protocol_is_buffered = is_buffered_protocol(app_protocol)
 
     cpdef get_app_protocol(self):
         return self._app_protocol
-
-    cdef _wakeup_waiter(self, exc=None):
-        if (self._ssl_handshake_complete_waiter is not None and
-                not self._ssl_handshake_complete_waiter.done()):
-            if exc is not None:
-                self._ssl_handshake_complete_waiter.set_exception(exc)
-            else:
-                self._ssl_handshake_complete_waiter.set_result(None)
 
     cpdef get_app_transport(self, context=None):
         if self._app_transport is None:
@@ -360,9 +331,6 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         # will fail.
         self._app_transport = None
         self._app_protocol = None
-        self._app_protocol_get_buffer = None
-        self._app_protocol_data_received = None
-        self._app_protocol_buffer_updated = None
         self._wakeup_waiter(exc)
 
         if self._shutdown_timeout_handle:
@@ -372,7 +340,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             self._handshake_timeout_handle.cancel()
             self._handshake_timeout_handle = None
 
-    def get_buffer(self, Py_ssize_t n):
+    cpdef get_buffer(self, Py_ssize_t n):
         if n < 0:
             n = 256*1024
 
@@ -386,7 +354,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
         return PyMemoryView_FromMemory(buf, buf_size, PyBUF_WRITE)
 
-    def buffer_updated(self, Py_ssize_t nbytes):
+    cpdef buffer_updated(self, Py_ssize_t nbytes):
         cdef int bytes_written = BIO_write(
                 self._ssl_connection.incoming,
                 PyByteArray_AS_STRING(self._tcp_read_buffer),
@@ -439,6 +407,14 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         except Exception:
             self._transport.close()
             raise
+
+    cdef _wakeup_waiter(self, exc=None):
+        if (self._ssl_handshake_complete_waiter is not None and
+                not self._ssl_handshake_complete_waiter.done()):
+            if exc is not None:
+                self._ssl_handshake_complete_waiter.set_exception(exc)
+            else:
+                self._ssl_handshake_complete_waiter.set_result(None)
 
     cdef _get_extra_info(self, name, default=None):
         if name == "ssl_object":
@@ -601,8 +577,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         If close_notify is received for the first time, call eof_received.
         """
         cdef:
-            bytearray buffer = PyByteArray_FromStringAndSize(
-                NULL, SSL_READ_DEFAULT_SIZE)
+            bytearray buffer = PyByteArray_FromStringAndSize(NULL, 16*1024)
             size_t bytes_read
             int rc = 1
         while rc == 1:
@@ -729,7 +704,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
     cdef bint _is_protocol_ready(self) except -1:
         if self._state in (FLUSHING, SHUTDOWN, UNWRAPPED):
-            if self._conn_lost >= LOG_THRESHOLD_FOR_CONNLOST_WRITES:
+            if self._conn_lost >= constants.LOG_THRESHOLD_FOR_CONNLOST_WRITES:
                 aio_logger.warning('SSL connection is closed')
             self._conn_lost += 1
             return False
@@ -800,23 +775,25 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
         raise self._ssl_connection.make_exc_from_ssl_error("SSL_write_ex failed", ssl_error)
 
+    cdef _process_outgoing_backup(self):
+        pass
+
     cdef _process_outgoing(self):
-        """Send bytes from the outgoing BIO."""
-        cdef int pending = bio_pending(self._ssl_connection.outgoing)
-        if pending == 0:
-            return None
+        # Don't call BIO_read as it needs some destination and copy memory.
+        # Instead, get pointer to the data and data length, forward it to the
+        # transport. Transport will copy it anyway if it can't be sent
+        # immediately.
+        #
+        # Use BIO_seek instead of BIO_reset as it is more efficient.
 
-        # Hypothetically, it is possible to avoid copying if we implement or our
-        # BIO method.
-        cdef bytes data = PyBytes_FromStringAndSize(NULL, pending)
+        cdef char* ptr
+        cdef long sz = BIO_get_mem_data(self._ssl_connection.outgoing, &ptr)
+        if sz <= 0:
+            return
 
-        cdef int bytes_read = BIO_read(self._ssl_connection.outgoing, PyBytes_AS_STRING(data), pending)
-        if bytes_read <= 0:
-            raise ssl.SSLError(f"outgoing BIO: BIO_read failed, rc={bytes_read}")
-
-        data = aiofn_shrink_bytes(data, bytes_read)
-        self._transport.write(data)
-
+        self._transport.write_mem(ptr, sz)
+        if BIO_seek(self._ssl_connection.outgoing, sz) == -1:
+            raise RuntimeError("BIO_seek(outgoing) failed")
 
     # Incoming flow
 
@@ -825,7 +802,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             return
         try:
             if not self._app_reading_paused:
-                if self._app_protocol_is_buffer:
+                if self._app_protocol_is_buffered:
                     self._do_read__buffered()
                 else:
                     self._do_read__copied()
@@ -837,7 +814,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
     cdef _do_read__buffered(self):
         cdef:
-            object app_buffer = self._app_protocol_get_buffer(-1)
+            object app_buffer = call_get_buffer(self._app_protocol, -1)
             Py_ssize_t app_buffer_size = len(app_buffer)
 
         if app_buffer_size == 0:
@@ -870,7 +847,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         cdef int last_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
 
         if total_bytes_read > 0:
-            self._app_protocol_buffer_updated(total_bytes_read)
+            call_buffer_updated(self._app_protocol, total_bytes_read)
 
         if buf_len == 0:
             self._loop.call_soon(self._do_read)
@@ -918,9 +895,9 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         cdef int last_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
 
         if data is not None:
-            self._app_protocol_data_received(b''.join(data))
+            call_data_received(self._app_protocol, b''.join(data))
         elif first_chunk is not None:
-            self._app_protocol_data_received(first_chunk)
+            call_data_received(self._app_protocol, first_chunk)
 
         if last_error in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
             return

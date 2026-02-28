@@ -56,6 +56,52 @@ cdef class Transport:
         raise NotImplemented
 
 
+cdef class Protocol:
+    cpdef is_buffered_protocol(self):
+        return None
+
+    cpdef get_buffer(self, Py_ssize_t hint):
+        raise NotImplemented
+
+    cpdef buffer_updated(self, Py_ssize_t bytes_read):
+        raise NotImplemented
+
+    cpdef data_received(self, data):
+        raise NotImplemented
+
+
+cpdef is_buffered_protocol(protocol):
+    try:
+        ret = getattr(protocol, 'is_buffered_protocol')()
+        if ret is not None:
+            return ret
+    except AttributeError:
+        pass
+
+    return isinstance(protocol, BufferedProtocol)
+
+
+cdef call_get_buffer(protocol, Py_ssize_t hint):
+    if isinstance(protocol, Protocol):
+        return (<Protocol>protocol).get_buffer(hint)
+    else:
+        return protocol.get_buffer(hint)
+
+
+cdef call_buffer_updated(protocol, Py_ssize_t bytes_read):
+    if isinstance(protocol, Protocol):
+        return (<Protocol>protocol).buffer_updated(bytes_read)
+    else:
+        return protocol.buffer_updated(bytes_read)
+
+
+cdef call_data_received(protocol, data):
+    if isinstance(protocol, Protocol):
+        return (<Protocol>protocol).data_received(data)
+    else:
+        return protocol.data_received(data)
+
+
 cdef class SelectorSocketTransport(Transport):
     cdef:
         object __weakref__
@@ -146,7 +192,7 @@ cdef class SelectorSocketTransport(Transport):
 
     cpdef set_protocol(self, protocol):
         self._protocol = protocol
-        self._protocol_buffered = isinstance(protocol, BufferedProtocol)
+        self._protocol_buffered = is_buffered_protocol(protocol)
         self._protocol_connected = True
 
     cpdef get_protocol(self):
@@ -224,7 +270,7 @@ cdef class SelectorSocketTransport(Transport):
                 return
 
             try:
-                buf = self._protocol.get_buffer(-1)
+                buf = call_get_buffer(self._protocol, -1)
                 if not len(buf):
                     raise RuntimeError('get_buffer() returned an empty buffer')
             except (SystemExit, KeyboardInterrupt):
@@ -256,7 +302,7 @@ cdef class SelectorSocketTransport(Transport):
                 return
 
             try:
-                self._protocol.buffer_updated(bytes_read)
+                call_buffer_updated(self._protocol, bytes_read)
             except (SystemExit, KeyboardInterrupt):
                 raise
             except BaseException as exc:
@@ -281,7 +327,7 @@ cdef class SelectorSocketTransport(Transport):
             return
 
         try:
-            self._protocol.data_received(data)
+            call_data_received(self._protocol, data)
         except (SystemExit, KeyboardInterrupt):
             raise
         except BaseException as exc:

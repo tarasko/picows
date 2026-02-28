@@ -11,6 +11,11 @@ cdef extern from "openssl/ssl.h" nogil:
     ctypedef struct BIO:
         pass
 
+    ctypedef struct BUF_MEM:
+        size_t length   # current number of bytes
+        char *data
+        size_t max      # size of buffer
+
     ctypedef struct X509:
         pass
 
@@ -39,6 +44,9 @@ cdef extern from "openssl/ssl.h" nogil:
         SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER
         SSL_MODE_AUTO_RETRY
 
+    enum:
+        BIO_FLAGS_NONCLEAR_RST
+
     const BIO_METHOD *BIO_s_mem()
 
     int SSL_CTX_get_verify_mode(const SSL_CTX *ctx)
@@ -49,7 +57,11 @@ cdef extern from "openssl/ssl.h" nogil:
     int BIO_write(BIO *b, const void *data, int dlen)
     int BIO_pending(BIO *b)
     long BIO_set_nbio(BIO *b, long n)
+    int BIO_seek(BIO *b, int ofs)
     long BIO_get_mem_data(BIO *b, char** pp)
+    void BIO_get_mem_ptr(BIO *b, BUF_MEM** pp)
+    void BIO_set_flags(BIO *b, int flags)
+    int BIO_reset(BIO *b)
 
     SSL *SSL_new(SSL_CTX *ctx)
     void SSL_free(SSL *ssl)

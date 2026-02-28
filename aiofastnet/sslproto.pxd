@@ -1,5 +1,5 @@
 from .ssl cimport SSLConnection
-from .transport cimport Transport
+from .transport cimport Transport, Protocol
 
 
 cpdef enum SSLProtocolState:
@@ -34,11 +34,7 @@ cdef class SSLTransport(Transport):
         object context
 
 
-cdef class SSLProtocolBase:
-    pass
-
-
-cdef class SSLProtocol(SSLProtocolBase):
+cdef class SSLProtocol(Protocol):
     cdef:
         bint _server_side
         str _server_hostname
@@ -51,7 +47,7 @@ cdef class SSLProtocol(SSLProtocolBase):
         object _loop
         SSLTransport _app_transport
 
-        object _transport
+        Transport _transport
         object _ssl_handshake_timeout
         object _ssl_shutdown_timeout
         object _ssl_handshake_complete_waiter
@@ -66,10 +62,7 @@ cdef class SSLProtocol(SSLProtocolBase):
         bint _app_reading_paused
 
         object _app_protocol
-        bint _app_protocol_is_buffer
-        object _app_protocol_get_buffer
-        object _app_protocol_buffer_updated
-        object _app_protocol_data_received
+        bint _app_protocol_is_buffered
 
         object _handshake_start_time
         object _handshake_timeout_handle
@@ -114,6 +107,7 @@ cdef class SSLProtocol(SSLProtocolBase):
     cdef inline _flush_write_backlog(self)
     cdef inline _do_write(self)
     cdef inline _process_outgoing(self)
+    cdef inline _process_outgoing_backup(self)
 
     # Incoming flow
 
