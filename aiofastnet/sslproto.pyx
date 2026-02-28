@@ -37,6 +37,8 @@ from cpython.bytes cimport (
     PyBytes_AS_STRING
 )
 
+from .system cimport *
+
 from aiofastnet.ssl cimport *
 
 
@@ -748,7 +750,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
         while idx < len(self._write_backlog):
             data = self._write_backlog[idx]
-            unpack_bytes_like(data, &data_ptr, &data_len)
+            aiofn_unpack_buffer(data, &data_ptr, &data_len)
             while data_len > 0:
                 rc = SSL_write_ex(self._ssl_connection.ssl_object, data_ptr, data_len, &bytes_written)
                 if not rc:
@@ -799,7 +801,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         if bytes_read <= 0:
             raise ssl.SSLError(f"outgoing BIO: BIO_read failed, rc={bytes_read}")
 
-        data = shrink_bytes(data, bytes_read)
+        data = aiofn_shrink_bytes(data, bytes_read)
         self._transport.write(data)
 
 
@@ -891,7 +893,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             if not rc:
                 break
 
-            curr_chunk = shrink_bytes(curr_chunk, bytes_read)
+            curr_chunk = aiofn_shrink_bytes(curr_chunk, bytes_read)
 
             if first_chunk is None:
                 first_chunk = curr_chunk

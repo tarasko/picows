@@ -389,11 +389,14 @@ cdef class WSTransport:
         if self.is_client_side:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask)
 
-        if self.is_secure:
-            self.underlying_transport.write(
-                PyMemoryView_FromMemory(<char *> header_ptr, total_size, PyBUF_WRITE))
-        else:
-            self._try_native_write_then_transport_write(<char*>header_ptr, total_size)
+        self.underlying_transport.write(
+            PyMemoryView_FromMemory(<char *> header_ptr, total_size, PyBUF_WRITE))
+
+        # if self.is_secure:
+        #     self.underlying_transport.write(
+        #         PyMemoryView_FromMemory(<char *> header_ptr, total_size, PyBUF_WRITE))
+        # else:
+        #     self._try_native_write_then_transport_write(<char*>header_ptr, total_size)
 
         if msg_type == WSMsgType.CLOSE:
             self.is_close_frame_sent = True

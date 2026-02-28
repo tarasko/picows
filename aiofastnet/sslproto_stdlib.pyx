@@ -339,7 +339,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             else:
                 self._ssl_handshake_complete_waiter.set_result(None)
 
-    def _get_app_transport(self, context=None):
+    cpdef get_app_transport(self, context=None):
         if self._app_transport is None:
             self._app_transport = SSLTransport(self._loop, self, context)
         return self._app_transport
@@ -584,7 +584,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
                            ssl_object=sslobj)
         if self._app_state == STATE_INIT:
             self._app_state = STATE_CON_MADE
-            self._app_protocol.connection_made(self._get_app_transport())
+            self._app_protocol.connection_made(self.get_app_transport())
         self._wakeup_waiter()
 
         # We should wakeup user code before sending the first data below. In

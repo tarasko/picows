@@ -239,26 +239,6 @@ cdef make_exc_from_last_error(str descr, server_hostname=None, SSL* ssl_object=N
     return exc
 
 
-cdef unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* msg_size_out):
-    cdef Py_buffer msg_buffer
-
-    if PyBytes_CheckExact(bytes_like_obj):
-        msg_ptr_out[0] = PyBytes_AS_STRING(bytes_like_obj)
-        msg_size_out[0] = PyBytes_GET_SIZE(bytes_like_obj)
-    elif PyByteArray_CheckExact(bytes_like_obj):
-        msg_ptr_out[0] = PyByteArray_AS_STRING(bytes_like_obj)
-        msg_size_out[0] = PyByteArray_GET_SIZE(bytes_like_obj)
-    elif bytes_like_obj is None:
-        msg_ptr_out[0] = NULL
-        msg_size_out[0] = 0
-    else:
-        PyObject_GetBuffer(bytes_like_obj, &msg_buffer, PyBUF_SIMPLE)
-        msg_ptr_out[0] = <char*>msg_buffer.buf
-        msg_size_out[0] = msg_buffer.len
-        # We can already release because we still keep the reference to the message
-        PyBuffer_Release(&msg_buffer)
-
-
 cdef Py_ssize_t bio_pending(BIO* bio):
     cdef int pending = BIO_pending(bio)
     if pending < 0:
@@ -266,11 +246,5 @@ cdef Py_ssize_t bio_pending(BIO* bio):
     return pending
 
 
-cdef bytes shrink_bytes(bytes obj, Py_ssize_t new_size):
-    cdef PyObject* raw = <PyObject*>obj
-    Py_INCREF(obj)
-    _PyBytes_Resize(&raw, new_size)
-    cdef bytes maybe_new_obj = <bytes>raw
-    Py_DECREF(obj)
-    return maybe_new_obj
+
 
