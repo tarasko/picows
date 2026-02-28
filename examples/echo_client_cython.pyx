@@ -16,11 +16,13 @@ _logger = logging.getLogger("echo_client")
 cdef class ClientListenerCython(WSListener):
     cdef:
         double _start_ts
+        double _duration
         bytes _msg
         int _cnt
 
-    def __init__(self, msg_size):
+    def __init__(self, msg_size, duration):
         self._start_ts = time()
+        self._duration = duration
         self._msg = b"T" * msg_size
         self._cnt = 0
 
@@ -29,7 +31,7 @@ cdef class ClientListenerCython(WSListener):
 
     cpdef on_ws_frame(self, WSTransport transport, WSFrame frame):
         self._cnt += 1
-        if <double>time() - self._start_ts < 10.0:
+        if <double>time() - self._start_ts < self._duration:
             transport.send(WSMsgType.TEXT, self._msg)
         else:
             _logger.info(f"Total {self._cnt} echo request-replies executed")

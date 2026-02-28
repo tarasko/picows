@@ -1,4 +1,5 @@
-from aiofastnet.ssl cimport SSLConnection
+from .ssl cimport SSLConnection
+from .transport cimport Transport
 
 
 cpdef enum SSLProtocolState:
@@ -25,7 +26,7 @@ cdef enum AppProtocolState:
     STATE_CON_LOST = 3
 
 
-cdef class SSLTransport:
+cdef class SSLTransport(Transport):
     cdef:
         object _loop
         SSLProtocol _ssl_protocol
@@ -104,12 +105,13 @@ cdef class SSLProtocol(SSLProtocolBase):
 
     # Outgoing flow
 
-    cdef inline write(self, data, context)
-    cdef inline writelines(self, data, context)
+    cdef inline write(self, data)
+    cdef inline writelines(self, data)
+    cdef inline write_mem(self, char* ptr, Py_ssize_t sz)
 
     cdef inline bint _is_protocol_ready(self) except -1
     cdef inline _check_and_enqueue_appdata(self, data)
-    cdef inline _flush_write_backlog(self, object context)
+    cdef inline _flush_write_backlog(self)
     cdef inline _do_write(self)
     cdef inline _process_outgoing(self)
 

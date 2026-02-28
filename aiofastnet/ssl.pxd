@@ -49,6 +49,7 @@ cdef extern from "openssl/ssl.h" nogil:
     int BIO_write(BIO *b, const void *data, int dlen)
     int BIO_pending(BIO *b)
     long BIO_set_nbio(BIO *b, long n)
+    long BIO_get_mem_data(BIO *b, char** pp)
 
     SSL *SSL_new(SSL_CTX *ctx)
     void SSL_free(SSL *ssl)

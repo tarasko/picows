@@ -18,7 +18,7 @@ extra_compile_args = []
 pkg_extensions = [
     Extension("picows.picows", ["picows/picows.pyx"],
               libraries=libraries, extra_compile_args=extra_compile_args),
-    Extension("aiofastnet.socket_transport", ["aiofastnet/socket_transport.pyx"],
+    Extension("aiofastnet.transport", ["aiofastnet/transport.pyx"],
               libraries=libraries, extra_compile_args=extra_compile_args),
     Extension("aiofastnet.ssl", ["aiofastnet/ssl.pyx"],
               libraries=libraries, extra_compile_args=extra_compile_args),

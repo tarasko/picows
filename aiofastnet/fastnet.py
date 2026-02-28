@@ -16,7 +16,7 @@ from logging import getLogger
 
 from . import constants
 from .sslproto import SSLProtocol
-from .socket_transport import SelectorSocketTransport
+from .transport import SelectorSocketTransport
 from asyncio.trsock import TransportSocket
 
 _HAS_IPv6 = hasattr(socket, 'AF_INET6')

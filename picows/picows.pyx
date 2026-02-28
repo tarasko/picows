@@ -22,6 +22,8 @@ from libc cimport errno
 from libc.string cimport memmove, memcpy
 from libc.stdlib cimport rand
 
+from aiofastnet.transport cimport Transport
+
 from .types import (PICOWS_DEBUG_LL, WSUpgradeRequest, WSUpgradeResponse,
                     WSUpgradeResponseWithListener,
                     WSHandshakeError, WSProtocolError, add_extra_headers)
@@ -389,17 +391,13 @@ cdef class WSTransport:
         if self.is_client_side:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask)
 
-        self.underlying_transport.write(
-            PyMemoryView_FromMemory(<char *> header_ptr, total_size, PyBUF_WRITE))
-
-        # self.underlying_transport.write(
-        #     PyBytes_FromStringAndSize(<char *> header_ptr, total_size))
-
-        # if self.is_secure:
-        #     self.underlying_transport.write(
-        #         PyMemoryView_FromMemory(<char *> header_ptr, total_size, PyBUF_WRITE))
-        # else:
-        #     self._try_native_write_then_transport_write(<char*>header_ptr, total_size)
+        if isinstance(self.underlying_transport, Transport):
+            (<Transport>self.underlying_transport).write_mem(<char*>header_ptr, total_size)
+        elif self.is_secure:
+            self.underlying_transport.write(
+                PyBytes_FromStringAndSize(<char *>header_ptr, total_size))
+        else:
+            self._try_native_write_then_transport_write(<char*>header_ptr, total_size)
 
         if msg_type == WSMsgType.CLOSE:
             self.is_close_frame_sent = True

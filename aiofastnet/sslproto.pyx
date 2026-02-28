@@ -39,7 +39,7 @@ from cpython.bytes cimport (
 
 from .system cimport *
 
-from aiofastnet.ssl cimport *
+from .ssl cimport *
 
 
 cdef enum:
@@ -178,13 +178,16 @@ cdef class SSLTransport:
         """Return the current size of the write buffers."""
         return self._ssl_protocol._get_write_buffer_size()
 
-    def write(self, data):
+    cpdef write(self, data):
         """Write some data bytes to the transport.
 
         This does not block; it buffers the data and arranges for it
         to be sent out asynchronously.
         """
-        self._ssl_protocol.write(data, None)
+        self._ssl_protocol.write(data)
+
+    cdef write_mem(self, char* ptr, Py_ssize_t sz):
+        self._ssl_protocol.write_mem(ptr, sz)
 
     def writelines(self, list_of_data):
         """Write a list (or any iterable) of data bytes to the transport.
@@ -192,7 +195,7 @@ cdef class SSLTransport:
         The default implementation concatenates the arguments and
         calls write() on the result.
         """
-        self._ssl_protocol.writelines(list_of_data, PyContext_Copy(self.context))
+        self._ssl_protocol.writelines(list_of_data)
 
     def write_eof(self):
         """Close the write end after flushing buffered data.
@@ -681,7 +684,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
     # Outgoing flow
 
-    cdef write(self, data, context):
+    cdef write(self, data):
         """Write some data bytes to the transport.
 
         This does not block; it buffers the data and arranges for it
@@ -690,9 +693,20 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         if not self._is_protocol_ready():
             return
         self._check_and_enqueue_appdata(data)
-        self._flush_write_backlog(context)
+        self._flush_write_backlog()
 
-    cdef writelines(self, list_of_data, context):
+    cdef write_mem(self, char* ptr, Py_ssize_t sz):
+        if not self._is_protocol_ready():
+            return
+
+        if sz == 0:
+            return
+
+        data = PyMemoryView_FromMemory(ptr, sz, PyBUF_READ)
+        self._write_backlog.append(data)
+        self._flush_write_backlog()
+
+    cdef writelines(self, list_of_data):
         """Write a list (or any iterable) of data bytes to the transport.
 
         The default implementation concatenates the arguments and
@@ -711,7 +725,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
             del self._write_backlog[backlog_len_before:]
             raise
 
-        self._flush_write_backlog(context)
+        self._flush_write_backlog()
 
     cdef bint _is_protocol_ready(self) except -1:
         if self._state in (FLUSHING, SHUTDOWN, UNWRAPPED):
@@ -731,7 +745,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
         self._write_backlog.append(data)
 
-    cdef _flush_write_backlog(self, object context):
+    cdef _flush_write_backlog(self):
         try:
             if self._state == WRAPPED and self._write_backlog:
                 self._do_write()
@@ -743,7 +757,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
     cdef _do_write(self):
         """Do SSL write, consumes write backlog and fills outgoing BIO."""
         cdef char* data_ptr = NULL
-        cdef Py_ssize_t data_len
+        cdef Py_ssize_t data_len, data_len_init
         cdef size_t bytes_written
         cdef Py_ssize_t idx = 0
         cdef int rc = 1
@@ -751,6 +765,7 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         while idx < len(self._write_backlog):
             data = self._write_backlog[idx]
             aiofn_unpack_buffer(data, &data_ptr, &data_len)
+            data_len_init = data_len
             while data_len > 0:
                 rc = SSL_write_ex(self._ssl_connection.ssl_object, data_ptr, data_len, &bytes_written)
                 if not rc:
@@ -776,11 +791,9 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
         # because of re-negotiation. In such case we need to materialize
         # all objects in write_backlog. There could be memoryviews or bytearrays
         # containing high-level protocol write buffer.
-        self._write_backlog[idx] = PyBytes_FromStringAndSize(data_ptr, data_len)
+        self._write_backlog[idx] = aiofn_maybe_copy_buffer_tail(data, data_ptr, data_len)
         for k in range(idx + 1, len(self._write_backlog)):
-            data = self._write_backlog[k]
-            if not PyBytes_CheckExact(data):
-                self._write_backlog[k] = PyBytes_FromObject(data)
+            self._write_backlog[k] = aiofn_maybe_copy_buffer(self._write_backlog[k])
 
         if ssl_error in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
             return

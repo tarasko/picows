@@ -4,7 +4,7 @@ import socket
 import warnings
 from itertools import islice
 from asyncio.trsock import TransportSocket
-from asyncio import BufferedProtocol, Transport
+from asyncio import BufferedProtocol
 from logging import getLogger
 
 from .system cimport *
@@ -23,9 +23,6 @@ cdef _logger = getLogger('fastnet')
 cdef bint _HAS_SENDMSG = _get_has_sendmsg()
 cdef Py_ssize_t _SC_IOV_MAX = os.sysconf('SC_IOV_MAX') if _HAS_SENDMSG else 0
 
-
-cpdef object test(object buffer, Py_ssize_t tail_pos):
-    return aiofn_maybe_copy_buffer_tail(buffer, tail_pos)
 
 cdef _get_has_sendmsg():
     if hasattr(socket.socket, 'sendmsg'):
@@ -51,7 +48,15 @@ cdef _set_nodelay(sock):
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
 
-cdef class SelectorSocketTransport:
+cdef class Transport:
+    cpdef write(self, data):
+        raise NotImplemented
+
+    cdef write_mem(self, char* ptr, Py_ssize_t sz):
+        raise NotImplemented
+
+
+cdef class SelectorSocketTransport(Transport):
     cdef:
         object __weakref__
         object _loop
@@ -327,43 +332,72 @@ cdef class SelectorSocketTransport:
             Py_ssize_t bytes_sent
 
         if not self._buffer:
-            # Optimization: try to send now.
             aiofn_unpack_buffer(data, &data_ptr, &data_len)
-            data_len_init = data_len
-            while True:
-                try:
-                    bytes_sent = aiofn_send(self._sock_fd, data_ptr, data_len)
-                except (BlockingIOError, InterruptedError):
-                    pass
-                except (SystemExit, KeyboardInterrupt):
-                    raise
-                except BaseException as exc:
-                    self._fatal_error(exc, 'Fatal write error on socket transport')
-                    return
-                else:
-                    if bytes_sent == data_len:
-                        return
-
-                    if bytes_sent == -1:
-                        data = aiofn_maybe_copy_buffer_tail(data, data_len_init - data_len)
-                        break
-
-                    data_ptr += bytes_sent
-                    data_len -= bytes_sent
-
-                    # if _send_again_after_partial_send is True, retry send
-                    # until EAGAIN
-                    if not self._send_again_after_partial_send:
-                        data = aiofn_maybe_copy_buffer_tail(data, data_len_init - data_len)
-                        break
+            data = self._write_now(data, data_ptr, data_len)
+            if data is None:
+                return
 
             # Not all was written; register write handler.
             self._loop.add_writer(self._sock_fd, self._write_ready)
         else:
-            data = aiofn_maybe_copy_buffer_tail(data, 0)
+            data = aiofn_maybe_copy_buffer(data)
 
         self._buffer.append(data)
         self._maybe_pause_protocol()
+
+    cdef write_mem(self, char* ptr, Py_ssize_t sz):
+        if sz <= 0:
+            return
+
+        if self._conn_lost:
+            if self._conn_lost >= constants.LOG_THRESHOLD_FOR_CONNLOST_WRITES:
+                _logger.warning('socket.send() raised exception.')
+            self._conn_lost += 1
+            return
+
+        if not self._buffer:
+            data = self._write_now(None, ptr, sz)
+            if data is None:
+                return
+
+            # Not all was written; register write handler.
+            self._loop.add_writer(self._sock_fd, self._write_ready)
+        else:
+            data = PyBytes_FromStringAndSize(ptr, sz)
+
+        self._buffer.append(data)
+        self._maybe_pause_protocol()
+
+    cdef inline _write_now(self, object data, char* data_ptr, Py_ssize_t data_len):
+        """
+        Returns None if all data has been sent, or remaining data
+        """
+        cdef Py_ssize_t bytes_sent
+
+        while True:
+            try:
+                bytes_sent = aiofn_send(self._sock_fd, data_ptr, data_len)
+            except (BlockingIOError, InterruptedError):
+                pass
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except BaseException as exc:
+                self._fatal_error(exc, 'Fatal write error on socket transport')
+                return
+            else:
+                if bytes_sent == data_len:
+                    return None
+
+                if bytes_sent == -1:
+                    return aiofn_maybe_copy_buffer_tail(data, data_ptr, data_len)
+
+                data_ptr += bytes_sent
+                data_len -= bytes_sent
+
+                # if _send_again_after_partial_send is True, retry send
+                # until EAGAIN
+                if not self._send_again_after_partial_send:
+                    return aiofn_maybe_copy_buffer_tail(data, data_ptr, data_len)
 
     cdef inline _get_sendmsg_buffer(self):
         return islice(self._buffer, _SC_IOV_MAX)

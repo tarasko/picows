@@ -78,16 +78,16 @@ async def main(url):
         _logger.info(f"Total messages sent: {total_batches*3}")
 
         for i in range(total_batches * 3):
-#            async with async_timeout.timeout(0.5):
-            frame = await client.get_message_no_timeout()
-            if i % 3 == 0:
-                assert frame.payload_as_bytes == msg1
-            elif i % 3 == 1:
-                assert frame.payload_as_bytes == msg2
-            else:
-                assert frame.payload_as_bytes == msg3
-            if i % 10 == 0:
-                _logger.info(f"Message #{i} received")
+            async with async_timeout.timeout(0.5):
+                frame = await client.get_message()
+                if i % 3 == 0:
+                    assert frame.payload_as_bytes == msg1
+                elif i % 3 == 1:
+                    assert frame.payload_as_bytes == msg2
+                else:
+                    assert frame.payload_as_bytes == msg3
+                if i % 100 == 0:
+                    _logger.info(f"Message #{i} received")
 
         _logger.info("Successfully read all batches")
         transport.disconnect()
