@@ -38,7 +38,7 @@ Issues = "https://github.com/tarasko/picows/issues"
 Documentation = "https://picows.readthedocs.io/en/latest"
 
 [tool.setuptools]
-packages = ["picows"]
+packages = ["picows", "aiofastnet"]
 
 [tool.setuptools.dynamic]
 version = {attr = "picows.__version__"}

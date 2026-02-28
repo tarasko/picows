@@ -2,6 +2,7 @@ graft examples
 graft tests
 
 recursive-include picows *.pxd *.pyx
+recursive-include aiofastnet *.pxd *.pyx
 recursive-include examples *.pyx
 
 global-exclude *.c *.py[cod] __pycache__ *.so *.pyd *.dll *.dylib *.html
