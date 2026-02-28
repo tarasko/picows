@@ -292,7 +292,8 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                 loop, parsed_url, parsed_proxy_url, socket_factory, ssl, conn_kwargs)
 
             (_, ws_protocol) = await create_connection(
-                loop, ws_protocol_factory,
+                loop,
+                ws_protocol_factory,
                 conn_socket.host,  # type: ignore[arg-type]
                 conn_socket.port,  # type: ignore[arg-type]
                 ssl=ssl,

@@ -13,12 +13,19 @@ if os.name == 'nt':
 else:
     libraries = ["ssl", "crypto"]
 
+extra_compile_args = []
+
 pkg_extensions = [
-    Extension("picows.picows", ["picows/picows.pyx"], libraries=libraries),
-    Extension("aiofastnet.socket_transport", ["aiofastnet/socket_transport.pyx"], libraries=libraries),
-    Extension("aiofastnet.ssl", ["aiofastnet/ssl.pyx"], libraries=libraries),
-    Extension("aiofastnet.sslproto", ["aiofastnet/sslproto.pyx"], libraries=libraries),
-    Extension("aiofastnet.sslproto_stdlib", ["aiofastnet/sslproto_stdlib.pyx"], libraries=libraries),
+    Extension("picows.picows", ["picows/picows.pyx"],
+              libraries=libraries, extra_compile_args=extra_compile_args),
+    Extension("aiofastnet.socket_transport", ["aiofastnet/socket_transport.pyx"],
+              libraries=libraries, extra_compile_args=extra_compile_args),
+    Extension("aiofastnet.ssl", ["aiofastnet/ssl.pyx"],
+              libraries=libraries, extra_compile_args=extra_compile_args),
+    Extension("aiofastnet.sslproto", ["aiofastnet/sslproto.pyx"],
+              libraries=libraries, extra_compile_args=extra_compile_args),
+    Extension("aiofastnet.sslproto_stdlib", ["aiofastnet/sslproto_stdlib.pyx"],
+              libraries=libraries, extra_compile_args=extra_compile_args),
 ]
 
 example_extensions = [

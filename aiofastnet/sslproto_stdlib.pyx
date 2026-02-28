@@ -71,28 +71,6 @@ cdef inline _run_in_context(context, method):
         PyContext_Exit(context)
 
 
-cdef inline _add_flowcontrol_defaults(high, low, int kb):
-    cdef int h, l
-    if high is None:
-        if low is None:
-            h = kb * 1024
-        else:
-            l = low
-            h = 4 * l
-    else:
-        h = high
-    if low is None:
-        l = h // 4
-    else:
-        l = low
-
-    if not h >= l >= 0:
-        raise ValueError('high (%r) must be >= low (%r) must be >= 0' %
-                         (h, l))
-
-    return h, l
-
-
 cdef inline _create_transport_context(server_side, server_hostname):
     if server_side:
         raise ValueError('Server side SSL needs a valid SSLContext')
@@ -475,6 +453,9 @@ cdef class SSLProtocol(SSLProtocolBase, asyncio.BufferedProtocol):
 
     cdef _set_state(self, SSLProtocolState new_state):
         cdef bint allowed = False
+
+        if self._loop.get_debug():
+            aio_logger.debug("Set new state: %s", SSLProtocolState(new_state).name)
 
         if new_state == UNWRAPPED:
             allowed = True

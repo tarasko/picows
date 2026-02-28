@@ -212,7 +212,8 @@ cdef make_exc_from_last_error(str descr, server_hostname=None, SSL* ssl_object=N
         log_ssl_error_queue(logger)
 
     lib_name = _lib_to_name.get(lib, "UNKNOWN")
-    reason_name = PyUnicode_FromString(ERR_reason_error_string(last_error))
+    cdef const char* reason_ptr = ERR_reason_error_string(last_error)
+    reason_name = PyUnicode_FromString(reason_ptr) if reason_ptr != NULL else ""
     reason_name = reason_name.upper().replace(" ", "_")
 
     if reason == SSL_R_CERTIFICATE_VERIFY_FAILED:

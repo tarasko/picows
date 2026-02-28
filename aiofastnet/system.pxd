@@ -61,6 +61,7 @@ cdef extern from * nogil:
 #else
     #include <sys/types.h>
     #include <sys/socket.h>
+    #include <sys/uio.h>
 
     #define AIOFN_EAGAIN EAGAIN
     #ifdef EWOULDBLOCK
@@ -87,6 +88,12 @@ cdef extern from * nogil:
 
     ssize_t recv(int sockfd, void* buf, size_t len, int flags)
     ssize_t send(int sockfd, const void* buf, size_t len, int flags)
+
+    ctypedef struct iovec:
+        void* iov_base
+        size_t iov_len
+
+    ssize_t writev(int fd, iovec *iov, int iovcnt)
 
 
 cdef inline Py_ssize_t aiofn_recv(int sockfd, void* buf, Py_ssize_t len) except? -1:
@@ -168,20 +175,13 @@ cdef inline bytes aiofn_shrink_bytes(bytes obj, Py_ssize_t new_size):
 
 
 cdef inline object aiofn_maybe_copy_buffer_tail(object buffer, Py_ssize_t tail_pos):
-    cdef Py_ssize_t buffer_size
     # Do not copy bytes content, it is safe to make a memory view
     if PyBytes_CheckExact(buffer):
-        buffer_size = PyBytes_GET_SIZE(buffer)
-        return PyMemoryView_FromMemory(
-            PyBytes_AS_STRING(buffer) + tail_pos,
-            PyBytes_GET_SIZE(buffer) - tail_pos,
-            PyBUF_READ
-        )
+        return memoryview(buffer)[tail_pos:]
 
     # Always copy bytearray, bytearray may be used as a permanent write buffer
     # in the upper level protocol.
     if PyByteArray_CheckExact(buffer):
-        buffer_size = PyByteArray_GET_SIZE(buffer)
         return PyBytes_FromStringAndSize(
             PyByteArray_AS_STRING(buffer) + tail_pos,
             PyByteArray_GET_SIZE(buffer) - tail_pos
@@ -194,7 +194,7 @@ cdef inline object aiofn_maybe_copy_buffer_tail(object buffer, Py_ssize_t tail_p
     cdef:
         bint is_bytes = (<PyObject*>pybuf.obj != NULL) and PyBytes_CheckExact(pybuf.obj)
         char* buffer_ptr = <char*>pybuf.buf
-    buffer_size = pybuf.len
+        Py_ssize_t buffer_size = pybuf.len
     PyBuffer_Release(&pybuf)
 
     if is_bytes:

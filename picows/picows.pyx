@@ -389,8 +389,11 @@ cdef class WSTransport:
         if self.is_client_side:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask)
 
+        # self.underlying_transport.write(
+        #     PyMemoryView_FromMemory(<char *> header_ptr, total_size, PyBUF_WRITE))
+
         self.underlying_transport.write(
-            PyMemoryView_FromMemory(<char *> header_ptr, total_size, PyBUF_WRITE))
+            PyBytes_FromStringAndSize(<char *> header_ptr, total_size))
 
         # if self.is_secure:
         #     self.underlying_transport.write(
@@ -923,8 +926,9 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
     def get_buffer(self, Py_ssize_t size_hint):
         # size_hint is un-reliable, uvloop provides a fixed value of 65536
         # and asyncio just always pass -1
-        # Therefore, ignore it and just implement exponential buffer grow when
-        # buffer utilization hits a thresholds.
+        # Therefore, ignore it and just implement exponential buffer grow
+        # after reading data when buffer utilization hits a thresholds.
+
         self._maybe_grow_read_buffer()
 
         if self._log_debug_enabled:
@@ -954,7 +958,6 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         if utilization > 90 or self._read_buffer.size - self._f_new_data_start_pos <= 256:
             # Double buffer size
             self._read_buffer.resize(self._read_buffer.size * 2)
-
 
     cdef inline _process_new_data(self):
         if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:

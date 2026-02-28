@@ -15,7 +15,7 @@ import weakref
 from logging import getLogger
 
 from . import constants
-from .sslproto_stdlib import SSLProtocol
+from .sslproto import SSLProtocol
 from .socket_transport import SelectorSocketTransport
 from asyncio.trsock import TransportSocket
 

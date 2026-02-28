@@ -2,7 +2,7 @@ import collections
 import os
 import socket
 import warnings
-import itertools
+from itertools import islice
 from asyncio.trsock import TransportSocket
 from asyncio import BufferedProtocol, Transport
 from logging import getLogger
@@ -23,6 +23,9 @@ cdef _logger = getLogger('fastnet')
 cdef bint _HAS_SENDMSG = _get_has_sendmsg()
 cdef Py_ssize_t _SC_IOV_MAX = os.sysconf('SC_IOV_MAX') if _HAS_SENDMSG else 0
 
+
+cpdef object test(object buffer, Py_ssize_t tail_pos):
+    return aiofn_maybe_copy_buffer_tail(buffer, tail_pos)
 
 cdef _get_has_sendmsg():
     if hasattr(socket.socket, 'sendmsg'):
@@ -95,6 +98,10 @@ cdef class SelectorSocketTransport:
         self._conn_lost = 0  # Set when call to connection_lost scheduled.
         self._closing = False  # Set when close() called.
         self._paused = False  # Set when pause_reading() called
+
+        if self._server is not None:
+            self._server._attach(self)
+
         self._eof = False
         self._empty_waiter = None
 
@@ -319,8 +326,6 @@ cdef class SelectorSocketTransport:
             Py_ssize_t data_len, data_len_init = 0
             Py_ssize_t bytes_sent
 
-        orig_data_type = type(data).__name__
-
         if not self._buffer:
             # Optimization: try to send now.
             aiofn_unpack_buffer(data, &data_ptr, &data_len)
@@ -357,16 +362,13 @@ cdef class SelectorSocketTransport:
         else:
             data = aiofn_maybe_copy_buffer_tail(data, 0)
 
-        # Add it to the buffer.
-        _logger.info("append %s from %s, init_len=%s, len=%d to write buffer",
-                     type(data).__name__, orig_data_type, data_len_init, len(data))
         self._buffer.append(data)
         self._maybe_pause_protocol()
 
     cdef inline _get_sendmsg_buffer(self):
-        return itertools.islice(self._buffer, _SC_IOV_MAX)
+        return islice(self._buffer, _SC_IOV_MAX)
 
-    cpdef _write_ready(self):
+    def _write_ready(self):
         if _HAS_SENDMSG:
             return self._write_sendmsg()
         else:
@@ -378,6 +380,7 @@ cdef class SelectorSocketTransport:
             return
         try:
             nbytes = self._sock.sendmsg(self._get_sendmsg_buffer())
+
             self._adjust_leftover_buffer(nbytes)
         except (BlockingIOError, InterruptedError):
             pass

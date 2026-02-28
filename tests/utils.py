@@ -125,6 +125,11 @@ class AsyncClient(picows.WSListener):
             self.msg_queue.task_done()
             return item
 
+    async def get_message_no_timeout(self):
+        item = await self.msg_queue.get()
+        self.msg_queue.task_done()
+        return item
+
 
 class ServerEchoListener(picows.WSListener):
     # Standard echo server that is used for testing
