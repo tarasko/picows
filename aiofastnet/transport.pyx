@@ -22,7 +22,7 @@ cdef _logger = getLogger('aiofastnet')
 
 cdef bint _HAS_SENDMSG = _get_has_sendmsg()
 cdef Py_ssize_t _SC_IOV_MAX = os.sysconf('SC_IOV_MAX') if _HAS_SENDMSG else 0
-
+cdef object _DATA_RECEIVED_MAX_SIZE = 256 * 1024
 
 cdef _get_has_sendmsg():
     if hasattr(socket.socket, 'sendmsg'):
@@ -323,7 +323,7 @@ cdef class SelectorSocketTransport(Transport):
         if self._conn_lost:
             return
         try:
-            data = self._sock.recv(self.max_size)
+            data = self._sock.recv(_DATA_RECEIVED_MAX_SIZE)
         except (BlockingIOError, InterruptedError):
             return
         except (SystemExit, KeyboardInterrupt):
