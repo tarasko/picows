@@ -42,6 +42,7 @@ cdef extern from "openssl/ssl.h" nogil:
         SSL_VERIFY_PEER
         SSL_RECEIVED_SHUTDOWN
         SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER
+        SSL_MODE_ENABLE_PARTIAL_WRITE
         SSL_MODE_AUTO_RETRY
 
     enum:

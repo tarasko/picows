@@ -130,10 +130,9 @@ cdef class SSLProtocol(Protocol):
     cdef inline write_mem(self, char* ptr, Py_ssize_t sz)
 
     cdef inline bint _is_protocol_ready(self) except -1
-    cdef inline _check_and_enqueue_appdata(self, data)
     cdef inline _flush_write_backlog(self)
-    cdef inline _do_write(self)
-    cdef inline _process_outgoing(self)
+    cdef inline _write_impl(self, data, char* data_ptr, Py_ssize_t data_len, bint is_last)
+    cdef inline _maybe_send_outgoing(self, bint is_last)
 
     # Incoming flow
 

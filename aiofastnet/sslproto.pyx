@@ -17,6 +17,7 @@ from .transport cimport *
 cdef enum:
     SSL_READ_DEFAULT_SIZE = 64 * 1024
     SSL_READ_MAX_SIZE = 256 * 1024
+    SSL_FLUSH_THRESHOLD = 128 * 1024
 
 
 cdef extern from *:
@@ -138,7 +139,7 @@ cdef class SSLConnection:
             ssl_ctx_host_flags = X509_VERIFY_PARAM_get_hostflags(ssl_ctx_verification_params)
             X509_VERIFY_PARAM_set_hostflags(ssl_verification_params, ssl_ctx_host_flags)
 
-        SSL_set_mode(self.ssl_object, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER | SSL_MODE_AUTO_RETRY)
+        SSL_set_mode(self.ssl_object, SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER | SSL_MODE_AUTO_RETRY)
 
         if self.server_hostname is not None:
             self._configure_hostname()
@@ -733,7 +734,7 @@ cdef class SSLProtocol(Protocol):
 
         cdef int ssl_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
         if ssl_error in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
-            self._process_outgoing()
+            self._maybe_send_outgoing(True)
             return
 
         self._on_handshake_complete(self._ssl_connection.make_exc_from_ssl_error("ssl handshake failed", ssl_error))
@@ -841,8 +842,7 @@ cdef class SSLProtocol(Protocol):
         """
         try:
             self._do_read_into_void(context)
-            self._do_write()
-            self._process_outgoing()
+            self._flush_write_backlog()
         except Exception as ex:
             self._on_shutdown_complete(ex)
         else:
@@ -863,12 +863,12 @@ cdef class SSLProtocol(Protocol):
                 return
 
             if rc == 0:
-                self._process_outgoing()
+                self._maybe_send_outgoing(True)
                 return
 
             err_code = SSL_get_error(self._ssl_connection.ssl_object, rc)
             if err_code in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
-                self._process_outgoing()
+                self._maybe_send_outgoing(True)
                 return
 
             raise self._ssl_connection.make_exc_from_ssl_error("SSL_shutdown failed", err_code)
@@ -902,40 +902,86 @@ cdef class SSLProtocol(Protocol):
         """
         if not self._is_protocol_ready():
             return
-        self._check_and_enqueue_appdata(data)
-        self._flush_write_backlog()
 
-    cdef write_mem(self, char* ptr, Py_ssize_t sz):
+        if not isinstance(data, (bytes, bytearray, memoryview)):
+            raise TypeError(f"data: expecting a bytes-like instance, "
+                            f"got {type(data).__name__}")
+
+        if self._write_backlog:
+            if data:
+                self._write_backlog.append(aiofn_maybe_copy_buffer(data))
+            return
+
+        cdef:
+            char* data_ptr
+            Py_ssize_t data_len
+
+        aiofn_unpack_buffer(data, &data_ptr, &data_len)
+        if data_len == 0:
+            return
+
+        tail = self._write_impl(data, data_ptr, data_len, True)
+        if tail is not None:
+            self._write_backlog.append(tail)
+            return
+
+    cdef write_mem(self, char* data_ptr, Py_ssize_t data_len):
         if not self._is_protocol_ready():
             return
 
-        if sz == 0:
+        if data_len == 0:
             return
 
-        data = PyMemoryView_FromMemory(ptr, sz, PyBUF_READ)
-        self._write_backlog.append(data)
-        self._flush_write_backlog()
+        if self._write_backlog:
+            self._write_backlog.append(PyBytes_FromStringAndSize(data_ptr, data_len))
+            return
+
+        tail = self._write_impl(None, data_ptr, data_len, True)
+        if tail is not None:
+            self._write_backlog.append(tail)
+            return
 
     cdef writelines(self, list_of_data):
-        """Write a list (or any iterable) of data bytes to the transport.
-
-        The default implementation concatenates the arguments and
-        calls write() on the result.
+        """
+        Write a list (or any iterable) of data bytes to the transport.
         """
         if not self._is_protocol_ready():
             return
 
-        cdef Py_ssize_t backlog_len_before = len(self._write_backlog)
+        for data in list_of_data:
+            if not isinstance(data, (bytes, bytearray, memoryview)):
+                raise TypeError(f"data: expecting a bytes-like instance, "
+                                f"got {type(data).__name__}")
 
-        try:
-            for data in list_of_data:
-                self._check_and_enqueue_appdata(data)
-        except:
-            # Remove already enqueued items on exception
-            del self._write_backlog[backlog_len_before:]
-            raise
+        if self._write_backlog:
+            self._write_backlog.extend(aiofn_maybe_copy_buffer(data)
+                                       for data in list_of_data if len(data) > 0)
+            return
 
-        self._flush_write_backlog()
+        cdef:
+            char * data_ptr
+            Py_ssize_t data_len
+            bint add_to_backlog = False
+            Py_ssize_t data_cnt = len(list_of_data)
+            Py_ssize_t idx
+            bint is_last
+
+        for idx in range(data_cnt):
+            data = list_of_data[idx]
+            if add_to_backlog:
+                if len(data) > 0:
+                    self._write_backlog.append(aiofn_maybe_copy_buffer(data))
+                continue
+
+            aiofn_unpack_buffer(data, &data_ptr, &data_len)
+            if data_len == 0:
+                continue
+
+            is_last = idx == (data_cnt - 1)
+            tail = self._write_impl(data, data_ptr, data_len, is_last)
+            if tail is not None:
+                self._write_backlog.append(tail)
+                add_to_backlog = True
 
     cdef pause_reading(self):
         self._reading_paused = True
@@ -962,71 +1008,72 @@ cdef class SSLProtocol(Protocol):
         else:
             return True
 
-    cdef _check_and_enqueue_appdata(self, data):
-        if not isinstance(data, (bytes, bytearray, memoryview)):
-            raise TypeError(f"data: expecting a bytes-like instance, "
-                            f"got {type(data).__name__}")
-        if not data:
+    cdef _flush_write_backlog(self):
+        if self._state not in (WRAPPED, FLUSHING):
             return
 
-        self._write_backlog.append(data)
+        cdef:
+            Py_ssize_t backlog_size = len(self._write_backlog)
+            char * data_ptr
+            Py_ssize_t data_len
+            bint add_to_backlog = False
+            Py_ssize_t idx = 0
 
-    cdef _flush_write_backlog(self):
+        if backlog_size == 0:
+            return
+
         try:
-            if self._state == WRAPPED and self._write_backlog:
-                self._do_write()
-                self._process_outgoing()
+            for idx in range(len(self._write_backlog)):
+                data = self._write_backlog[idx]
+                aiofn_unpack_buffer(data, &data_ptr, &data_len)
+                # Data was validated and cleared from empty objects in write/writelines
 
+                tail = self._write_impl(data, data_ptr, data_len, True)
+                if tail is not None:
+                    self._write_backlog[idx] = tail
+                    break
+            del self._write_backlog[:idx]
         except Exception as ex:
             self._fatal_error(ex, 'Fatal error on SSL protocol')
 
-    cdef _do_write(self):
-        """Do SSL write, consumes write backlog and fills outgoing BIO."""
-        cdef char* data_ptr = NULL
-        cdef Py_ssize_t data_len, data_len_init
-        cdef size_t bytes_written
-        cdef Py_ssize_t idx = 0
-        cdef int rc = 1
+    cdef _write_impl(self, data, char* data_ptr, Py_ssize_t data_len, bint is_last):
+        """
+        Do SSL_write, if outgoing BIO reach threshold size flush it to the 
+        underlying protocol. If is_last=True, flush in the end regardless.
+        If SSL_write returns SSL_ERROR_WANT_READ, materialize and return 
+        remaining unsent part of the buffer. 
+        On success return None.
+        """
+        cdef:
+            size_t bytes_written
+            int rc = 1
+            int ssl_error
 
-        while idx < len(self._write_backlog):
-            data = self._write_backlog[idx]
-            aiofn_unpack_buffer(data, &data_ptr, &data_len)
-            data_len_init = data_len
-            while data_len > 0:
-                rc = SSL_write_ex(self._ssl_connection.ssl_object, data_ptr, data_len, &bytes_written)
-                if not rc:
-                    break
-
-                data_ptr += bytes_written
-                data_len -= bytes_written
-
+        while data_len != 0:
+            rc = SSL_write_ex(self._ssl_connection.ssl_object, data_ptr, data_len, &bytes_written)
             if not rc:
-                break
+                ssl_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
+                self._maybe_send_outgoing(True)
 
-            idx += 1
+                # This is rare but still possible. SSL may refuse to send data
+                # because of re-negotiation. Materialize and return remaining data
+                # SSL_ERROR_WANT_WRITE should not happen here as outgoing BIO grows dynamically.
+                if ssl_error == SSL_ERROR_WANT_READ:
+                    return aiofn_maybe_copy_buffer_tail(data, data_ptr,
+                                                        data_len)
 
-        # Delete all data objects that were successfully sent
-        del self._write_backlog[:idx]
+                raise self._ssl_connection.make_exc_from_ssl_error(
+                    "SSL_write_ex failed", ssl_error)
 
-        if rc:
-            return
+            if data_len == <Py_ssize_t>bytes_written:
+                self._maybe_send_outgoing(is_last)
+                return None
 
-        cdef int ssl_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
+            data_ptr += bytes_written
+            data_len -= bytes_written
+            self._maybe_send_outgoing(False)
 
-        # This is rare but still possible. SSL maybe refused to send data
-        # because of re-negotiation. In such case we need to materialize
-        # all objects in write_backlog. There could be memoryviews or bytearrays
-        # containing high-level protocol write buffer.
-        self._write_backlog[idx] = aiofn_maybe_copy_buffer_tail(data, data_ptr, data_len)
-        for k in range(idx + 1, len(self._write_backlog)):
-            self._write_backlog[k] = aiofn_maybe_copy_buffer(self._write_backlog[k])
-
-        if ssl_error in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
-            return
-
-        raise self._ssl_connection.make_exc_from_ssl_error("SSL_write_ex failed", ssl_error)
-
-    cdef _process_outgoing(self):
+    cdef _maybe_send_outgoing(self, bint is_last):
         # Don't call BIO_read as it needs some destination and copy memory.
         # Instead, get pointer to the data and data length, forward it to the
         # transport. Transport will copy it anyway if it can't be sent
@@ -1036,7 +1083,15 @@ cdef class SSLProtocol(Protocol):
 
         cdef char* ptr
         cdef long sz = BIO_get_mem_data(self._ssl_connection.outgoing, &ptr)
+
+        # We call _maybe_send_outgoing if there MAY be some data to send,
+        # Upstream logic doesn't check itself if there are actually some data
+        # to send
         if sz <= 0:
+            return
+
+        if sz < SSL_FLUSH_THRESHOLD and not is_last:
+            # No need to send for now
             return
 
         self._transport.write_mem(ptr, sz)
@@ -1046,17 +1101,18 @@ cdef class SSLProtocol(Protocol):
     # Incoming flow
 
     cpdef _do_read(self):
-        if self._state != WRAPPED:
+        if self._state not in (WRAPPED, FLUSHING):
             return
+
         try:
             if not self._reading_paused:
                 if self._app_protocol_is_buffered:
                     self._do_read__buffered()
                 else:
                     self._do_read__copied()
+
                 if self._write_backlog:
-                    self._do_write()
-                self._process_outgoing()
+                    self._flush_write_backlog()
         except Exception as ex:
             self._fatal_error(ex, 'Fatal error on SSL protocol')
 
