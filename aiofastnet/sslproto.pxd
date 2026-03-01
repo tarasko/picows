@@ -77,8 +77,6 @@ cdef class SSLProtocol(Protocol):
         size_t _conn_lost
         AppProtocolState _app_state
 
-        bint _app_reading_paused
-
         object _app_protocol
         bint _app_protocol_is_buffered
 
@@ -86,12 +84,22 @@ cdef class SSLProtocol(Protocol):
         object _handshake_timeout_handle
         object _shutdown_timeout_handle
 
+        bint _reading_paused
+
     # Instead of doing python calls, c methods *_impl are called directly
     # from stream.pyx
 
     cpdef get_app_transport(self, context=*)
     cpdef set_app_protocol(self, app_protocol)
     cpdef get_app_protocol(self)
+
+    cdef inline Transport get_tcp_transport(self)
+
+    # Overloads from Protocol
+    cpdef is_buffered_protocol(self)
+    cpdef get_buffer(self, Py_ssize_t hint)
+    cpdef buffer_updated(self, Py_ssize_t bytes_read)
+    cpdef get_local_write_buffer_size(self)
 
     cdef inline _wakeup_waiter(self, exc=*)
     cdef inline _get_extra_info(self, name, default=*)
@@ -135,19 +143,10 @@ cdef class SSLProtocol(Protocol):
     cdef inline _do_read__copied(self)
     cdef inline _call_eof_received(self, object context=*)
 
-    # Flow control for writes from APP socket
+    cdef inline pause_reading(self)
+    cdef inline resume_reading(self)
 
     cpdef pause_writing(self)
     cpdef resume_writing(self)
-
-    cdef inline Py_ssize_t _get_ssl_write_buffer_size(self)
-    cdef inline Py_ssize_t _get_write_buffer_size(self)
-    cdef inline _get_write_buffer_limits(self)
-    cdef inline _set_write_buffer_limits(self, high=*, low=*)
-
-    # Flow control for reads to APP socket
-
-    cdef inline _pause_reading(self)
-    cdef inline _resume_reading(self, object context)
 
     cdef inline _fatal_error(self, exc, message=*)

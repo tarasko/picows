@@ -60,7 +60,7 @@ cdef class Protocol:
     cpdef is_buffered_protocol(self):
         return None
 
-    cpdef get_write_queue_size(self):
+    cpdef get_local_write_buffer_size(self):
         return 0
 
     cpdef get_buffer(self, Py_ssize_t hint):
@@ -257,7 +257,7 @@ cdef class SelectorSocketTransport(Transport):
             total += len(data)
 
         if isinstance(self._protocol, Protocol):
-            total += (<Protocol>self._protocol).get_write_queue_size()
+            total += (<Protocol>self._protocol).get_local_write_buffer_size()
 
         return total
 

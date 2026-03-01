@@ -334,7 +334,7 @@ cdef class SSLTransport:
                 "object>", ResourceWarning)
 
     def is_reading(self):
-        return not self._ssl_protocol._app_reading_paused
+        return self._ssl_protocol.get_tcp_transport().is_reading()
 
     def pause_reading(self):
         """Pause the receiving end.
@@ -342,7 +342,7 @@ cdef class SSLTransport:
         No data will be passed to the protocol's data_received()
         method until resume_reading() is called.
         """
-        self._ssl_protocol._pause_reading()
+        self._ssl_protocol.pause_reading()
 
     def resume_reading(self):
         """Resume the receiving end.
@@ -350,7 +350,7 @@ cdef class SSLTransport:
         Data received will once again be passed to the protocol's
         data_received() method.
         """
-        self._ssl_protocol._resume_reading(self.context.copy())
+        self._ssl_protocol.resume_reading()
 
     def set_write_buffer_limits(self, high=None, low=None):
         """Set the high- and low-water limits for write flow control.
@@ -371,14 +371,14 @@ cdef class SSLTransport:
         reduces opportunities for doing I/O and computation
         concurrently.
         """
-        self._ssl_protocol._set_write_buffer_limits(high, low)
+        self._ssl_protocol.get_tcp_transport().set_write_buffer_limits(high, low)
 
     def get_write_buffer_limits(self):
-        return self._ssl_protocol._get_write_buffer_limits()
+        return self._ssl_protocol.get_tcp_transport().get_write_buffer_limits()
 
     def get_write_buffer_size(self):
         """Return the current size of the write buffers."""
-        return self._ssl_protocol._get_write_buffer_size()
+        return self._ssl_protocol.get_tcp_transport().get_write_buffer_size()
 
     cpdef write(self, data):
         """Write some data bytes to the transport.
@@ -487,10 +487,7 @@ cdef class SSLProtocol(Protocol):
             self._app_state = STATE_INIT
         else:
             self._app_state = STATE_CON_MADE
-
-        # Flow Control
-
-        self._app_reading_paused = False
+        self._reading_paused = False
 
     cpdef is_buffered_protocol(self):
         return True
@@ -506,6 +503,9 @@ cdef class SSLProtocol(Protocol):
         if self._app_transport is None:
             self._app_transport = SSLTransport(self._loop, self, context)
         return self._app_transport
+
+    cdef Transport get_tcp_transport(self):
+        return self._transport
 
     def connection_made(self, transport):
         """Called when the low-level connection is made.
@@ -595,6 +595,18 @@ cdef class SSLProtocol(Protocol):
 
         elif self._state == SHUTDOWN:
             self._do_shutdown()
+
+    # Underlying transport use this to take into account upstream write buffer
+    # size when deciding to report pause_writing()/resume_writing()
+    cpdef get_local_write_buffer_size(self):
+        cdef Py_ssize_t total = 0
+        for data in self._write_backlog:
+            total += len(data)
+
+        if isinstance(self._app_protocol, Protocol):
+            total += (<Protocol> self._app_protocol).get_local_write_buffer_size()
+
+        return total + _bio_pending(self._ssl_connection.outgoing)
 
     def eof_received(self):
         """Called when the other end of the low-level stream
@@ -801,9 +813,9 @@ cdef class SSLProtocol(Protocol):
             int rc = 1
         while rc == 1:
             rc = SSL_read_ex(self._ssl_connection.ssl_object,
-                          PyByteArray_AS_STRING(buffer),
-                          PyByteArray_GET_SIZE(buffer),
-                          &bytes_read)
+                             PyByteArray_AS_STRING(buffer),
+                             PyByteArray_GET_SIZE(buffer),
+                             &bytes_read)
 
         cdef int ssl_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
         if ssl_error in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
@@ -830,7 +842,7 @@ cdef class SSLProtocol(Protocol):
         except Exception as ex:
             self._on_shutdown_complete(ex)
         else:
-            if not self._get_ssl_write_buffer_size():
+            if not self.get_local_write_buffer_size():
                 self._set_state(SHUTDOWN)
                 self._do_shutdown(context)
 
@@ -920,6 +932,22 @@ cdef class SSLProtocol(Protocol):
             raise
 
         self._flush_write_backlog()
+
+    cdef pause_reading(self):
+        self._reading_paused = True
+        self._transport.pause_reading()
+
+    cdef resume_reading(self):
+        if self._reading_paused:
+            self._reading_paused = False
+            self._loop.call_soon(self._do_read)
+        self._transport.resume_reading()
+
+    cpdef pause_writing(self):
+        self._app_protocol.pause_writing()
+
+    cpdef resume_writing(self):
+        self._app_protocol.resume_writing()
 
     cdef bint _is_protocol_ready(self) except -1:
         if self._state in (FLUSHING, SHUTDOWN, UNWRAPPED):
@@ -1017,7 +1045,7 @@ cdef class SSLProtocol(Protocol):
         if self._state != WRAPPED:
             return
         try:
-            if not self._app_reading_paused:
+            if not self._reading_paused:
                 if self._app_protocol_is_buffered:
                     self._do_read__buffered()
                 else:
@@ -1052,8 +1080,9 @@ cdef class SSLProtocol(Protocol):
             raise ValueError("empty buffer provided by BufferedProtocol.get_buffer")
 
         while buf_len > 0:
-            rc = SSL_read_ex(self._ssl_connection.ssl_object, buf_ptr, buf_len,
-                        &last_bytes_read)
+            rc = SSL_read_ex(
+                self._ssl_connection.ssl_object,
+                buf_ptr, buf_len, &last_bytes_read)
             if not rc:
                 break
             buf_ptr += last_bytes_read
@@ -1065,6 +1094,13 @@ cdef class SSLProtocol(Protocol):
         if total_bytes_read > 0:
             call_buffer_updated(self._app_protocol, total_bytes_read)
 
+        # It could be that buffer_update user handler paused reading
+        # But we do have extra data in the incoming BIO or in SSL object.
+        # We could not read it because user provided buffer was too small.
+        # Schedule _do_read immediately, and check in _do_read that reading is
+        # not paused.
+        # For resume_reading() check if we have some pending data for reading
+        # and
         if buf_len == 0:
             self._loop.call_soon(self._do_read)
             return
@@ -1147,48 +1183,6 @@ cdef class SSLProtocol(Protocol):
                 if keep_open:
                     _logger.warning('returning true from eof_received() '
                                        'has no effect when using ssl')
-
-    # Flow control for reads to APP socket
-
-    cdef _pause_reading(self):
-        self._app_reading_paused = True
-        self._transport.pause_reading()
-
-    cdef _resume_reading(self, object context):
-        if self._app_reading_paused:
-            self._app_reading_paused = False
-            if self._state == WRAPPED:
-                self._loop.call_soon(self._do_read)
-        self._transport.resume_reading()
-
-    # Flow control for writes to SSL socket
-
-    cpdef pause_writing(self):
-        """Called when the low-level transport's buffer goes over
-        the high-water mark.
-        """
-        self._app_protocol.pause_writing()
-
-    cpdef resume_writing(self):
-        """Called when the low-level transport's buffer drains below
-        the low-water mark.
-        """
-        self._app_protocol.resume_writing()
-
-    cdef Py_ssize_t _get_ssl_write_buffer_size(self):
-        cdef Py_ssize_t bytes_in_backlog = 0
-        for data in self._write_backlog:
-            bytes_in_backlog += len(data)
-        return bytes_in_backlog + _bio_pending(self._ssl_connection.outgoing)
-
-    cdef Py_ssize_t _get_write_buffer_size(self):
-        return self._get_ssl_write_buffer_size() + self._transport.get_write_buffer_size()
-
-    cdef _get_write_buffer_limits(self):
-        return self._transport.get_write_buffer_limits()
-
-    cdef _set_write_buffer_limits(self, high=None, low=None):
-        return self._transport.set_write_buffer_limits(high, low)
 
     cdef _fatal_error(self, exc, message='Fatal error on transport'):
         if self._app_transport:
