@@ -18,7 +18,7 @@ from cpython.buffer cimport (
 )
 
 
-cdef _logger = getLogger('fastnet')
+cdef _logger = getLogger('aiofastnet')
 
 cdef bint _HAS_SENDMSG = _get_has_sendmsg()
 cdef Py_ssize_t _SC_IOV_MAX = os.sysconf('SC_IOV_MAX') if _HAS_SENDMSG else 0

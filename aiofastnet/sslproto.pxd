@@ -35,10 +35,11 @@ cdef class SSLConnection:
         SSL* ssl_object
         str server_hostname
 
-    cdef inline make_exc_from_ssl_error(self, str descr, int err_code)
     cdef inline dict getpeercert(self)
     cdef inline tuple cipher(self)
     cdef inline str compression(self)
+    cdef inline make_exc_from_ssl_error(self, str descr, int err_code)
+    cdef inline _exc_from_err_last_error(self, str descr)
     cdef inline _decode_certificate(self, X509* certificate)
     cdef inline _configure_hostname(self)
 
@@ -124,10 +125,11 @@ cdef class SSLProtocol(Protocol):
     cdef inline _flush_write_backlog(self)
     cdef inline _do_write(self)
     cdef inline _process_outgoing(self)
-    cdef inline _process_outgoing_backup(self)
 
     # Incoming flow
 
+    cpdef get_buffer(self, Py_ssize_t n)
+    cpdef buffer_updated(self, Py_ssize_t nbytes)
     cpdef _do_read(self)
     cdef inline _do_read__buffered(self)
     cdef inline _do_read__copied(self)

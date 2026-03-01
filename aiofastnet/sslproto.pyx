@@ -34,19 +34,7 @@ cdef extern from *:
     const float SSL_SHUTDOWN_TIMEOUT
 
 
-# A memory layout hack to extract SSL_CTX* ptr from python SSLContext object.
-#
-# I intentionally mirror ONLY the initial prefix of CPython's PySSLContext:
-# PyObject_HEAD + SSL_CTX *ctx
-#
-# This is NOT ABI-stable and may break across Python versions/build options.
-# I know it is ugly, but who cares, in some million years the sun will destroy
-# all life on earth, so everything is meaningless anyway.
-#
-# The guys from python are reluctant to expose it directly:
-# https://bugs.python.org/issue43902
-
-cdef object _logger = getLogger('picows.ssl')
+cdef object _logger = getLogger('aiofastnet')
 
 
 ctypedef struct PySSLContextHack:
@@ -59,7 +47,17 @@ cdef SSL_CTX* _get_ssl_ctx_ptr(object py_ctx) except NULL:
     if not isinstance(py_ctx, ssl.SSLContext):
         raise TypeError("expected ssl.SSLContext")
 
-    # Layout-cast hack:
+    # A memory layout hack to extract SSL_CTX* ptr from python SSLContext object.
+    #
+    # I intentionally mirror ONLY the initial prefix of CPython's PySSLContext:
+    # PyObject_HEAD + SSL_CTX *ctx
+    #
+    # This is NOT ABI-stable and may break across Python versions/build options.
+    # I know it is ugly, but who cares, in some million years the sun will destroy
+    # all life on earth, so everything is meaningless anyway.
+    #
+    # The guys from python are reluctant to expose it directly:
+    # https://bugs.python.org/issue43902
     return (<PySSLContextHack*> <PyObject*> py_ctx).ctx
 
 
@@ -206,8 +204,7 @@ cdef class SSLConnection:
         cdef int lib = ERR_GET_LIB(last_error)
         cdef int reason = ERR_GET_REASON(last_error)
 
-        if _logger is not None:
-            _log_error_queue(_logger)
+        _log_error_queue()
 
         lib_name = _lib_to_name.get(lib, "UNKNOWN")
         cdef const char * reason_ptr = ERR_reason_error_string(last_error)
@@ -254,7 +251,7 @@ cdef class SSLConnection:
             # Only send SNI extension for non-IP hostnames
             if ip == NULL:
                 if not SSL_set_tlsext_host_name(self.ssl_object, server_hostname_ptr):
-                    _log_error_queue(_logger)
+                    _log_error_queue()
                     ERR_clear_error()
                     raise ssl.SSLError("SSL_set_tlsext_host_name failed")
 
@@ -427,7 +424,7 @@ cdef class SSLTransport:
         self._ssl_protocol._abort(exc)
 
 
-cdef class SSLProtocol:
+cdef class SSLProtocol(Protocol):
     """SSL protocol.
 
     Implementation of SSL on top of a socket using incoming and outgoing
@@ -996,9 +993,6 @@ cdef class SSLProtocol:
             return
 
         raise self._ssl_connection.make_exc_from_ssl_error("SSL_write_ex failed", ssl_error)
-
-    cdef _process_outgoing_backup(self):
-        pass
 
     cdef _process_outgoing(self):
         # Don't call BIO_read as it needs some destination and copy memory.
