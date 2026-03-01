@@ -458,7 +458,6 @@ cdef class SelectorSocketTransport(Transport):
             return
         try:
             nbytes = self._sock.sendmsg(self._get_sendmsg_buffer())
-
             self._adjust_leftover_buffer(nbytes)
         except (BlockingIOError, InterruptedError):
             pass

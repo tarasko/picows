@@ -102,7 +102,7 @@
     }
 #endif
 
-typedef size_t (*apply_mask_fn)(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask);
+typedef size_t (*apply_mask_fn)(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output);
 
 static inline size_t rotate_right(uint32_t value, size_t num_bytes)
 {
@@ -110,17 +110,17 @@ static inline size_t rotate_right(uint32_t value, size_t num_bytes)
     return (value >> bits) | (value << (32 - bits));
 }
 
-static inline size_t apply_mask_1(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+static inline size_t apply_mask_1(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
 {
     uint8_t* mask_ptr = (uint8_t*)&mask;
 
     for (size_t i = start_pos, k = 0; i < input_len; i += 1, k += 1)
-        input[i] ^= mask_ptr[k % 4];
+        output[i] = input[i] ^ mask_ptr[k % 4];
 
     return input_len;
 }
 
-static inline size_t apply_mask_4(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+static inline size_t apply_mask_4(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
 {
     typedef uint64_t int_x;
     const size_t reg_size = 4;
@@ -128,20 +128,32 @@ static inline size_t apply_mask_4(uint8_t* input, size_t input_len, size_t start
     const int_x mask_x = mask;
 
     for (size_t i = start_pos; i < start_pos + input_len_trunc; i += reg_size)
-        *(int_x*)(input + i) ^= mask_x;
+        *(int_x*)(output + i) = *(int_x*)(input + i) ^ mask_x;
 
     return start_pos + input_len_trunc;
 }
 
-static inline size_t mask_misaligned_bytes_at_front(uint8_t* input, size_t input_len, uint32_t mask, size_t alignment)
+static inline size_t mask_misaligned_bytes_at_front(uint8_t* input, size_t input_len, uint32_t mask, size_t alignment, uint8_t** output)
 {
-    const size_t ptr_value = (size_t)input;
-    const size_t num_misaligned_bytes = PICOWS_MIN(alignment - (ptr_value % alignment), input_len);
-    return apply_mask_1(input, num_misaligned_bytes, 0, mask);
+    // Calculate how many bytes at front are not aligned to the target alignment.
+    // Shift output pointer forward, so that it has the same misalignment
+    // Apply mask to misaligned bytes and write result at the new output pointer
+    const size_t input_ptr_value = (size_t)input;
+    const size_t output_ptr_value = (size_t)*output;
+    const size_t input_misalignment = alignment - (input_ptr_value % alignment);
+    const size_t output_misalignment = alignment - (output_ptr_value % alignment);
+    const size_t num_misaligned_bytes = PICOWS_MIN(input_misalignment, input_len);
+
+    if (output_misalignment > input_misalignment)
+        *output += (output_misalignment - input_misalignment);
+    else if (input_misalignment > output_misalignment)
+        *output += (alignment + output_misalignment - input_misalignment);
+
+    return apply_mask_1(input, num_misaligned_bytes, 0, mask, *output);
 }
 
 MAYBE_UNUSED
-static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
 {
     typedef uint64_t int_x;
     const size_t reg_size = 8;
@@ -149,7 +161,7 @@ static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, u
     const int_x mask_x = ((int_x)mask << 32) | (int_x)mask;
 
     for (size_t i = start_pos; i < start_pos + input_len_trunc; i += reg_size)
-        *(int_x*)(input + i) ^= mask_x;
+       *(int_x*)(output + i) = *(int_x*)(input + i) ^ mask_x;
 
     return start_pos + input_len_trunc;
 }
@@ -163,7 +175,7 @@ static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, u
     static int has_sse2(void) { return __builtin_cpu_supports("sse2"); }
 
     __attribute__((target("sse2")))
-    static size_t apply_mask_sse2(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+    static size_t apply_mask_sse2(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
     {
         typedef __m128i int_x;
         const size_t reg_size = 16;
@@ -174,14 +186,14 @@ static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, u
         {
             int_x in = _mm_load_si128((int_x *)(input  + i));
             int_x out = _mm_xor_si128(in, mask_x);
-            _mm_store_si128((int_x *)(input + i), out);
+            _mm_store_si128((int_x *)(output + i), out);
         }
 
         return start_pos + input_len_trunc;
     }
 
     __attribute__((target("avx2")))
-    static size_t apply_mask_avx2(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+    static size_t apply_mask_avx2(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
     {
         typedef __m256i int_x;
         const size_t reg_size = 32;
@@ -192,14 +204,14 @@ static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, u
         {
             int_x in = _mm256_load_si256((int_x *)(input  + i));
             int_x out = _mm256_xor_si256(in, mask_x);
-            _mm256_store_si256((int_x *)(input + i), out);
+            _mm256_store_si256((int_x *)(output + i), out);
         }
 
         return start_pos + input_len_trunc;
     }
 
     __attribute__((target("avx512f")))
-    static size_t apply_mask_avx512(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+    static size_t apply_mask_avx512(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
     {
         typedef __m512i int_x;
         const size_t reg_size = 64;
@@ -210,7 +222,7 @@ static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, u
         {
             int_x in = _mm512_load_si512((int_x *)(input  + i));
             int_x out = _mm512_xor_si512(in, mask_x);
-            _mm512_store_si512((int_x *)(input + i), out);
+            _mm512_store_si512((int_x *)(output + i), out);
         }
 
         return start_pos + input_len_trunc;
@@ -242,7 +254,7 @@ static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, u
 #elif defined(__ARM_NEON)
     #include <arm_neon.h>
 
-    static size_t apply_mask_neon(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+    static size_t apply_mask_neon(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
     {
         typedef uint8x16_t int_x;
         const size_t reg_size = 16;
@@ -253,7 +265,7 @@ static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, u
         {
             int_x in = vld1q_u8(input  + i);
             int_x out = veorq_u8(in, mask_x);
-            vst1q_u8(input + i, out);
+            vst1q_u8(output + i, out);
         }
 
         return start_pos + input_len_trunc;
