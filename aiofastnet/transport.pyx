@@ -60,6 +60,9 @@ cdef class Protocol:
     cpdef is_buffered_protocol(self):
         return None
 
+    cpdef get_write_queue_size(self):
+        return 0
+
     cpdef get_buffer(self, Py_ssize_t hint):
         raise NotImplemented
 
@@ -249,7 +252,14 @@ cdef class SelectorSocketTransport(Transport):
             self._loop.call_soon(self._call_connection_lost, None)
 
     cpdef get_write_buffer_size(self):
-        return sum(map(len, self._buffer))
+        cdef Py_ssize_t total = 0
+        for data in self._buffer:
+            total += len(data)
+
+        if isinstance(self._protocol, Protocol):
+            total += (<Protocol>self._protocol).get_write_queue_size()
+
+        return total
 
     def _read_ready(self):
         if self._protocol_buffered:

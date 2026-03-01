@@ -923,8 +923,6 @@ cdef class WSProtocol(Protocol, asyncio.BufferedProtocol):
         # Therefore, ignore it and just implement exponential buffer grow
         # after reading data when buffer utilization hits a thresholds.
 
-        self._maybe_grow_read_buffer()
-
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
                              size_hint,
@@ -941,7 +939,9 @@ cdef class WSProtocol(Protocol, asyncio.BufferedProtocol):
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
                              self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)
+
         self._f_new_data_start_pos += nbytes
+        self._maybe_grow_read_buffer()
         self._process_new_data()
 
     async def wait_until_handshake_complete(self):

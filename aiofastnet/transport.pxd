@@ -8,6 +8,7 @@ cdef class Protocol:
     cpdef get_buffer(self, Py_ssize_t hint)
     cpdef buffer_updated(self, Py_ssize_t bytes_read)
     cpdef data_received(self, data)
+    cpdef get_write_queue_size(self)
 
 
 cpdef is_buffered_protocol(object)

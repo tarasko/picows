@@ -156,24 +156,3 @@ cdef extern from "openssl/asn1.h" nogil:
 cdef extern from "openssl/x509v3.h" nogil:
     ASN1_OCTET_STRING* a2i_IPADDRESS(const char *ipasc)
 
-
-cdef class SSLConnection:
-    cdef:
-        object logger
-        object ssl_ctx_py
-        SSL_CTX* ssl_ctx
-        BIO* incoming
-        BIO* outgoing
-        SSL* ssl_object
-        str server_hostname
-
-    cdef inline make_exc_from_ssl_error(self, str descr, int err_code)
-    cdef inline dict getpeercert(self)
-    cdef inline tuple cipher(self)
-    cdef inline str compression(self)
-    cdef inline _decode_certificate(self, X509* certificate)
-    cdef inline _configure_hostname(self)
-
-
-cdef Py_ssize_t bio_pending(BIO* bio)
-

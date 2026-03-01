@@ -1,5 +1,5 @@
-from .ssl cimport SSLConnection
 from .transport cimport Transport, Protocol
+from .openssl cimport *
 
 
 cpdef enum SSLProtocolState:
@@ -24,6 +24,23 @@ cdef enum AppProtocolState:
     STATE_CON_MADE = 1
     STATE_EOF = 2
     STATE_CON_LOST = 3
+
+
+cdef class SSLConnection:
+    cdef:
+        object ssl_ctx_py
+        SSL_CTX* ssl_ctx
+        BIO* incoming
+        BIO* outgoing
+        SSL* ssl_object
+        str server_hostname
+
+    cdef inline make_exc_from_ssl_error(self, str descr, int err_code)
+    cdef inline dict getpeercert(self)
+    cdef inline tuple cipher(self)
+    cdef inline str compression(self)
+    cdef inline _decode_certificate(self, X509* certificate)
+    cdef inline _configure_hostname(self)
 
 
 cdef class SSLTransport(Transport):

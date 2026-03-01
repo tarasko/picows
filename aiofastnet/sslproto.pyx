@@ -3,32 +3,15 @@ import ssl
 import warnings
 from logging import getLogger
 
-from cpython.contextvars cimport (
-    PyContext_CopyCurrent,
-    PyContext_Copy,
-    PyContext_Enter,
-    PyContext_Exit
-)
-
-from cpython.buffer cimport (
-    PyBUF_WRITE,
-    PyBUF_WRITABLE,
-)
-
-from cpython.bytearray cimport (
-    PyByteArray_FromStringAndSize,
-    PyByteArray_Resize,
-)
+from cpython.contextvars cimport *
+from cpython.buffer cimport *
+from cpython.bytearray cimport *
+from cpython.unicode cimport *
 
 from . import constants
 from .system cimport *
-from .ssl cimport *
-from .transport cimport (
-    is_buffered_protocol,
-    call_get_buffer,
-    call_buffer_updated,
-    call_data_received
-)
+from .openssl cimport *
+from .transport cimport *
 
 
 cdef enum:
@@ -51,7 +34,246 @@ cdef extern from *:
     const float SSL_SHUTDOWN_TIMEOUT
 
 
-aio_logger = getLogger('picows.ssl')
+# A memory layout hack to extract SSL_CTX* ptr from python SSLContext object.
+#
+# I intentionally mirror ONLY the initial prefix of CPython's PySSLContext:
+# PyObject_HEAD + SSL_CTX *ctx
+#
+# This is NOT ABI-stable and may break across Python versions/build options.
+# I know it is ugly, but who cares, in some million years the sun will destroy
+# all life on earth, so everything is meaningless anyway.
+#
+# The guys from python are reluctant to expose it directly:
+# https://bugs.python.org/issue43902
+
+cdef object _logger = getLogger('picows.ssl')
+
+
+ctypedef struct PySSLContextHack:
+    PyObject ob_base
+    SSL_CTX *ctx
+
+
+cdef SSL_CTX* _get_ssl_ctx_ptr(object py_ctx) except NULL:
+    # Minimal runtime sanity check (still not foolproof)
+    if not isinstance(py_ctx, ssl.SSLContext):
+        raise TypeError("expected ssl.SSLContext")
+
+    # Layout-cast hack:
+    return (<PySSLContextHack*> <PyObject*> py_ctx).ctx
+
+
+cdef dict _lib_to_name = {
+    ERR_LIB_SSL: "SSL",
+    ERR_LIB_X509: "X509",
+    ERR_LIB_X509V3: "X509V3",
+    ERR_LIB_PEM: "PEM",
+    ERR_LIB_ASN1: "ASN1",
+    ERR_LIB_EVP: "EVP",
+    ERR_LIB_BIO: "BIO",
+    ERR_LIB_SYS: "SYS",
+    ERR_LIB_PKCS12: "PKCS12",
+    ERR_LIB_PKCS7: "PKCS7",
+    ERR_LIB_RAND: "RAND",
+    ERR_LIB_CONF: "CONF",
+    ERR_LIB_ENGINE: "ENGINE",
+    ERR_LIB_OCSP: "OCSP",
+    ERR_LIB_UI: "UI",
+    ERR_LIB_TS: "TS",
+    ERR_LIB_CMS: "CMS",
+    ERR_LIB_CRYPTO: "CRYPTO",
+}
+
+
+cdef int _print_error_cb(const char* str, size_t len, void* u) noexcept nogil:
+    with gil:
+        logger = <object><PyObject*>u
+        err_str = PyUnicode_FromStringAndSize(str, len)
+        logger.error(err_str)
+
+
+cdef _log_error_queue():
+    cdef void* u = <PyObject*>_logger
+    ERR_print_errors_cb(&_print_error_cb, u)
+
+
+cdef unsigned long _err_last_error():
+    cdef unsigned long err_code = ERR_peek_last_error()
+    ERR_clear_error()
+    return err_code
+
+
+cdef Py_ssize_t _bio_pending(BIO* bio):
+    cdef int pending = BIO_pending(bio)
+    if pending < 0:
+        raise RuntimeError("unable to get pending len from BIO")
+    return pending
+
+
+cdef class SSLConnection:
+    def __init__(self, ssl_context, bint is_server, str server_hostname):
+        ERR_clear_error()
+
+        self.ssl_ctx_py = ssl_context
+        self.ssl_ctx = _get_ssl_ctx_ptr(ssl_context)
+        self.incoming = BIO_new(BIO_s_mem())
+        self.outgoing = BIO_new(BIO_s_mem())
+        self.ssl_object = SSL_new(self.ssl_ctx)
+        self.server_hostname = server_hostname
+        if is_server:
+            SSL_set_accept_state(self.ssl_object)
+        else:
+            SSL_set_connect_state(self.ssl_object)
+        SSL_set_bio(self.ssl_object, self.incoming, self.outgoing)
+        BIO_set_nbio(self.incoming, 1)
+        BIO_set_nbio(self.outgoing, 1)
+
+        cdef:
+            X509_VERIFY_PARAM* ssl_verification_params
+            X509_VERIFY_PARAM* ssl_ctx_verification_params
+            unsigned int ssl_ctx_host_flags
+
+        if OPENSSL_VERSION_NUMBER < 0x101010cf:
+            ssl_verification_params = SSL_get0_param(self.ssl_object)
+            ssl_ctx_verification_params = SSL_CTX_get0_param(self.ssl_ctx)
+
+            ssl_ctx_host_flags = X509_VERIFY_PARAM_get_hostflags(ssl_ctx_verification_params)
+            X509_VERIFY_PARAM_set_hostflags(ssl_verification_params, ssl_ctx_host_flags)
+
+        SSL_set_mode(self.ssl_object, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER | SSL_MODE_AUTO_RETRY)
+
+        if self.server_hostname is not None:
+            self._configure_hostname()
+
+    def __dealloc__(self):
+        # Free SSL and its BIO
+        SSL_free(self.ssl_object)
+
+    cdef tuple cipher(self):
+        cdef const SSL_CIPHER* c = SSL_get_current_cipher(self.ssl_object)
+
+        cdef const char* name = SSL_CIPHER_get_name(c)
+        name_obj = PyUnicode_FromString(name) if name != NULL else None
+
+        cdef const char* protocol = SSL_CIPHER_get_version(c)
+        protocol_obj = PyUnicode_FromString(protocol) if name != NULL else None
+
+        cdef int bits = SSL_CIPHER_get_bits(c, NULL)
+
+        return (name_obj, protocol_obj, bits)
+
+    cdef dict getpeercert(self):
+        if SSL_is_init_finished(self.ssl_object) != 1:
+            raise ssl.SSLError("SSL_is_init_finished failed")
+
+        cdef X509* peer_cert = SSL_get_peer_certificate(self.ssl_object)
+        if peer_cert == NULL:
+            return None
+
+        cdef int verification = SSL_CTX_get_verify_mode(self.ssl_ctx)
+        try:
+            return self._decode_certificate(peer_cert) if verification & SSL_VERIFY_PEER else dict()
+        finally:
+            X509_free(peer_cert)
+
+    # TODO: I don't think people would need this.
+    # For now I return None but if somebody asks can be made compatible with
+    # python implementation
+    cdef str compression(self):
+        return None
+
+    cdef make_exc_from_ssl_error(self, str descr, int err_code):
+        assert err_code != SSL_ERROR_NONE, "check logic"
+        cdef char err_string[256]
+        cdef unsigned long last_error
+        cdef int lib, reason
+
+        if err_code == SSL_ERROR_WANT_READ:
+            return ssl.SSLWantReadError(descr)
+        elif err_code == SSL_ERROR_WANT_WRITE:
+            return ssl.SSLWantWriteError(descr)
+        elif err_code == SSL_ERROR_ZERO_RETURN:
+            return ssl.SSLZeroReturnError(descr)
+        elif err_code == SSL_ERROR_SYSCALL:
+            return ssl.SSLSyscallError(descr)
+        elif err_code == SSL_ERROR_SSL:
+            return self._exc_from_err_last_error(descr)
+        else:
+            return ssl.SSLError(f"{descr}, unknown error_code={err_code}")
+
+    cdef _exc_from_err_last_error(self, str descr):
+        cdef unsigned long last_error = _err_last_error()
+        cdef int lib = ERR_GET_LIB(last_error)
+        cdef int reason = ERR_GET_REASON(last_error)
+
+        if _logger is not None:
+            _log_error_queue(_logger)
+
+        lib_name = _lib_to_name.get(lib, "UNKNOWN")
+        cdef const char * reason_ptr = ERR_reason_error_string(last_error)
+        reason_name = PyUnicode_FromString(
+            reason_ptr) if reason_ptr != NULL else ""
+        reason_name = reason_name.upper().replace(" ", "_")
+
+        if reason == SSL_R_CERTIFICATE_VERIFY_FAILED:
+            assert self.server_hostname is not None
+            verify_code = SSL_get_verify_result(self.ssl_object)
+            if verify_code == X509_V_ERR_HOSTNAME_MISMATCH:
+                txt = f"Hostname mismatch, certificate is not valid for '{self.server_hostname}'"
+            elif verify_code == X509_V_ERR_IP_ADDRESS_MISMATCH:
+                txt = f"IP address mismatch, certificate is not valid for '{self.server_hostname}'"
+            else:
+                verify_str = X509_verify_cert_error_string(verify_code)
+                txt = PyUnicode_FromString(
+                    verify_str) if verify_str != NULL else ""
+            str_error = f"[{lib_name}: {reason_name}] {descr}: {txt}"
+            exc = ssl.SSLCertVerificationError()
+            exc.verify_code = verify_code
+            exc.verify_message = txt
+        else:
+            str_error = f"[{lib_name}: {reason_name}] {descr}"
+            exc = ssl.SSLError()
+        exc.strerror = str_error
+        exc.library = lib_name
+        exc.reason = reason_name
+        return exc
+
+    cdef _configure_hostname(self):
+        if not self.server_hostname or self.server_hostname.startswith("."):
+            raise ValueError("server_hostname cannot be an empty string or start with a leading dot.")
+
+        cdef bytes server_hostname_b = self.server_hostname.encode()
+        cdef char* server_hostname_ptr = PyBytes_AS_STRING(server_hostname_b)
+
+        cdef ASN1_OCTET_STRING* ip = a2i_IPADDRESS(PyBytes_AS_STRING(server_hostname_b))
+        if ip == NULL:
+            ERR_clear_error()
+
+        cdef X509_VERIFY_PARAM* ssl_verification_params
+        try:
+            # Only send SNI extension for non-IP hostnames
+            if ip == NULL:
+                if not SSL_set_tlsext_host_name(self.ssl_object, server_hostname_ptr):
+                    _log_error_queue(_logger)
+                    ERR_clear_error()
+                    raise ssl.SSLError("SSL_set_tlsext_host_name failed")
+
+            if self.ssl_ctx_py.check_hostname:
+                ssl_verification_params = SSL_get0_param(self.ssl_object)
+                if ip == NULL:
+                    if not X509_VERIFY_PARAM_set1_host(ssl_verification_params, server_hostname_ptr, len(server_hostname_b)):
+                        raise ssl.SSLError("X509_VERIFY_PARAM_set1_host failed")
+                else:
+                    if not X509_VERIFY_PARAM_set1_ip(ssl_verification_params, ASN1_STRING_get0_data(ip), ASN1_STRING_length(ip)):
+                        raise ssl.SSLError("X509_VERIFY_PARAM_set1_host failed")
+        finally:
+            if ip != NULL:
+                ASN1_OCTET_STRING_free(ip)
+
+    # TODO: Implement this
+    cdef _decode_certificate(self, X509* certificate):
+        cdef dict retval = dict()
+        return retval
 
 
 cdef inline _run_in_context(context, method):
@@ -387,7 +609,7 @@ cdef class SSLProtocol:
         """
         try:
             if self._loop.get_debug():
-                aio_logger.debug("%r received EOF", self)
+                _logger.debug("%r received EOF", self)
 
             if self._state == DO_HANDSHAKE:
                 self._on_handshake_complete(ConnectionResetError)
@@ -430,7 +652,7 @@ cdef class SSLProtocol:
         cdef bint allowed = False
 
         if self._loop.get_debug():
-            aio_logger.debug("Change state to %s", SSLProtocolState(new_state).name)
+            _logger.debug("Change state to %s", SSLProtocolState(new_state).name)
 
         if new_state == UNWRAPPED:
             allowed = True
@@ -462,7 +684,7 @@ cdef class SSLProtocol:
 
     cdef _start_handshake(self):
         if self._loop.get_debug():
-            aio_logger.debug("%r starts SSL handshake", self)
+            _logger.debug("%r starts SSL handshake", self)
             self._handshake_start_time = self._loop.time()
         else:
             self._handshake_start_time = None
@@ -475,7 +697,7 @@ cdef class SSLProtocol:
                                   self._check_handshake_timeout)
 
         try:
-            self._ssl_connection = SSLConnection(aio_logger, self._sslcontext, self._server_side, self._server_hostname)
+            self._ssl_connection = SSLConnection(self._sslcontext, self._server_side, self._server_hostname)
         except Exception as ex:
             self._on_handshake_complete(ex)
         else:
@@ -525,7 +747,7 @@ cdef class SSLProtocol:
 
         if self._loop.get_debug():
             dt = self._loop.time() - self._handshake_start_time
-            aio_logger.debug("%r: SSL handshake took %.1f ms", self, dt * 1e3)
+            _logger.debug("%r: SSL handshake took %.1f ms", self, dt * 1e3)
 
         # Add extra info that becomes available after handshake.
         # TODO: add compression
@@ -705,7 +927,7 @@ cdef class SSLProtocol:
     cdef bint _is_protocol_ready(self) except -1:
         if self._state in (FLUSHING, SHUTDOWN, UNWRAPPED):
             if self._conn_lost >= constants.LOG_THRESHOLD_FOR_CONNLOST_WRITES:
-                aio_logger.warning('SSL connection is closed')
+                _logger.warning('SSL connection is closed')
             self._conn_lost += 1
             return False
         else:
@@ -873,7 +1095,7 @@ cdef class SSLProtocol:
 
         while True:
             bytes_estimated = (SSL_pending(self._ssl_connection.ssl_object) +
-                               bio_pending(self._ssl_connection.incoming))
+                               _bio_pending(self._ssl_connection.incoming))
             bytes_estimated = max(1024, bytes_estimated)
 
             curr_chunk = PyBytes_FromStringAndSize(NULL, bytes_estimated)
@@ -929,7 +1151,7 @@ cdef class SSLProtocol:
                 self._fatal_error(ex, 'Error calling eof_received()')
             else:
                 if keep_open:
-                    aio_logger.warning('returning true from eof_received() '
+                    _logger.warning('returning true from eof_received() '
                                        'has no effect when using ssl')
 
     # Flow control for reads to APP socket
@@ -963,7 +1185,7 @@ cdef class SSLProtocol:
         cdef Py_ssize_t bytes_in_backlog = 0
         for data in self._write_backlog:
             bytes_in_backlog += len(data)
-        return bytes_in_backlog + bio_pending(self._ssl_connection.outgoing)
+        return bytes_in_backlog + _bio_pending(self._ssl_connection.outgoing)
 
     cdef Py_ssize_t _get_write_buffer_size(self):
         return self._get_ssl_write_buffer_size() + self._transport.get_write_buffer_size()
@@ -982,7 +1204,7 @@ cdef class SSLProtocol:
 
         if isinstance(exc, OSError):
             if self._loop.get_debug():
-                aio_logger.debug("%r: %s", self, message, exc_info=True)
+                _logger.debug("%r: %s", self, message, exc_info=True)
         elif not isinstance(exc, asyncio.CancelledError):
             self._loop.call_exception_handler({
                 'message': message,
