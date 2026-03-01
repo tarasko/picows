@@ -1119,24 +1119,27 @@ cdef class SSLProtocol(Protocol):
         cdef:
             size_t bytes_read
             list data = None
+            PyObject* bytes_obj
+            char* bytes_buffer_ptr
             bytes first_chunk = None, curr_chunk
             Py_ssize_t bytes_estimated
             int rc
 
         while True:
             bytes_estimated = (SSL_pending(self._ssl_connection.ssl_object) +
-                               _bio_pending(self._ssl_connection.incoming))
+                               _bio_pending(self._ssl_connection.incoming)) + 256
             bytes_estimated = max(1024, bytes_estimated)
 
-            curr_chunk = PyBytes_FromStringAndSize(NULL, bytes_estimated)
+            bytes_obj = aiofn_allocate_bytes(bytes_estimated, &bytes_buffer_ptr)
             rc = SSL_read_ex(self._ssl_connection.ssl_object,
-                             PyBytes_AS_STRING(curr_chunk),
-                             PyBytes_GET_SIZE(curr_chunk), &bytes_read)
+                             bytes_buffer_ptr,
+                             bytes_estimated,
+                             &bytes_read)
             if not rc:
+                curr_chunk = aiofn_finalize_bytes(bytes_obj, 0)
                 break
-
-            _logger.info("%s bytes read, rc=%d", bytes_read, rc)
-            curr_chunk = aiofn_shrink_bytes(curr_chunk, bytes_read)
+            else:
+                curr_chunk = aiofn_finalize_bytes(bytes_obj, bytes_read)
 
             if first_chunk is None:
                 first_chunk = curr_chunk

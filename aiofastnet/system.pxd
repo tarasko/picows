@@ -75,6 +75,33 @@ cdef extern from * nogil:
         PyErr_SetFromErrno(PyExc_OSError);
     }
 #endif
+
+    PyObject* aiofn_allocate_bytes(Py_ssize_t sz, char** ptr)
+    {
+        PyObject* obj = PyBytes_FromStringAndSize(NULL, sz);
+        if (obj == NULL)
+        {
+            *ptr = NULL;
+            PyErr_SetString(PyExc_MemoryError, "cannot allocate bytes object");
+        }
+        else
+        {
+            *ptr = PyBytes_AS_STRING(obj);
+        }
+        return obj;
+    }
+
+    PyObject* aiofn_finalize_bytes(PyObject* obj, Py_ssize_t new_size)
+    {
+        if (new_size == 0)
+        {
+            Py_DECREF(obj);
+            Py_RETURN_NONE;
+        }
+        _PyBytes_Resize(&obj, new_size);
+        return obj;
+    }
+
     """
 
     cdef bint AIOFN_IS_APPLE
@@ -85,6 +112,8 @@ cdef extern from * nogil:
 
     int aiofn_get_last_error()
     void aiofn_set_exc_from_error(int error)
+    PyObject* aiofn_allocate_bytes(Py_ssize_t sz, char** buf) except NULL
+    bytes aiofn_finalize_bytes(PyObject* obj, Py_ssize_t sz)
 
     ssize_t recv(int sockfd, void* buf, size_t len, int flags)
     ssize_t send(int sockfd, const void* buf, size_t len, int flags)
@@ -165,13 +194,11 @@ cdef inline aiofn_unpack_buffer(object bytes_like_obj, char** ptr_out, Py_ssize_
         PyBuffer_Release(&pybuf)
 
 
-cdef inline bytes aiofn_shrink_bytes(bytes obj, Py_ssize_t new_size):
-    cdef PyObject* raw = <PyObject*>obj
-    Py_INCREF(obj)
-    _PyBytes_Resize(&raw, new_size)
-    cdef bytes maybe_new_obj = <bytes>raw
-    Py_DECREF(obj)
-    return maybe_new_obj
+cdef inline bytes aiofn_shrink_bytes(PyObject* obj, Py_ssize_t new_size):
+    _PyBytes_Resize(&obj, new_size)
+    cdef bytes maybe_new_object = <bytes>obj
+    # Py_DECREF(maybe_new_object)
+    return maybe_new_object
 
 
 cdef inline object aiofn_maybe_copy_buffer(object buffer):
