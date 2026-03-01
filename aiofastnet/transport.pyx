@@ -377,7 +377,7 @@ cdef class SelectorSocketTransport(Transport):
 
         if not self._buffer:
             aiofn_unpack_buffer(data, &data_ptr, &data_len)
-            data = self._write_now(data, data_ptr, data_len)
+            data = self._write_one(data, data_ptr, data_len)
             if data is None:
                 return
 
@@ -400,7 +400,7 @@ cdef class SelectorSocketTransport(Transport):
             return
 
         if not self._buffer:
-            data = self._write_now(None, ptr, sz)
+            data = self._write_one(None, ptr, sz)
             if data is None:
                 return
 
@@ -412,7 +412,44 @@ cdef class SelectorSocketTransport(Transport):
         self._buffer.append(data)
         self._maybe_pause_protocol()
 
-    cdef inline _write_now(self, object data, char* data_ptr, Py_ssize_t data_len):
+    cpdef writelines(self, list_of_data):
+        if self._eof:
+            raise RuntimeError('Cannot call writelines() after write_eof()')
+        if self._empty_waiter is not None:
+            raise RuntimeError('unable to writelines; sendfile is in progress')
+        if not list_of_data:
+            return
+
+        if self._conn_lost:
+            if self._conn_lost >= constants.LOG_THRESHOLD_FOR_CONNLOST_WRITES:
+                _logger.warning('socket.send() raised exception.')
+            self._conn_lost += 1
+            return
+
+        if self._buffer:
+            for data in list_of_data:
+                self._buffer.append(aiofn_maybe_copy_buffer(data))
+            self._maybe_pause_protocol()
+            return
+
+        self._write_many(list_of_data)
+
+        # If the entire buffer couldn't be written, register a write handler
+        if self._buffer:
+            self._loop.add_writer(self._sock_fd, self._write_ready)
+            self._maybe_pause_protocol()
+
+    cpdef can_write_eof(self):
+        return True
+
+    cpdef write_eof(self):
+        if self._closing or self._eof:
+            return
+        self._eof = True
+        if not self._buffer:
+            self._sock.shutdown(socket.SHUT_WR)
+
+    cdef inline _write_one(self, object data, char* data_ptr, Py_ssize_t data_len):
         """
         Returns None if all data has been sent, or remaining data
         """
@@ -443,22 +480,48 @@ cdef class SelectorSocketTransport(Transport):
                 if not self._send_again_after_partial_send:
                     return aiofn_maybe_copy_buffer_tail(data, data_ptr, data_len)
 
-    cdef inline _get_sendmsg_buffer(self):
-        return islice(self._buffer, _SC_IOV_MAX)
+    cdef inline _adjust_leftover_buffer(self, list_of_data, Py_ssize_t bytes_sent):
+        cdef:
+            char* data_ptr
+            Py_ssize_t data_len
 
-    def _write_ready(self):
+        if list_of_data is not self._buffer:
+            for data in list_of_data:
+                aiofn_unpack_buffer(data, &data_ptr, &data_len)
+                if data_len <= bytes_sent:
+                    bytes_sent -= data_len
+                    continue
+                elif bytes_sent == 0:
+                    self._buffer.append(aiofn_maybe_copy_buffer(data))
+                else:
+                    data_ptr += bytes_sent
+                    data_len -= bytes_sent
+                    self._buffer.append(aiofn_maybe_copy_buffer_tail(data, data_ptr, data_len))
+        else:
+            while bytes_sent > 0:
+                data = self._buffer.popleft()
+                data_len = len(data)
+                if data_len <= bytes_sent:
+                    bytes_sent -= data_len
+                else:
+                    self._buffer.appendleft(data[bytes_sent:])
+                    break
+
+    cdef inline _write_many(self, list_of_data):
+        cdef Py_ssize_t bytes_sent = 0
+
         if _HAS_SENDMSG:
-            return self._write_sendmsg()
+            bytes_sent = self._sock.sendmsg(islice(self._buffer, _SC_IOV_MAX))
+            self._adjust_leftover_buffer(list_of_data, bytes_sent)
         else:
-            return self._write_send()
+            raise NotImplementedError()
 
-    cdef inline _write_sendmsg(self):
+    cpdef _write_ready(self):
         assert self._buffer, 'Data should not be empty'
         if self._conn_lost:
             return
         try:
-            nbytes = self._sock.sendmsg(self._get_sendmsg_buffer())
-            self._adjust_leftover_buffer(nbytes)
+            self._write_many(self._buffer)
         except (BlockingIOError, InterruptedError):
             pass
         except (SystemExit, KeyboardInterrupt):
@@ -470,88 +533,16 @@ cdef class SelectorSocketTransport(Transport):
             if self._empty_waiter is not None:
                 self._empty_waiter.set_exception(exc)
         else:
-            self._maybe_resume_protocol()  # May append to buffer.
+            self._maybe_resume_protocol()
             if not self._buffer:
                 self._loop.remove_writer(self._sock_fd)
                 if self._empty_waiter is not None:
                     self._empty_waiter.set_result(None)
                 if self._closing:
+                    self._conn_lost += 1
                     self._call_connection_lost(None)
                 elif self._eof:
                     self._sock.shutdown(socket.SHUT_WR)
-
-    cdef inline _adjust_leftover_buffer(self, Py_ssize_t nbytes):
-        buffer = self._buffer
-        while nbytes:
-            b = buffer.popleft()
-            b_len = len(b)
-            if b_len <= nbytes:
-                nbytes -= b_len
-            else:
-                buffer.appendleft(b[nbytes:])
-                break
-
-    cdef inline _write_send(self):
-        assert self._buffer, 'Data should not be empty'
-        if self._conn_lost:
-            return
-        try:
-            buffer = self._buffer.popleft()
-            n = self._sock.send(buffer)
-            if n != len(buffer):
-                # Not all data was written
-                self._buffer.appendleft(buffer[n:])
-        except (BlockingIOError, InterruptedError):
-            pass
-        except (SystemExit, KeyboardInterrupt):
-            raise
-        except BaseException as exc:
-            self._loop.remove_writer(self._sock_fd)
-            self._buffer.clear()
-            self._fatal_error(exc, 'Fatal write error on socket transport')
-            if self._empty_waiter is not None:
-                self._empty_waiter.set_exception(exc)
-        else:
-            self._maybe_resume_protocol()  # May append to buffer.
-            if not self._buffer:
-                self._loop.remove_writer(self._sock_fd)
-                if self._empty_waiter is not None:
-                    self._empty_waiter.set_result(None)
-                if self._closing:
-                    self._call_connection_lost(None)
-                elif self._eof:
-                    self._sock.shutdown(socket.SHUT_WR)
-
-    cpdef write_eof(self):
-        if self._closing or self._eof:
-            return
-        self._eof = True
-        if not self._buffer:
-            self._sock.shutdown(socket.SHUT_WR)
-
-    cpdef writelines(self, list_of_data):
-        if self._eof:
-            raise RuntimeError('Cannot call writelines() after write_eof()')
-        if self._empty_waiter is not None:
-            raise RuntimeError('unable to writelines; sendfile is in progress')
-        if not list_of_data:
-            return
-
-        if self._conn_lost:
-            if self._conn_lost >= constants.LOG_THRESHOLD_FOR_CONNLOST_WRITES:
-                _logger.warning('socket.send() raised exception.')
-            self._conn_lost += 1
-            return
-
-        self._buffer.extend([memoryview(data) for data in list_of_data])
-        self._write_ready()
-        # If the entire buffer couldn't be written, register a write handler
-        if self._buffer:
-            self._loop.add_writer(self._sock_fd, self._write_ready)
-            self._maybe_pause_protocol()
-
-    cpdef can_write_eof(self):
-        return True
 
     cpdef _call_connection_lost(self, exc):
         try:
