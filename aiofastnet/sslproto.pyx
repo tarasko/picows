@@ -495,6 +495,7 @@ cdef class SSLProtocol(Protocol):
     cpdef set_app_protocol(self, app_protocol):
         self._app_protocol = app_protocol
         self._app_protocol_is_buffered = is_buffered_protocol(app_protocol)
+        self._app_protocol_aiofn = isinstance(app_protocol, Protocol)
 
     cpdef get_app_protocol(self):
         return self._app_protocol
@@ -574,6 +575,9 @@ cdef class SSLProtocol(Protocol):
         return PyMemoryView_FromMemory(buf, buf_size, PyBUF_WRITE)
 
     cpdef buffer_updated(self, Py_ssize_t nbytes):
+        # TODO: Is there a way to use _tcp_read_buffer as an underlying for
+        # incoming memory BIO, to avoid copy?
+
         cdef int bytes_written = BIO_write(
                 self._ssl_connection.incoming,
                 PyByteArray_AS_STRING(self._tcp_read_buffer),
@@ -1057,27 +1061,24 @@ cdef class SSLProtocol(Protocol):
             self._fatal_error(ex, 'Fatal error on SSL protocol')
 
     cdef _do_read__buffered(self):
-        cdef:
-            object app_buffer = call_get_buffer(self._app_protocol, -1)
-            Py_ssize_t app_buffer_size = len(app_buffer)
+        if self._app_protocol_aiofn:
+            app_buffer = (<Protocol>self._app_protocol).get_buffer(-1)
+        else:
+            app_buffer = self._app_protocol.get_buffer(-1)
 
-        if app_buffer_size == 0:
-            return
+        cdef:
+            char* buf_ptr
+            Py_ssize_t buf_len
+
+        aiofn_unpack_buffer(app_buffer, &buf_ptr, &buf_len)
+
+        if buf_len == 0:
+            raise RuntimeError('get_buffer() returned an empty buffer')
 
         cdef:
             size_t last_bytes_read
             Py_ssize_t total_bytes_read = 0
-            Py_buffer pybuf
-
-        PyObject_GetBuffer(app_buffer, &pybuf, PyBUF_SIMPLE | PyBUF_WRITABLE)
-        cdef:
-            char* buf_ptr = <char*>pybuf.buf
-            Py_ssize_t buf_len = pybuf.len
             int rc = 0
-        PyBuffer_Release(&pybuf)
-
-        if buf_len == 0:
-            raise ValueError("empty buffer provided by BufferedProtocol.get_buffer")
 
         while buf_len > 0:
             rc = SSL_read_ex(
@@ -1092,7 +1093,10 @@ cdef class SSLProtocol(Protocol):
         cdef int last_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
 
         if total_bytes_read > 0:
-            call_buffer_updated(self._app_protocol, total_bytes_read)
+            if self._app_protocol_aiofn:
+                (<Protocol>self._app_protocol).buffer_updated(total_bytes_read)
+            else:
+                self._app_protocol.buffer_updated(total_bytes_read)
 
         # It could be that buffer_update user handler paused reading
         # But we do have extra data in the incoming BIO or in SSL object.
@@ -1150,10 +1154,17 @@ cdef class SSLProtocol(Protocol):
 
         cdef int last_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
 
+        user_data = None
         if data is not None:
-            call_data_received(self._app_protocol, b''.join(data))
+            user_data = b''.join(data)
         elif first_chunk is not None:
-            call_data_received(self._app_protocol, first_chunk)
+            user_data = first_chunk
+
+        if user_data is not None:
+            if self._app_protocol_aiofn:
+                (<Protocol>self._app_protocol).data_received(user_data)
+            else:
+                self._app_protocol.data_received(user_data)
 
         if last_error in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
             return

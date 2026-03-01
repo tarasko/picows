@@ -901,9 +901,8 @@ cdef class WSProtocol(Protocol, asyncio.BufferedProtocol):
             self.listener.resume_writing()
 
     cpdef is_buffered_protocol(self):
-        return False
+        return True
 
-    # Uncomment this to try non-buffered protocols.
     cpdef data_received(self, data):
         cdef:
             char* ptr

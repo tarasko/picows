@@ -79,6 +79,7 @@ cdef class SSLProtocol(Protocol):
 
         object _app_protocol
         bint _app_protocol_is_buffered
+        bint _app_protocol_aiofn
 
         object _handshake_start_time
         object _handshake_timeout_handle

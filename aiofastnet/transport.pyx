@@ -84,33 +84,13 @@ cpdef is_buffered_protocol(protocol):
     return isinstance(protocol, BufferedProtocol)
 
 
-cdef call_get_buffer(protocol, Py_ssize_t hint):
-    if isinstance(protocol, Protocol):
-        return (<Protocol>protocol).get_buffer(hint)
-    else:
-        return protocol.get_buffer(hint)
-
-
-cdef call_buffer_updated(protocol, Py_ssize_t bytes_read):
-    if isinstance(protocol, Protocol):
-        return (<Protocol>protocol).buffer_updated(bytes_read)
-    else:
-        return protocol.buffer_updated(bytes_read)
-
-
-cdef call_data_received(protocol, data):
-    if isinstance(protocol, Protocol):
-        return (<Protocol>protocol).data_received(data)
-    else:
-        return protocol.data_received(data)
-
-
 cdef class SelectorSocketTransport(Transport):
     cdef:
         object __weakref__
         object _loop
         object _protocol
         bint _protocol_buffered
+        bint _protocol_aiofn
         bint _protocol_connected
         bint _protocol_paused
         Py_ssize_t _high_water
@@ -196,6 +176,7 @@ cdef class SelectorSocketTransport(Transport):
     cpdef set_protocol(self, protocol):
         self._protocol = protocol
         self._protocol_buffered = is_buffered_protocol(protocol)
+        self._protocol_aiofn = isinstance(protocol, Protocol)
         self._protocol_connected = True
 
     cpdef get_protocol(self):
@@ -270,7 +251,6 @@ cdef class SelectorSocketTransport(Transport):
     cdef inline _read_ready__get_buffer(self):
         cdef:
             object buf
-            Py_buffer pybuf
             char* buf_ptr
             Py_ssize_t buf_len
             Py_ssize_t bytes_read
@@ -280,8 +260,13 @@ cdef class SelectorSocketTransport(Transport):
                 return
 
             try:
-                buf = call_get_buffer(self._protocol, -1)
-                if not len(buf):
+                if self._protocol_aiofn:
+                    buf = (<Protocol>self._protocol).get_buffer(-1)
+                else:
+                    buf = self._protocol.get_buffer(-1)
+
+                aiofn_unpack_buffer(buf, &buf_ptr, &buf_len)
+                if buf_len == 0:
                     raise RuntimeError('get_buffer() returned an empty buffer')
             except (SystemExit, KeyboardInterrupt):
                 raise
@@ -291,11 +276,6 @@ cdef class SelectorSocketTransport(Transport):
                 return
 
             try:
-                PyObject_GetBuffer(buf, &pybuf, PyBUF_SIMPLE)
-                buf_ptr = <char*> pybuf.buf
-                buf_len = pybuf.len
-                PyBuffer_Release(&pybuf)
-
                 bytes_read = aiofn_recv(self._sock_fd, buf_ptr, buf_len)
                 if bytes_read == -1:    # without exception this means EGAIN
                     return
@@ -312,7 +292,10 @@ cdef class SelectorSocketTransport(Transport):
                 return
 
             try:
-                call_buffer_updated(self._protocol, bytes_read)
+                if self._protocol_aiofn:
+                    buf = (<Protocol>self._protocol).buffer_updated(bytes_read)
+                else:
+                    buf = self._protocol.buffer_updated(bytes_read)
             except (SystemExit, KeyboardInterrupt):
                 raise
             except BaseException as exc:
@@ -323,6 +306,8 @@ cdef class SelectorSocketTransport(Transport):
         if self._conn_lost:
             return
         try:
+            # Already a good wrapper, returns bytes object.
+            # Exactly what we need for non-buffered protocols
             data = self._sock.recv(_DATA_RECEIVED_MAX_SIZE)
         except (BlockingIOError, InterruptedError):
             return
@@ -337,7 +322,10 @@ cdef class SelectorSocketTransport(Transport):
             return
 
         try:
-            call_data_received(self._protocol, data)
+            if self._protocol_aiofn:
+                (<Protocol>self._protocol).data_received(data)
+            else:
+                self._protocol.data_received(data)
         except (SystemExit, KeyboardInterrupt):
             raise
         except BaseException as exc:
