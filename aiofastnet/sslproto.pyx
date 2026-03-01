@@ -1130,11 +1130,12 @@ cdef class SSLProtocol(Protocol):
 
             curr_chunk = PyBytes_FromStringAndSize(NULL, bytes_estimated)
             rc = SSL_read_ex(self._ssl_connection.ssl_object,
-                             PyBytes_AS_STRING(data),
-                             PyBytes_GET_SIZE(data), &bytes_read)
+                             PyBytes_AS_STRING(curr_chunk),
+                             PyBytes_GET_SIZE(curr_chunk), &bytes_read)
             if not rc:
                 break
 
+            _logger.info("%s bytes read, rc=%d", bytes_read, rc)
             curr_chunk = aiofn_shrink_bytes(curr_chunk, bytes_read)
 
             if first_chunk is None:

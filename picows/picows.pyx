@@ -900,22 +900,24 @@ cdef class WSProtocol(Protocol, asyncio.BufferedProtocol):
         if self.listener is not None:
             self.listener.resume_writing()
 
+    cpdef is_buffered_protocol(self):
+        return False
 
     # Uncomment this to try non-buffered protocols.
-    # def data_received(self, data):
-    #     cdef:
-    #         char* ptr
-    #         Py_ssize_t sz
-    #
-    #     _unpack_bytes_like(data, &ptr, &sz)
-    #
-    #     if self._read_buffer.size - self._f_new_data_start_pos < sz:
-    #         self._read_buffer.resize(self._f_new_data_start_pos + sz)
-    #
-    #     memcpy(self._read_buffer.data + self._f_new_data_start_pos, ptr, sz)
-    #     self._f_new_data_start_pos += sz
-    #
-    #     self._process_new_data()
+    cpdef data_received(self, data):
+        cdef:
+            char* ptr
+            Py_ssize_t sz
+
+        _unpack_bytes_like(data, &ptr, &sz)
+
+        if self._read_buffer.size - self._f_new_data_start_pos < sz:
+            self._read_buffer.resize(self._f_new_data_start_pos + sz)
+
+        memcpy(self._read_buffer.data + self._f_new_data_start_pos, ptr, sz)
+        self._f_new_data_start_pos += sz
+
+        self._process_new_data()
 
     cpdef get_buffer(self, Py_ssize_t size_hint):
         # size_hint is un-reliable, uvloop provides a fixed value of 65536
