@@ -1,5 +1,5 @@
 import asyncio
-from logging import INFO, basicConfig
+from logging import INFO, basicConfig, ERROR
 import ssl
 
 import uvloop
@@ -30,4 +30,4 @@ if __name__ == '__main__':
     # uvloop.install()
     basicConfig(level=INFO)
     ssl_context = create_client_ssl_context()
-    asyncio.run(main("wss://127.0.0.1:9002", 2000000, 60, ssl_context))
+    asyncio.run(main("ws://127.0.0.1:9001", 256, 10, ssl_context))
