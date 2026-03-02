@@ -197,14 +197,17 @@ static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, u
     {
         typedef __m256i int_x;
         const size_t reg_size = 32;
-        const size_t input_len_trunc = (input_len - start_pos) & ~(reg_size - 1);
+        const size_t input_len_trunc = (input_len - start_pos) & ~(2*reg_size - 1);
         const int_x mask_x = _mm256_set1_epi32(mask);
 
-        for (size_t i = start_pos; i < start_pos + input_len_trunc; i += reg_size)
+        for (size_t i = start_pos; i < start_pos + input_len_trunc; i += reg_size * 2)
         {
-            int_x in = _mm256_load_si256((int_x *)(input  + i));
-            int_x out = _mm256_xor_si256(in, mask_x);
-            _mm256_store_si256((int_x *)(output + i), out);
+            int_x in1 = _mm256_load_si256((int_x *)(input + i));
+            int_x in2 = _mm256_load_si256((int_x *)(input + i + reg_size));
+            int_x out1 = _mm256_xor_si256(in1, mask_x);
+            int_x out2 = _mm256_xor_si256(in2, mask_x);
+            _mm256_stream_si256((int_x *)(output + i), out1);
+            _mm256_stream_si256((int_x *)(output + i + reg_size), out2);
         }
 
         return start_pos + input_len_trunc;
@@ -245,7 +248,7 @@ static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, u
         if (has_avx512f())
             return 64;
         else if (has_avx2())
-            return 32;
+            return 64;
         else if (has_sse2())
             return 16;
         else

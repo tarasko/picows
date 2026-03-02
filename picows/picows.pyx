@@ -411,7 +411,7 @@ cdef class WSTransport:
             char* header_ptr = msg_ptr - header_size
             uint32_t mask = self._write_header(<uint8_t*>header_ptr, msg_type, msg_size, fin, rsv1)
 
-        if self.is_client_side:
+        if mask != 0:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask, <uint8_t*>msg_ptr)
 
         if isinstance(self.underlying_transport, Transport):
@@ -459,23 +459,60 @@ cdef class WSTransport:
 
         self.send_reuse_external_buffer(msg_type, msg_ptr, msg_size, fin, rsv1)
 
+    # cpdef send(self, WSMsgType msg_type, message, bint fin=True,
+    #            bint rsv1=False):
+    #     """
+    #     Send a frame over websocket with a message as its payload.
+    #
+    #     Please note that this function has to copy the whole message into
+    #     library's write buffer in order to be able to prepend websocket
+    #     frame header and apply mask to the whole message. If you want to avoid
+    #     copying please use :any:`WSTransport.send_reuse_external_bytearray` or
+    #     :any:`WSTransport.send_reuse_external_buffer`.
+    #
+    #     :param msg_type: :any:`WSMsgType` enum value\n
+    #     :param message: an optional bytes-like object
+    #     :param fin: fin bit in websocket frame.
+    #         Indicate that the frame is the last one in the message.
+    #     :param rsv1: first reserved bit in websocket frame.
+    #         Some protocol extensions use it to indicate that payload
+    #         is compressed.
+    #     """
+    #     if self.is_close_frame_sent:
+    #         self._logger.debug(
+    #             "Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
+    #         return
+    #
+    #     cdef:
+    #         char * msg_ptr
+    #         Py_ssize_t msg_size
+    #
+    #     aiofn_unpack_buffer(message, &msg_ptr, &msg_size)
+    #
+    #     self._write_buffer.resize(msg_size + 16)
+    #     memcpy(self._write_buffer.data + 16, msg_ptr, msg_size)
+    #     self.send_reuse_external_buffer(msg_type, self._write_buffer.data + 16, msg_size, fin, rsv1)
+    #
+    #     if msg_type == WSMsgType.CLOSE:
+    #         self.is_close_frame_sent = True
+
     cpdef send(self, WSMsgType msg_type, message, bint fin=True, bint rsv1=False):
-        """        
+        """
         Send a frame over websocket with a message as its payload.
-        
-        Please note that this function has to copy the whole message into 
-        library's write buffer in order to be able to prepend websocket 
-        frame header and apply mask to the whole message. If you want to avoid 
-        copying please use :any:`WSTransport.send_reuse_external_bytearray` or 
+
+        Please note that this function has to copy the whole message into
+        library's write buffer in order to be able to prepend websocket
+        frame header and apply mask to the whole message. If you want to avoid
+        copying please use :any:`WSTransport.send_reuse_external_bytearray` or
         :any:`WSTransport.send_reuse_external_buffer`.
 
-        :param msg_type: :any:`WSMsgType` enum value\n 
+        :param msg_type: :any:`WSMsgType` enum value\n
         :param message: an optional bytes-like object
         :param fin: fin bit in websocket frame.
             Indicate that the frame is the last one in the message.
-        :param rsv1: first reserved bit in websocket frame. 
-            Some protocol extensions use it to indicate that payload 
-            is compressed.        
+        :param rsv1: first reserved bit in websocket frame.
+            Some protocol extensions use it to indicate that payload
+            is compressed.
         """
         if self.is_close_frame_sent:
             self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
@@ -495,7 +532,7 @@ cdef class WSTransport:
 
         if msg_size == 0:
             self.underlying_transport.write(header)
-        elif self.is_client_side:
+        elif mask != 0:
             self._write_buffer.resize(msg_size + 64)
             masked_msg_ptr = <char*>_mask_payload(<uint8_t*>msg_ptr, msg_size, mask, <uint8_t*>self._write_buffer.data)
             self.underlying_transport.writelines([header, PyMemoryView_FromMemory(masked_msg_ptr, msg_size, PyBUF_READ)])

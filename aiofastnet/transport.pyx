@@ -511,7 +511,7 @@ cdef class SelectorSocketTransport(Transport):
         cdef Py_ssize_t bytes_sent = 0
 
         if _HAS_SENDMSG:
-            bytes_sent = self._sock.sendmsg(islice(self._buffer, _SC_IOV_MAX))
+            bytes_sent = self._sock.sendmsg(islice(list_of_data, _SC_IOV_MAX))
             self._adjust_leftover_buffer(list_of_data, bytes_sent)
         else:
             raise NotImplementedError()

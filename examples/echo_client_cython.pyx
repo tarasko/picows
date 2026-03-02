@@ -27,6 +27,7 @@ cdef class ClientListenerCython(WSListener):
         self._cnt = 0
 
     cpdef on_ws_connected(self, WSTransport transport):
+        transport.underlying_transport.set_write_buffer_limits(100*1024*1024, 50*1024*1024)
         transport.send(WSMsgType.TEXT, self._msg)
 
     cpdef on_ws_frame(self, WSTransport transport, WSFrame frame):
