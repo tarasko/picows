@@ -15,8 +15,7 @@ from .transport cimport *
 
 
 cdef enum:
-    SSL_READ_DEFAULT_SIZE = 64 * 1024
-    SSL_READ_MAX_SIZE = 256 * 1024
+    SSL_READ_BUFFER_SIZE = 128 * 1024
     SSL_FLUSH_THRESHOLD = 128 * 1024
 
 
@@ -480,7 +479,7 @@ cdef class SSLProtocol(Protocol):
         self._ssl_shutdown_timeout = ssl_shutdown_timeout
         self._ssl_handshake_complete_waiter = ssl_handshake_complete_waiter
         self._tcp_read_buffer = PyByteArray_FromStringAndSize(
-            NULL, SSL_READ_DEFAULT_SIZE)
+            NULL, SSL_READ_BUFFER_SIZE)
 
         self._state = UNWRAPPED
         self._conn_lost = 0  # Set when connection_lost called
@@ -526,9 +525,8 @@ cdef class SSLProtocol(Protocol):
         """
         self._write_backlog.clear()
 
-        # TODO: Do we need to read remaining data from BIO?
-        # Is it ok to just free ssl_object?
-        # self._outgoing_read()
+        # I don't know if we really need this
+        BIO_reset(self._ssl_connection.outgoing)
 
         self._conn_lost += 1
 
@@ -562,18 +560,7 @@ cdef class SSLProtocol(Protocol):
             self._handshake_timeout_handle = None
 
     cpdef get_buffer(self, Py_ssize_t n):
-        if n < 0:
-            n = 256*1024
-
-        cdef Py_ssize_t want = min(n, SSL_READ_MAX_SIZE)
-
-        if PyByteArray_GET_SIZE(self._tcp_read_buffer) < want:
-            PyByteArray_Resize(self._tcp_read_buffer, want)
-
-        cdef char* buf = PyByteArray_AS_STRING(self._tcp_read_buffer)
-        cdef size_t buf_size = PyByteArray_GET_SIZE(self._tcp_read_buffer)
-
-        return PyMemoryView_FromMemory(buf, buf_size, PyBUF_WRITE)
+        return self._tcp_read_buffer
 
     cpdef buffer_updated(self, Py_ssize_t nbytes):
         # TODO: Is there a way to use _tcp_read_buffer as an underlying for
