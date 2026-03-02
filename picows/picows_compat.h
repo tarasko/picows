@@ -174,58 +174,67 @@ static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, u
     static int has_avx2(void) { return __builtin_cpu_supports("avx2"); }
     static int has_sse2(void) { return __builtin_cpu_supports("sse2"); }
 
+    MAYBE_UNUSED
     __attribute__((target("sse2")))
     static size_t apply_mask_sse2(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
     {
         typedef __m128i int_x;
-        const size_t reg_size = 16;
-        const size_t input_len_trunc = (input_len - start_pos) & ~(reg_size - 1);
+        const size_t input_len_trunc = (input_len - start_pos) & ~(64 - 1);
         const int_x mask_x = _mm_set1_epi32(mask);
 
-        for (size_t i = start_pos; i < start_pos + input_len_trunc; i += reg_size)
+        for (size_t i = start_pos; i < start_pos + input_len_trunc; i += 64)
         {
-            int_x in = _mm_load_si128((int_x *)(input  + i));
-            int_x out = _mm_xor_si128(in, mask_x);
-            _mm_store_si128((int_x *)(output + i), out);
+            int_x in1 = _mm_load_si128((int_x *)(input + i));
+            int_x in2 = _mm_load_si128((int_x *)(input + i + 16));
+            int_x in3 = _mm_load_si128((int_x *)(input + i + 32));
+            int_x in4 = _mm_load_si128((int_x *)(input + i + 48));
+            int_x out1 = _mm_xor_si128(in1, mask_x);
+            int_x out2 = _mm_xor_si128(in2, mask_x);
+            int_x out3 = _mm_xor_si128(in3, mask_x);
+            int_x out4 = _mm_xor_si128(in4, mask_x);
+            _mm_stream_si128((int_x *)(output + i), out1);
+            _mm_stream_si128((int_x *)(output + i + 16), out2);
+            _mm_stream_si128((int_x *)(output + i + 32), out3);
+            _mm_stream_si128((int_x *)(output + i + 48), out4);
         }
 
         return start_pos + input_len_trunc;
     }
 
+    MAYBE_UNUSED
     __attribute__((target("avx2")))
     static size_t apply_mask_avx2(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
     {
         typedef __m256i int_x;
-        const size_t reg_size = 32;
-        const size_t input_len_trunc = (input_len - start_pos) & ~(2*reg_size - 1);
+        const size_t input_len_trunc = (input_len - start_pos) & ~(64 - 1);
         const int_x mask_x = _mm256_set1_epi32(mask);
 
-        for (size_t i = start_pos; i < start_pos + input_len_trunc; i += reg_size * 2)
+        for (size_t i = start_pos; i < start_pos + input_len_trunc; i += 64)
         {
             int_x in1 = _mm256_load_si256((int_x *)(input + i));
-            int_x in2 = _mm256_load_si256((int_x *)(input + i + reg_size));
+            int_x in2 = _mm256_load_si256((int_x *)(input + i + 32));
             int_x out1 = _mm256_xor_si256(in1, mask_x);
             int_x out2 = _mm256_xor_si256(in2, mask_x);
             _mm256_stream_si256((int_x *)(output + i), out1);
-            _mm256_stream_si256((int_x *)(output + i + reg_size), out2);
+            _mm256_stream_si256((int_x *)(output + i + 32), out2);
         }
 
         return start_pos + input_len_trunc;
     }
 
+    MAYBE_UNUSED
     __attribute__((target("avx512f")))
     static size_t apply_mask_avx512(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
     {
         typedef __m512i int_x;
-        const size_t reg_size = 64;
-        const size_t input_len_trunc = (input_len - start_pos) & ~(reg_size - 1);
+        const size_t input_len_trunc = (input_len - start_pos) & ~(64 - 1);
         const int_x mask_x = _mm512_set1_epi32(mask);
 
-        for (size_t i = start_pos; i < start_pos + input_len_trunc; i += reg_size)
+        for (size_t i = start_pos; i < start_pos + input_len_trunc; i += 64)
         {
             int_x in = _mm512_load_si512((int_x *)(input  + i));
             int_x out = _mm512_xor_si512(in, mask_x);
-            _mm512_store_si512((int_x *)(output + i), out);
+            _mm512_stream_si512((int_x *)(output + i), out);
         }
 
         return start_pos + input_len_trunc;
@@ -250,7 +259,7 @@ static size_t apply_mask_8(uint8_t* input, size_t input_len, size_t start_pos, u
         else if (has_avx2())
             return 64;
         else if (has_sse2())
-            return 16;
+            return 64;
         else
             return 8;
     }
