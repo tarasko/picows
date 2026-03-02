@@ -389,16 +389,16 @@ cdef class SSLTransport:
         """
         self._ssl_protocol.write(data)
 
-    cdef write_mem(self, char* ptr, Py_ssize_t sz):
-        self._ssl_protocol.write_mem(ptr, sz)
-
-    def writelines(self, list_of_data):
+    cpdef writelines(self, list_of_data):
         """Write a list (or any iterable) of data bytes to the transport.
 
         The default implementation concatenates the arguments and
         calls write() on the result.
         """
         self._ssl_protocol.writelines(list_of_data)
+
+    cdef write_mem(self, char* ptr, Py_ssize_t sz):
+        self._ssl_protocol.write_mem(ptr, sz)
 
     def write_eof(self):
         """Close the write end after flushing buffered data.

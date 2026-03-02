@@ -58,6 +58,21 @@ cdef extern from * nogil:
     void aiofn_set_exc_from_error(int error) {
         PyErr_SetExcFromWindowsErr(PyExc_OSError, error);
     }
+
+    // Memory layout is compatible with WSABUF
+    typedef struct
+    {
+        ULONG iov_len;
+        CHAR* iov_base;
+    } aiofn_iovec;
+
+    Py_ssize_t aiofn_writev_sys(int fd, aiofn_iovec* iov, int iovcnt)
+    {
+        DWORD bytes_sent = 0;
+        int rc = WSASend(fd, (LPWSABUF)iov, iovcnt, &bytes_sent, 0, NULL, NULL);
+        return rc == SOCKET_ERROR ? -1 : bytes_sent;
+    }
+
 #else
     #include <sys/types.h>
     #include <sys/socket.h>
@@ -74,7 +89,15 @@ cdef extern from * nogil:
     void aiofn_set_exc_from_error(int) {
         PyErr_SetFromErrno(PyExc_OSError);
     }
+
+    typedef struct iovec aiofn_iovec;
+
+    Py_ssize_t aiofn_writev_sys(int fd, aiofn_iovec* iov, int iovcnt)
+    {
+        return writev(fd, iov, iovcnt);
+    }
 #endif
+    #define AIOFN_MAX_IOVEC 256
 
     PyObject* aiofn_allocate_bytes(Py_ssize_t sz, char** ptr)
     {
@@ -101,7 +124,6 @@ cdef extern from * nogil:
         _PyBytes_Resize(&obj, new_size);
         return obj;
     }
-
     """
 
     cdef bint AIOFN_IS_APPLE
@@ -109,6 +131,7 @@ cdef extern from * nogil:
     cdef bint AIOFN_IS_WINDOWS
     cdef int AIOFN_EWOULDBLOCK
     cdef int AIOFN_EAGAIN
+    cdef int AIOFN_MAX_IOVEC
 
     int aiofn_get_last_error()
     void aiofn_set_exc_from_error(int error)
@@ -118,60 +141,11 @@ cdef extern from * nogil:
     ssize_t recv(int sockfd, void* buf, size_t len, int flags)
     ssize_t send(int sockfd, const void* buf, size_t len, int flags)
 
-    ctypedef struct iovec:
+    ctypedef struct aiofn_iovec:
         void* iov_base
         size_t iov_len
 
-    ssize_t writev(int fd, iovec *iov, int iovcnt)
-
-
-cdef inline Py_ssize_t aiofn_recv(int sockfd, void* buf, Py_ssize_t len) except? -1:
-    cdef:
-        ssize_t bytes_read
-        int last_error
-
-    while True:
-        bytes_read = recv(sockfd, buf, len, 0)
-        if bytes_read >= 0:
-            return bytes_read
-
-        last_error = aiofn_get_last_error()
-        if last_error in (AIOFN_EWOULDBLOCK, AIOFN_EAGAIN):
-            return bytes_read
-
-        if not AIOFN_IS_WINDOWS and last_error == errno.EINTR:
-            continue
-
-        aiofn_set_exc_from_error(last_error)
-
-        return bytes_read
-
-
-cdef inline Py_ssize_t aiofn_send(int sockfd, void* buf, Py_ssize_t len) except? -1:
-    cdef:
-        ssize_t bytes_sent
-        int last_error
-
-    while True:
-        bytes_sent = send(sockfd, buf, len, 0)
-        if bytes_sent > 0:
-            return bytes_sent
-
-        if bytes_sent == -1:
-            last_error = aiofn_get_last_error()
-            if last_error in (AIOFN_EWOULDBLOCK, AIOFN_EAGAIN):
-                return bytes_sent
-
-            if not AIOFN_IS_WINDOWS and last_error == errno.EINTR:
-                continue
-
-            aiofn_set_exc_from_error(last_error)
-            return bytes_sent
-
-        if bytes_sent == 0:
-            # This should never happen, but who knows?
-            # May be len is 0?
-            raise RuntimeError(f"send syscall has sent 0 bytes and did not indicate any error, buf_len={len}")
+    ssize_t aiofn_writev_sys(int fd, aiofn_iovec *iov, int iovcnt)
 
 
 cdef inline aiofn_unpack_buffer(object bytes_like_obj, char** ptr_out, Py_ssize_t* size_out):

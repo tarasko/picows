@@ -24,6 +24,84 @@ cdef bint _HAS_SENDMSG = _get_has_sendmsg()
 cdef Py_ssize_t _SC_IOV_MAX = os.sysconf('SC_IOV_MAX') if _HAS_SENDMSG else 0
 cdef object _DATA_RECEIVED_MAX_SIZE = 256 * 1024
 
+
+cdef inline Py_ssize_t aiofn_recv(int sockfd, void* buf, Py_ssize_t len) except? -1:
+    cdef:
+        ssize_t bytes_read
+        int last_error
+
+    while True:
+        bytes_read = recv(sockfd, buf, len, 0)
+        if bytes_read >= 0:
+            return bytes_read
+
+        last_error = aiofn_get_last_error()
+        if last_error in (AIOFN_EWOULDBLOCK, AIOFN_EAGAIN):
+            return bytes_read
+
+        if not AIOFN_IS_WINDOWS and last_error == errno.EINTR:
+            continue
+
+        aiofn_set_exc_from_error(last_error)
+
+        return bytes_read
+
+
+cdef inline Py_ssize_t aiofn_send(int sockfd, void* buf, Py_ssize_t len) except? -1:
+    cdef:
+        ssize_t bytes_sent
+        int last_error
+
+    while True:
+        bytes_sent = send(sockfd, buf, len, 0)
+        if bytes_sent > 0:
+            return bytes_sent
+
+        if bytes_sent == -1:
+            last_error = aiofn_get_last_error()
+            if last_error in (AIOFN_EWOULDBLOCK, AIOFN_EAGAIN):
+                return bytes_sent
+
+            if not AIOFN_IS_WINDOWS and last_error == errno.EINTR:
+                continue
+
+            aiofn_set_exc_from_error(last_error)
+            return bytes_sent
+
+        if bytes_sent == 0:
+            # This should never happen, but who knows?
+            # May be len is 0?
+            raise RuntimeError(f"send syscall has sent 0 bytes and did not indicate any error, buf_len={len}")
+
+
+cdef inline Py_ssize_t aiofn_writev(int sockfd, aiofn_iovec* iov, Py_ssize_t iovcnt) except? -1:
+    cdef:
+        ssize_t bytes_sent
+        int last_error
+
+    while True:
+        bytes_sent = aiofn_writev_sys(sockfd, iov, iovcnt)
+
+        if bytes_sent > 0:
+            return bytes_sent
+
+        if bytes_sent == -1:
+            last_error = aiofn_get_last_error()
+            if last_error in (AIOFN_EWOULDBLOCK, AIOFN_EAGAIN):
+                return bytes_sent
+
+            if not AIOFN_IS_WINDOWS and last_error == errno.EINTR:
+                continue
+
+            aiofn_set_exc_from_error(last_error)
+            return bytes_sent
+
+        if bytes_sent == 0:
+            # This should never happen, but who knows?
+            # May be len is 0?
+            raise RuntimeError(f"writev syscall has sent 0 bytes and did not indicate any error")
+
+
 cdef _get_has_sendmsg():
     if hasattr(socket.socket, 'sendmsg'):
         try:
@@ -50,6 +128,9 @@ cdef _set_nodelay(sock):
 
 cdef class Transport:
     cpdef write(self, data):
+        raise NotImplemented
+
+    cpdef writelines(self, list_of_data):
         raise NotImplemented
 
     cdef write_mem(self, char* ptr, Py_ssize_t sz):
@@ -108,6 +189,8 @@ cdef class SelectorSocketTransport(Transport):
         bint _eof
         object _empty_waiter
         bint _send_again_after_partial_send
+
+        aiofn_iovec _iovecs[256]
 
     def __init__(self, loop, sock, protocol, waiter=None, extra=None, server=None):
         assert loop is not None
@@ -491,7 +574,7 @@ cdef class SelectorSocketTransport(Transport):
                 if data_len <= bytes_sent:
                     bytes_sent -= data_len
                     continue
-                elif bytes_sent == 0:
+                elif bytes_sent <= 0:
                     self._buffer.append(aiofn_maybe_copy_buffer(data))
                 else:
                     data_ptr += bytes_sent
@@ -508,13 +591,20 @@ cdef class SelectorSocketTransport(Transport):
                     break
 
     cdef inline _write_many(self, list_of_data):
-        cdef Py_ssize_t bytes_sent = 0
+        cdef:
+            Py_ssize_t idx = 0
+            char* data_ptr
+            Py_ssize_t data_len
 
-        if _HAS_SENDMSG:
-            bytes_sent = self._sock.sendmsg(islice(list_of_data, _SC_IOV_MAX))
-            self._adjust_leftover_buffer(list_of_data, bytes_sent)
-        else:
-            raise NotImplementedError()
+        for idx, data in enumerate(list_of_data):
+            aiofn_unpack_buffer(data, &data_ptr, &data_len)
+            self._iovecs[idx].iov_base = data_ptr
+            self._iovecs[idx].iov_len = data_len
+            if idx == AIOFN_MAX_IOVEC - 1:
+                break
+
+        cdef Py_ssize_t bytes_sent = aiofn_writev(self._sock_fd, self._iovecs, idx + 1)
+        self._adjust_leftover_buffer(list_of_data, bytes_sent)
 
     cpdef _write_ready(self):
         assert self._buffer, 'Data should not be empty'

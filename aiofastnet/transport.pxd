@@ -1,5 +1,6 @@
 cdef class Transport:
-    cpdef write(self, buffer)
+    cpdef write(self, data)
+    cpdef writelines(self, list_of_data)
     cdef write_mem(self, char* ptr, Py_ssize_t sz)
 
 
