@@ -82,8 +82,8 @@ ssl_library_dirs = _existing_paths([
 ])
 
 ssl_libraries = ["libssl", "libcrypto"] if is_windows else ["ssl", "crypto"]
-ssl_include_dir = str(Path(sys.prefix) / "include")
-ssl_library_dir = str(Path(sys.prefix) / "lib")
+# ssl_include_dirs = [str(Path(sys.prefix) / "include")]
+# ssl_library_dirs = [str(Path(sys.prefix) / "lib")]
 
 pkg_extensions = [
     Extension("picows.picows", ["picows/picows.pyx"],
@@ -94,8 +94,8 @@ pkg_extensions = [
               libraries=base_libraries,
               extra_compile_args=extra_compile_args),
     Extension("aiofastnet.sslproto", sslproto_sources,
-              include_dirs=[ssl_include_dir],
-              library_dirs=[ssl_library_dir],
+              include_dirs=ssl_include_dirs,
+              library_dirs=ssl_library_dirs,
               libraries=base_libraries + ssl_libraries,
               extra_compile_args=extra_compile_args),
     Extension("aiofastnet.sslproto_stdlib", ["aiofastnet/sslproto_stdlib.pyx"],
