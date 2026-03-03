@@ -6,3 +6,6 @@ recursive-include aiofastnet *.pxd *.pyx
 recursive-include examples *.pyx
 
 global-exclude *.c *.py[cod] __pycache__ *.so *.pyd *.dll *.dylib *.html
+
+include aiofastnet/static_mem_bio.c
+include aiofastnet/static_mem_bio.h
