@@ -2,6 +2,7 @@ import os
 import sys
 import sysconfig
 from pathlib import Path
+from typing import Optional
 from Cython.Build import cythonize
 from setuptools import Extension, setup
 
@@ -24,6 +25,12 @@ sslproto_sources = ["aiofastnet/sslproto.pyx", "aiofastnet/static_mem_bio.c", "a
 
 def _existing_paths(paths: list[Path]) -> list[str]:
     return [str(path) for path in paths if path and path.exists()]
+
+
+def _existing_path(path: Optional[Path]) -> Optional[str]:
+    if path and path.exists():
+        return str(path)
+    return None
 
 
 def _find_openssl_include_dir(prefixes: list[Path]) -> str | None:
@@ -50,11 +57,50 @@ def _find_openssl_include_dir(prefixes: list[Path]) -> str | None:
     return None
 
 
+def _find_openssl_lib_dir(prefixes: list[Path]) -> str | None:
+    lib_ext = ".lib" if is_windows else (".dylib" if sys.platform == "darwin" else ".so")
+
+    candidates = []
+    for prefix in prefixes:
+        candidates.extend([
+            prefix / "lib",
+            prefix / "lib64",
+            prefix / "libs",
+            prefix / "DLLs",
+            prefix / "Library" / "lib",
+        ])
+
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        has_ssl = any(candidate.glob(f"libssl*{lib_ext}"))
+        has_crypto = any(candidate.glob(f"libcrypto*{lib_ext}"))
+        if has_ssl and has_crypto:
+            return str(candidate)
+
+    for prefix in prefixes:
+        if not prefix.exists():
+            continue
+        for pattern in ("**/libssl*.dylib", "**/libssl*.so", "**/libssl*.lib"):
+            for match in prefix.glob(pattern):
+                candidate = match.parent
+                has_ssl = any(candidate.glob("libssl*"))
+                has_crypto = any(candidate.glob("libcrypto*"))
+                if has_ssl and has_crypto:
+                    return str(candidate)
+
+    return None
+
+
 prefixes = [
     Path(sys.prefix),
     Path(sys.base_prefix),
     Path(sys.exec_prefix),
 ]
+
+openssl_root = os.environ.get("OPENSSL_ROOT_DIR")
+openssl_include_env = os.environ.get("OPENSSL_INCLUDE_DIR")
+openssl_lib_env = os.environ.get("OPENSSL_LIB_DIR")
 
 python_include_dirs = _existing_paths([
     Path(sysconfig.get_config_var("INCLUDEPY") or ""),
@@ -64,11 +110,32 @@ python_include_dirs = _existing_paths([
 ])
 
 ssl_include_dirs = list(python_include_dirs)
-openssl_include = _find_openssl_include_dir(prefixes)
+openssl_include = (
+    _existing_path(Path(openssl_include_env)) if openssl_include_env else
+    _existing_path(Path(openssl_root) / "include") if openssl_root else
+    _find_openssl_include_dir(prefixes)
+)
 if openssl_include is not None and openssl_include not in ssl_include_dirs:
     ssl_include_dirs.append(openssl_include)
 
-ssl_library_dirs = _existing_paths([
+ssl_library_dirs = []
+if openssl_lib_env:
+    existing = _existing_path(Path(openssl_lib_env))
+    if existing is not None:
+        ssl_library_dirs.append(existing)
+elif openssl_root:
+    ssl_library_dirs.extend(_existing_paths([
+        Path(openssl_root) / "lib",
+        Path(openssl_root) / "lib64",
+        Path(openssl_root) / "libs",
+        Path(openssl_root) / "Library" / "lib",
+    ]))
+
+openssl_lib_dir = _find_openssl_lib_dir(prefixes)
+if openssl_lib_dir and openssl_lib_dir not in ssl_library_dirs:
+    ssl_library_dirs.append(openssl_lib_dir)
+
+for path in _existing_paths([
     Path(sysconfig.get_config_var("LIBDIR") or ""),
     Path(sysconfig.get_config_var("LIBPL") or ""),
     Path(sys.prefix) / "lib",
@@ -79,7 +146,9 @@ ssl_library_dirs = _existing_paths([
     Path(sys.exec_prefix) / "libs",
     Path(sys.prefix) / "DLLs",
     Path(sys.base_prefix) / "DLLs",
-])
+]):
+    if path not in ssl_library_dirs:
+        ssl_library_dirs.append(path)
 
 ssl_libraries = ["libssl", "libcrypto"] if is_windows else ["ssl", "crypto"]
 # ssl_include_dirs = [str(Path(sys.prefix) / "include")]

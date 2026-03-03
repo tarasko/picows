@@ -83,9 +83,45 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements-test.txt
 
-    - uses: actions/checkout@v6
-    - name: Setup tmate session
-      uses: mxschmitt/action-tmate@v3
+    - name: Install OpenSSL (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        set -eux
+        brew install openssl@3
+        OPENSSL_PREFIX="$(brew --prefix openssl@3)"
+        echo "OPENSSL_INCLUDE_DIR=${OPENSSL_PREFIX}/include" >> "$GITHUB_ENV"
+        PY_SSL_LIB_DIR="$(python - <<'PY'
+import sys
+from pathlib import Path
+
+for candidate in (Path(sys.prefix) / "lib", Path(sys.base_prefix) / "lib", Path(sys.exec_prefix) / "lib"):
+    if candidate.exists() and any(candidate.glob("libssl*.dylib")) and any(candidate.glob("libcrypto*.dylib")):
+        print(candidate)
+        break
+PY
+)"
+        if [ -n "${PY_SSL_LIB_DIR}" ]; then
+          echo "OPENSSL_LIB_DIR=${PY_SSL_LIB_DIR}" >> "$GITHUB_ENV"
+        else
+          echo "OPENSSL_LIB_DIR=${OPENSSL_PREFIX}/lib" >> "$GITHUB_ENV"
+        fi
+
+    - name: Install OpenSSL (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        choco install openssl --no-progress -y
+        $includeDir = Get-ChildItem "C:\Program Files","C:\Program Files (x86)" -Recurse -Filter ssl.h -ErrorAction SilentlyContinue |
+          Where-Object { $_.FullName -like "*\include\openssl\ssl.h" } |
+          Select-Object -First 1 -ExpandProperty Directory |
+          ForEach-Object { Split-Path $_ -Parent }
+        if (-not $includeDir) { throw "OpenSSL include dir not found" }
+        $libFile = Get-ChildItem "C:\Program Files","C:\Program Files (x86)" -Recurse -Filter "libssl*.lib" -ErrorAction SilentlyContinue |
+          Select-Object -First 1
+        if (-not $libFile) { throw "OpenSSL import library libssl*.lib not found" }
+        $libDir = $libFile.Directory.FullName
+        "OPENSSL_INCLUDE_DIR=$includeDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        "OPENSSL_LIB_DIR=$libDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
     - name: Compile Cython extensions
       run: |
