@@ -885,26 +885,40 @@ cdef class SSLProtocol(Protocol):
 
     cdef _do_shutdown(self, object context=None):
         """Send close_notify and wait for the same from the peer."""
-        cdef int rc
-        cdef int err_code
+        cdef:
+            int rc
+            int err_code
+
         try:
             # we must skip all application data (if any) before unwrap
             self._do_read_into_void(context)
-            rc = SSL_shutdown(self._ssl_connection.ssl_object)
-            if rc == 1:
-                self._on_shutdown_complete(None)
-                return
 
-            if rc == 0:
-                self._maybe_send_outgoing(True)
-                return
+            while True:
+                rc = SSL_shutdown(self._ssl_connection.ssl_object)
+                if rc == 1:
+                    self._on_shutdown_complete(None)
+                    return
 
-            err_code = SSL_get_error(self._ssl_connection.ssl_object, rc)
-            if err_code in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
-                self._maybe_send_outgoing(True)
-                return
+                # From openssl docs
+                # Unlike most other function, returning 0 does not indicate an
+                # error. SSL_get_error(3) should not get called, it may
+                # misleadingly indicate an error even though no error occurred.
+                if rc == 0:
+                    self._maybe_send_outgoing(True)
+                    return
 
-            raise self._ssl_connection.make_exc_from_ssl_error("SSL_shutdown failed", err_code)
+                err_code = SSL_get_error(self._ssl_connection.ssl_object, rc)
+
+                # Re-try shutdown because outgoing bio has no space left
+                if err_code == SSL_ERROR_WANT_WRITE:
+                    self._maybe_send_outgoing(True)
+                    continue
+
+                if err_code == SSL_ERROR_WANT_READ:
+                    self._maybe_send_outgoing(True)
+                    return
+
+                raise self._ssl_connection.make_exc_from_ssl_error("SSL_shutdown failed", err_code)
         except Exception as ex:
             self._on_shutdown_complete(ex)
 
