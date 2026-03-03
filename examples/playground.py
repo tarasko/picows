@@ -54,7 +54,7 @@ class ClientListenerSimple(WSListener):
 async def main(url):
     asyncio.get_event_loop().set_debug(True)
     try:
-        transport, client = await ws_connect(AsyncClient, url, ssl_context=create_client_ssl_context())
+        transport, client = await ws_connect(AsyncClient, url, ssl_context=create_strict_client_ssl_context())
         if "echo.websocket.org" in url:
             msg = await client.get_message_no_timeout()
 
@@ -100,5 +100,5 @@ async def main(url):
 
 if __name__ == '__main__':
     basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=9)
-#    asyncio.run(main("wss://echo.websocket.org"))
-    asyncio.run(main("wss://127.0.0.1:9002"))
+    asyncio.run(main("wss://echo.websocket.org"))
+#    asyncio.run(main("wss://127.0.0.1:9002"))

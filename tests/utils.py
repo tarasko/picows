@@ -107,6 +107,7 @@ class AsyncClient(picows.WSListener):
 
     def on_ws_connected(self, transport: picows.WSTransport):
         self.transport = transport
+        peercert = transport.underlying_transport.get_extra_info('peercert')
         self.msg_queue = asyncio.Queue()
         self.is_paused = False
 

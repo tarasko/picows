@@ -296,10 +296,8 @@ cdef class SSLConnection:
             if ip != NULL:
                 ASN1_OCTET_STRING_free(ip)
 
-    # TODO: Implement this
     cdef _decode_certificate(self, X509* certificate):
-        cdef dict retval = dict()
-        return retval
+        return aiofn_decode_certificate(certificate)
 
 
 cdef inline _run_in_context(context, method):

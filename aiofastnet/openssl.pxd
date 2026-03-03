@@ -157,6 +157,9 @@ cdef extern from "openssl/asn1.h" nogil:
 cdef extern from "openssl/x509v3.h" nogil:
     ASN1_OCTET_STRING* a2i_IPADDRESS(const char *ipasc)
 
+cdef extern from "certdecode.h":
+    object aiofn_decode_certificate(X509 *certificate)
+
 
 cdef extern from "static_mem_bio.h" nogil:
     BIO *BIO_new_static_mem(void *buf, size_t cap)
