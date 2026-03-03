@@ -6,10 +6,10 @@
 
 #include <openssl/crypto.h>
 typedef struct static_mem_bio_state_s {
-    unsigned char *buf;
-    size_t cap;
-    size_t rpos;
-    size_t wpos;
+    unsigned char *begin;
+    unsigned char *end;
+    unsigned char *rptr;
+    unsigned char *wptr;
     int eof_return;
 } static_mem_bio_state_t;
 
@@ -20,12 +20,12 @@ static long static_mem_bio_ctrl(BIO *bio, int cmd, long num, void *ptr);
 
 static size_t
 static_mem_avail(const static_mem_bio_state_t *st) {
-    return st->wpos - st->rpos;
+    return (size_t)(st->wptr - st->rptr);
 }
 
 static size_t
 static_mem_space(const static_mem_bio_state_t *st) {
-    return st->cap - st->wpos;
+    return (size_t)(st->end - st->wptr);
 }
 
 static int
@@ -76,12 +76,12 @@ static_mem_bio_read(BIO *bio, char *out, int outl) {
     }
 
     n = avail < (size_t)outl ? avail : (size_t)outl;
-    memcpy(out, st->buf + st->rpos, n);
-    st->rpos += n;
+    memcpy(out, st->rptr, n);
+    st->rptr += n;
 
-    if (st->rpos == st->wpos) {
-        st->rpos = 0;
-        st->wpos = 0;
+    if (st->rptr == st->wptr) {
+        st->rptr = st->begin;
+        st->wptr = st->begin;
     }
 
     if (n > (size_t)INT_MAX) {
@@ -108,11 +108,11 @@ static_mem_bio_write(BIO *bio, const char *in, int inl) {
 
     BIO_clear_retry_flags(bio);
     space = static_mem_space(st);
-    if (space < (size_t)inl && st->rpos != 0) {
+    if (space < (size_t)inl && st->rptr != st->begin) {
         avail = static_mem_avail(st);
-        memmove(st->buf, st->buf + st->rpos, avail);
-        st->rpos = 0;
-        st->wpos = avail;
+        memmove(st->begin, st->rptr, avail);
+        st->rptr = st->begin;
+        st->wptr = st->begin + avail;
         space = static_mem_space(st);
     }
 
@@ -122,8 +122,8 @@ static_mem_bio_write(BIO *bio, const char *in, int inl) {
     }
 
     n = space < (size_t)inl ? space : (size_t)inl;
-    memcpy(st->buf + st->wpos, in, n);
-    st->wpos += n;
+    memcpy(st->wptr, in, n);
+    st->wptr += n;
 
     if (n < (size_t)inl) {
         BIO_set_retry_write(bio);
@@ -163,15 +163,15 @@ static_mem_bio_ctrl(BIO *bio, int cmd, long num, void *ptr) {
     switch (cmd) {
         case BIO_CTRL_RESET:
             if (st != NULL) {
-                st->rpos = 0;
-                st->wpos = 0;
+                st->rptr = st->begin;
+                st->wptr = st->begin;
             }
             return 1;
         case BIO_CTRL_EOF:
-            return st->wpos == st->rpos;
+            return st->wptr == st->rptr;
         case BIO_CTRL_INFO:
             if (ptr != NULL) {
-                *(char **)ptr = (char *)(st->buf + st->rpos);
+                *(char **)ptr = (char *)st->rptr;
             }
             avail = static_mem_avail(st);
             return avail > (size_t)LONG_MAX ? LONG_MAX : (long)avail;
@@ -258,10 +258,10 @@ BIO_new_static_mem(void *buf, size_t cap) {
         return NULL;
     }
 
-    st->buf = (unsigned char *)buf;
-    st->cap = cap;
-    st->rpos = 0;
-    st->wpos = 0;
+    st->begin = (unsigned char *)buf;
+    st->end = st->begin + cap;
+    st->rptr = st->begin;
+    st->wptr = st->begin;
     st->eof_return = 0;
 
     BIO_set_data(bio, st);
@@ -283,14 +283,14 @@ BIO_static_mem_get_write_buf(BIO *bio, char **pp, size_t *space) {
         return 0;
     }
 
-    if (st->rpos != 0 && st->wpos == st->cap) {
+    if (st->rptr != st->begin && st->wptr == st->end) {
         avail = static_mem_avail(st);
-        memmove(st->buf, st->buf + st->rpos, avail);
-        st->rpos = 0;
-        st->wpos = avail;
+        memmove(st->begin, st->rptr, avail);
+        st->rptr = st->begin;
+        st->wptr = st->begin + avail;
     }
 
-    *pp = (char *)(st->buf + st->wpos);
+    *pp = (char *)st->wptr;
     *space = static_mem_space(st);
     return 1;
 }
@@ -314,7 +314,7 @@ BIO_static_mem_produce(BIO *bio, size_t nbytes) {
         return -1;
     }
 
-    st->wpos += nbytes;
+    st->wptr += nbytes;
     return 1;
 }
 
@@ -337,10 +337,10 @@ BIO_static_mem_consume(BIO *bio, size_t nbytes) {
         return -1;
     }
 
-    st->rpos += nbytes;
-    if (st->rpos == st->wpos) {
-        st->rpos = 0;
-        st->wpos = 0;
+    st->rptr += nbytes;
+    if (st->rptr == st->wptr) {
+        st->rptr = st->begin;
+        st->wptr = st->begin;
     }
     return 1;
 }
