@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from inspect import isawaitable
 from logging import getLogger
 from ssl import SSLContext
-from typing import Callable, Optional, Union, Dict, Any, Awaitable
+from typing import Callable, Optional, Union, Dict, Any, Awaitable, cast
 
 from python_socks.async_.asyncio import Proxy
 
@@ -294,8 +294,8 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
             (_, ws_protocol) = await create_connection(
                 loop,
                 ws_protocol_factory,
-                conn_socket.host,  # type: ignore[arg-type]
-                conn_socket.port,  # type: ignore[arg-type]
+                conn_socket.host,
+                conn_socket.port,
                 ssl=ssl,
                 sock=conn_socket.sock,
                 **conn_kwargs
@@ -415,12 +415,13 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
             read_buffer_init_size
         )
 
-    return await create_server(
+    server = await create_server(
         asyncio.get_running_loop(),
         ws_protocol_factory,
         host=host,
         port=port,
         **kwargs)
+    return cast(asyncio.Server, server)
     #
     #
     # ssl = kwargs.pop('ssl', None)
@@ -452,4 +453,3 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
     #     host=host,
     #     port=port,
     #     **kwargs)
-
