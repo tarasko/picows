@@ -107,6 +107,7 @@ class AsyncClient(picows.WSListener):
 
     def on_ws_connected(self, transport: picows.WSTransport):
         self.transport = transport
+        peercert = transport.underlying_transport.get_extra_info('peercert')
         self.msg_queue = asyncio.Queue()
         self.is_paused = False
 
@@ -124,6 +125,11 @@ class AsyncClient(picows.WSListener):
             item = await self.msg_queue.get()
             self.msg_queue.task_done()
             return item
+
+    async def get_message_no_timeout(self):
+        item = await self.msg_queue.get()
+        self.msg_queue.task_done()
+        return item
 
 
 class ServerEchoListener(picows.WSListener):
@@ -194,8 +200,7 @@ async def connected_async_client(echo_server):
     async with ClientAsyncContext(AsyncClient, echo_server,
                                   ssl_context=create_client_ssl_context(),
                                   websocket_handshake_timeout=0.5,
-                                  enable_auto_pong=False,
-                                  zero_copy_unsafe_ssl_write=True,
+                                  enable_auto_pong=False
                                   ) as (transport, listener):
         yield listener
 

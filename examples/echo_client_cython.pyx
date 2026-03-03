@@ -1,5 +1,6 @@
 # This example shows how you can use Cython and access picows pxd type
 # declarations to further improve performance of your code.
+import logging
 from time import time
 
 from picows import ws_connect
@@ -9,26 +10,32 @@ from picows.picows cimport WSFrame, WSTransport, WSListener, WSMsgType, WSCloseC
 # override its methods like on_ws_frame. This way methods will be called
 # directly by picows without using more expensive python vectorcall protocol.
 # See echo_client_cython_runner.py for how to connect the client
+
+_logger = logging.getLogger("echo_client")
+
 cdef class ClientListenerCython(WSListener):
     cdef:
         double _start_ts
+        double _duration
         bytes _msg
         int _cnt
 
-    def __init__(self, msg_size):
+    def __init__(self, msg_size, duration):
         self._start_ts = time()
+        self._duration = duration
         self._msg = b"T" * msg_size
         self._cnt = 0
 
     cpdef on_ws_connected(self, WSTransport transport):
+        transport.underlying_transport.set_write_buffer_limits(100*1024*1024, 50*1024*1024)
         transport.send(WSMsgType.TEXT, self._msg)
 
     cpdef on_ws_frame(self, WSTransport transport, WSFrame frame):
         self._cnt += 1
-        if <double>time() - self._start_ts < 10.0:
+        if <double>time() - self._start_ts < self._duration:
             transport.send(WSMsgType.TEXT, self._msg)
         else:
-            print(f"Total {self._cnt} echo request-replies executed")
+            _logger.info(f"Total {self._cnt} echo request-replies executed")
             transport.send_close(WSCloseCode.OK)
             transport.disconnect()
 

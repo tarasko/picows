@@ -1,0 +1,15 @@
+cdef class Transport:
+    cpdef write(self, data)
+    cpdef writelines(self, list_of_data)
+    cdef write_mem(self, char* ptr, Py_ssize_t sz)
+
+
+cdef class Protocol:
+    cpdef is_buffered_protocol(self)
+    cpdef get_buffer(self, Py_ssize_t hint)
+    cpdef buffer_updated(self, Py_ssize_t bytes_read)
+    cpdef data_received(self, data)
+    cpdef get_local_write_buffer_size(self)
+
+
+cpdef is_buffered_protocol(object)

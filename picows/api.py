@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from inspect import isawaitable
 from logging import getLogger
 from ssl import SSLContext
-from typing import Callable, Optional, Union, Dict, Any, Awaitable
+from typing import Callable, Optional, Union, Dict, Any, Awaitable, cast
 
 from python_socks.async_.asyncio import Proxy
 
@@ -14,6 +14,8 @@ from .types import (WSHeadersLike, WSUpgradeRequest, WSHost, WSPort,
 from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: ignore [attr-defined]
                      WSProtocol)
 from .url import parse_url, WSInvalidURL, WSParsedURL
+
+from aiofastnet import create_connection, create_server
 
 
 WSListenerFactory = Callable[[], WSListener]
@@ -248,7 +250,8 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
     assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), \
         "invalid value of auto_ping_strategy parameter"
 
-    kwargs.pop("zero_copy_unsafe_ssl_write", None)
+    # May sure people who are passing old argument are not going to get an exception
+    kwargs.pop('zero_copy_unsafe_ssl_write', None)
 
     logger = getLogger(f"picows.{logger_name}")
     parsed_url = parse_url(url)
@@ -288,14 +291,15 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
             conn_socket = await _connect_through_optional_proxy(
                 loop, parsed_url, parsed_proxy_url, socket_factory, ssl, conn_kwargs)
 
-            (_, ws_protocol) = await loop.create_connection(
+            (_, ws_protocol) = await create_connection(
+                loop,
                 ws_protocol_factory,
-                conn_socket.host,       # type: ignore[arg-type]
-                conn_socket.port,       # type: ignore[arg-type]
+                conn_socket.host,
+                conn_socket.port,
                 ssl=ssl,
-                sock=conn_socket.sock,  # type: ignore[arg-type]
+                sock=conn_socket.sock,
                 **conn_kwargs
-            )
+                )
 
             await ws_protocol.wait_until_handshake_complete()
             return ws_protocol.transport, ws_protocol.listener
@@ -391,7 +395,8 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
 
     assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), "invalid value of auto_ping_strategy parameter"
 
-    kwargs.pop("zero_copy_unsafe_ssl_write", None)
+    # May sure people who are passing old argument are not going to get an exception
+    kwargs.pop('zero_copy_unsafe_ssl_write', None)
 
     def ws_protocol_factory() -> WSProtocol:
         return WSProtocol(
@@ -410,8 +415,41 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
             read_buffer_init_size
         )
 
-    return await asyncio.get_running_loop().create_server(
+    server = await create_server(
+        asyncio.get_running_loop(),
         ws_protocol_factory,
         host=host,
         port=port,
         **kwargs)
+    return cast(asyncio.Server, server)
+    #
+    #
+    # ssl = kwargs.pop('ssl', None)
+    # ssl_handshake_timeout = kwargs.pop('ssl_handshake_timeout', None)
+    # ssl_shutdown_timeout = kwargs.pop('ssl_shutdown_timeout', None)
+    #
+    # if not ssl:
+    #     return await asyncio.get_running_loop().create_server(
+    #         ws_protocol_factory,
+    #         host=host,
+    #         port=port,
+    #         **kwargs)
+    #
+    # def ssl_protocol_factory():
+    #     ws_protocol = ws_protocol_factory()
+    #     ssl_protocol = SSLProtocol(
+    #         asyncio.get_running_loop(),
+    #         ws_protocol,
+    #         ssl,
+    #         server_side=True,
+    #         server_hostname=None,
+    #         call_connection_made=True,
+    #         ssl_handshake_timeout=ssl_handshake_timeout,
+    #         ssl_shutdown_timeout=ssl_shutdown_timeout)
+    #     return ssl_protocol
+    #
+    # return await asyncio.get_running_loop().create_server(
+    #     ssl_protocol_factory,
+    #     host=host,
+    #     port=port,
+    #     **kwargs)
