@@ -65,7 +65,8 @@ cdef extern from * nogil:
     #endif
 
     int aiofn_get_last_error() { return errno; }
-    void aiofn_set_exc_from_error(int) {
+    void aiofn_set_exc_from_error(int err) {
+        (void)err;
         PyErr_SetFromErrno(PyExc_OSError);
     }
 
