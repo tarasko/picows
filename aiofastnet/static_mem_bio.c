@@ -5,6 +5,7 @@
 #include "static_mem_bio.h"
 
 #include <openssl/crypto.h>
+
 typedef struct static_mem_bio_state_s {
     unsigned char *begin;
     unsigned char *end;
@@ -15,8 +16,6 @@ typedef struct static_mem_bio_state_s {
 
 static BIO_METHOD *g_static_mem_bio_method = NULL;
 static CRYPTO_ONCE g_static_mem_bio_once = CRYPTO_ONCE_STATIC_INIT;
-
-static long static_mem_bio_ctrl(BIO *bio, int cmd, long num, void *ptr);
 
 static size_t
 static_mem_avail(const static_mem_bio_state_t *st) {
@@ -200,75 +199,6 @@ static_mem_bio_ctrl(BIO *bio, int cmd, long num, void *ptr) {
     }
 }
 
-static void
-static_mem_bio_init_once(void) {
-    BIO_METHOD *m;
-
-    m = BIO_meth_new(BIO_TYPE_SOURCE_SINK, "static_mem");
-    if (m == NULL) {
-        return;
-    }
-
-    if (!BIO_meth_set_write(m, static_mem_bio_write) ||
-        !BIO_meth_set_read(m, static_mem_bio_read) ||
-        !BIO_meth_set_puts(m, static_mem_bio_puts) ||
-        !BIO_meth_set_gets(m, static_mem_bio_gets) ||
-        !BIO_meth_set_ctrl(m, static_mem_bio_ctrl) ||
-        !BIO_meth_set_create(m, static_mem_bio_create) ||
-        !BIO_meth_set_destroy(m, static_mem_bio_destroy)) {
-        BIO_meth_free(m);
-        return;
-    }
-
-    g_static_mem_bio_method = m;
-}
-
-const BIO_METHOD *
-BIO_s_static_mem(void) {
-    if (!CRYPTO_THREAD_run_once(&g_static_mem_bio_once,
-                                static_mem_bio_init_once)) {
-        return NULL;
-    }
-    return g_static_mem_bio_method;
-}
-
-BIO *
-BIO_new_static_mem(void *buf, size_t cap) {
-    BIO *bio;
-    static_mem_bio_state_t *st;
-    const BIO_METHOD *meth;
-
-    if (buf == NULL || cap == 0) {
-        return NULL;
-    }
-
-    meth = BIO_s_static_mem();
-    if (meth == NULL) {
-        return NULL;
-    }
-
-    bio = BIO_new(meth);
-    if (bio == NULL) {
-        return NULL;
-    }
-
-    st = OPENSSL_zalloc(sizeof(*st));
-    if (st == NULL) {
-        BIO_free(bio);
-        return NULL;
-    }
-
-    st->begin = (unsigned char *)buf;
-    st->end = st->begin + cap;
-    st->rptr = st->begin;
-    st->wptr = st->begin;
-    st->eof_return = 0;
-
-    BIO_set_data(bio, st);
-    BIO_set_init(bio, 1);
-    return bio;
-}
-
 int
 BIO_static_mem_get_write_buf(BIO *bio, char **pp, size_t *space) {
     static_mem_bio_state_t *st;
@@ -343,4 +273,71 @@ BIO_static_mem_consume(BIO *bio, size_t nbytes) {
         st->wptr = st->begin;
     }
     return 1;
+}
+
+static void static_mem_bio_init_once(void) {
+    BIO_METHOD *m;
+
+    m = BIO_meth_new(BIO_TYPE_SOURCE_SINK, "static_mem");
+    if (m == NULL) {
+        return;
+    }
+
+    if (!BIO_meth_set_write(m, static_mem_bio_write) ||
+        !BIO_meth_set_read(m, static_mem_bio_read) ||
+        !BIO_meth_set_puts(m, static_mem_bio_puts) ||
+        !BIO_meth_set_gets(m, static_mem_bio_gets) ||
+        !BIO_meth_set_ctrl(m, static_mem_bio_ctrl) ||
+        !BIO_meth_set_create(m, static_mem_bio_create) ||
+        !BIO_meth_set_destroy(m, static_mem_bio_destroy)) {
+        BIO_meth_free(m);
+        return;
+    }
+
+    g_static_mem_bio_method = m;
+}
+
+const BIO_METHOD* BIO_s_static_mem(void) {
+    if (!CRYPTO_THREAD_run_once(&g_static_mem_bio_once,
+                                static_mem_bio_init_once)) {
+        return NULL;
+    }
+    return g_static_mem_bio_method;
+}
+
+BIO *
+BIO_new_static_mem(void *buf, size_t cap) {
+    BIO *bio;
+    static_mem_bio_state_t *st;
+    const BIO_METHOD *meth;
+
+    if (buf == NULL || cap == 0) {
+        return NULL;
+    }
+
+    meth = BIO_s_static_mem();
+    if (meth == NULL) {
+        return NULL;
+    }
+
+    bio = BIO_new(meth);
+    if (bio == NULL) {
+        return NULL;
+    }
+
+    st = OPENSSL_zalloc(sizeof(*st));
+    if (st == NULL) {
+        BIO_free(bio);
+        return NULL;
+    }
+
+    st->begin = (unsigned char *)buf;
+    st->end = st->begin + cap;
+    st->rptr = st->begin;
+    st->wptr = st->begin;
+    st->eof_return = 0;
+
+    BIO_set_data(bio, st);
+    BIO_set_init(bio, 1);
+    return bio;
 }

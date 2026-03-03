@@ -954,23 +954,26 @@ cdef class SSLProtocol(Protocol):
             raise TypeError(f"data: expecting a bytes-like instance, "
                             f"got {type(data).__name__}")
 
-        if self._write_backlog:
-            if data:
-                self._write_backlog.append(aiofn_maybe_copy_buffer(data))
-            return
-
         cdef:
-            char* data_ptr
+            char * data_ptr
             Py_ssize_t data_len
 
-        aiofn_unpack_buffer(data, &data_ptr, &data_len)
-        if data_len == 0:
-            return
+        try:
+            if self._write_backlog:
+                if data:
+                    self._write_backlog.append(aiofn_maybe_copy_buffer(data))
+                return
 
-        tail = self._write_impl(data, data_ptr, data_len, True)
-        if tail is not None:
-            self._write_backlog.append(tail)
-            return
+            aiofn_unpack_buffer(data, &data_ptr, &data_len)
+            if data_len == 0:
+                return
+
+            tail = self._write_impl(data, data_ptr, data_len, True)
+            if tail is not None:
+                self._write_backlog.append(tail)
+                return
+        except Exception as ex:
+            self._fatal_error(ex, 'Fatal error on SSL protocol')
 
     cdef write_mem(self, char* data_ptr, Py_ssize_t data_len):
         if not self._is_protocol_ready():
@@ -979,14 +982,17 @@ cdef class SSLProtocol(Protocol):
         if data_len == 0:
             return
 
-        if self._write_backlog:
-            self._write_backlog.append(PyBytes_FromStringAndSize(data_ptr, data_len))
-            return
+        try:
+            if self._write_backlog:
+                self._write_backlog.append(PyBytes_FromStringAndSize(data_ptr, data_len))
+                return
 
-        tail = self._write_impl(None, data_ptr, data_len, True)
-        if tail is not None:
-            self._write_backlog.append(tail)
-            return
+            tail = self._write_impl(None, data_ptr, data_len, True)
+            if tail is not None:
+                self._write_backlog.append(tail)
+                return
+        except Exception as ex:
+            self._fatal_error(ex, 'Fatal error on SSL protocol')
 
     cdef writelines(self, list_of_data):
         """
@@ -1000,35 +1006,38 @@ cdef class SSLProtocol(Protocol):
                 raise TypeError(f"data: expecting a bytes-like instance, "
                                 f"got {type(data).__name__}")
 
-        if self._write_backlog:
-            self._write_backlog.extend(aiofn_maybe_copy_buffer(data)
-                                       for data in list_of_data if len(data) > 0)
-            return
-
         cdef:
-            char * data_ptr
+            char* data_ptr
             Py_ssize_t data_len
             bint add_to_backlog = False
             Py_ssize_t data_cnt = len(list_of_data)
             Py_ssize_t idx
             bint is_last
 
-        for idx in range(data_cnt):
-            data = list_of_data[idx]
-            if add_to_backlog:
-                if len(data) > 0:
-                    self._write_backlog.append(aiofn_maybe_copy_buffer(data))
-                continue
+        try:
+            if self._write_backlog:
+                self._write_backlog.extend(aiofn_maybe_copy_buffer(data)
+                                           for data in list_of_data if len(data) > 0)
+                return
 
-            aiofn_unpack_buffer(data, &data_ptr, &data_len)
-            if data_len == 0:
-                continue
+            for idx in range(data_cnt):
+                data = list_of_data[idx]
+                if add_to_backlog:
+                    if len(data) > 0:
+                        self._write_backlog.append(aiofn_maybe_copy_buffer(data))
+                    continue
 
-            is_last = idx == (data_cnt - 1)
-            tail = self._write_impl(data, data_ptr, data_len, is_last)
-            if tail is not None:
-                self._write_backlog.append(tail)
-                add_to_backlog = True
+                aiofn_unpack_buffer(data, &data_ptr, &data_len)
+                if data_len == 0:
+                    continue
+
+                is_last = idx == (data_cnt - 1)
+                tail = self._write_impl(data, data_ptr, data_len, is_last)
+                if tail is not None:
+                    self._write_backlog.append(tail)
+                    add_to_backlog = True
+        except Exception as ex:
+            self._fatal_error(ex, 'Fatal error on SSL protocol')
 
     cdef pause_reading(self):
         self._reading_paused = True
