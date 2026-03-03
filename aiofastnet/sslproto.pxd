@@ -30,6 +30,8 @@ cdef class SSLConnection:
     cdef:
         object ssl_ctx_py
         SSL_CTX* ssl_ctx
+        bytearray incoming_buf
+        bytearray outgoing_buf
         BIO* incoming
         BIO* outgoing
         SSL* ssl_object
@@ -69,9 +71,6 @@ cdef class SSLProtocol(Protocol):
         object _ssl_handshake_timeout
         object _ssl_shutdown_timeout
         object _ssl_handshake_complete_waiter
-
-        # Buffer for the underlying TCP protocol buffered reads
-        bytearray _tcp_read_buffer
 
         SSLProtocolState _state
         size_t _conn_lost

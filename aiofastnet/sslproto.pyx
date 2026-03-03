@@ -6,6 +6,7 @@ from logging import getLogger
 from cpython.contextvars cimport *
 from cpython.buffer cimport *
 from cpython.bytearray cimport *
+from cpython.memoryview cimport *
 from cpython.unicode cimport *
 
 from . import constants
@@ -16,7 +17,7 @@ from .transport cimport *
 
 cdef enum:
     SSL_READ_BUFFER_SIZE = 128 * 1024
-    SSL_FLUSH_THRESHOLD = 128 * 1024
+    SSL_WRITE_BUFFER_SIZE = 128 * 1024
 
 
 cdef extern from *:
@@ -114,10 +115,36 @@ cdef class SSLConnection:
 
         self.ssl_ctx_py = ssl_context
         self.ssl_ctx = _get_ssl_ctx_ptr(ssl_context)
-        self.incoming = BIO_new(BIO_s_mem())
-        self.outgoing = BIO_new(BIO_s_mem())
+
+        self.incoming_buf = PyByteArray_FromStringAndSize(
+            NULL, SSL_READ_BUFFER_SIZE)
+        self.outgoing_buf = PyByteArray_FromStringAndSize(
+            NULL, SSL_WRITE_BUFFER_SIZE)
+
+        self.incoming = BIO_new_static_mem(
+            PyByteArray_AS_STRING(self.incoming_buf),
+            <size_t>PyByteArray_GET_SIZE(self.incoming_buf)
+        )
+        self.outgoing = BIO_new_static_mem(
+            PyByteArray_AS_STRING(self.outgoing_buf),
+            <size_t>PyByteArray_GET_SIZE(self.outgoing_buf)
+        )
+
         self.ssl_object = SSL_new(self.ssl_ctx)
         self.server_hostname = server_hostname
+
+        if self.incoming == NULL or self.outgoing == NULL or self.ssl_object == NULL:
+            if self.incoming != NULL:
+                BIO_free(self.incoming)
+                self.incoming = NULL
+            if self.outgoing != NULL:
+                BIO_free(self.outgoing)
+                self.outgoing = NULL
+            if self.ssl_object != NULL:
+                SSL_free(self.ssl_object)
+                self.ssl_object = NULL
+            raise MemoryError("Unable to initialize OpenSSL objects")
+
         if is_server:
             SSL_set_accept_state(self.ssl_object)
         else:
@@ -138,7 +165,8 @@ cdef class SSLConnection:
             ssl_ctx_host_flags = X509_VERIFY_PARAM_get_hostflags(ssl_ctx_verification_params)
             X509_VERIFY_PARAM_set_hostflags(ssl_verification_params, ssl_ctx_host_flags)
 
-        SSL_set_mode(self.ssl_object, SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER | SSL_MODE_AUTO_RETRY)
+        SSL_set_mode(self.ssl_object,
+                     SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER | SSL_MODE_AUTO_RETRY)
 
         if self.server_hostname is not None:
             self._configure_hostname()
@@ -478,8 +506,6 @@ cdef class SSLProtocol(Protocol):
         self._ssl_handshake_timeout = ssl_handshake_timeout
         self._ssl_shutdown_timeout = ssl_shutdown_timeout
         self._ssl_handshake_complete_waiter = ssl_handshake_complete_waiter
-        self._tcp_read_buffer = PyByteArray_FromStringAndSize(
-            NULL, SSL_READ_BUFFER_SIZE)
 
         self._state = UNWRAPPED
         self._conn_lost = 0  # Set when connection_lost called
@@ -560,21 +586,24 @@ cdef class SSLProtocol(Protocol):
             self._handshake_timeout_handle = None
 
     cpdef get_buffer(self, Py_ssize_t n):
-        return self._tcp_read_buffer
+        cdef char* buf_ptr
+        cdef size_t buf_len
+        cdef int rc
+
+        rc = BIO_static_mem_get_write_buf(
+            self._ssl_connection.incoming, &buf_ptr, &buf_len)
+        if rc != 1:
+            raise RuntimeError("incoming BIO: unable to get writable buffer")
+        if buf_len == 0:
+            raise RuntimeError("incoming BIO: no writable capacity")
+
+        return PyMemoryView_FromMemory(buf_ptr, <Py_ssize_t>buf_len, PyBUF_WRITE)
 
     cpdef buffer_updated(self, Py_ssize_t nbytes):
-        # TODO: Is there a way to use _tcp_read_buffer as an underlying for
-        # incoming memory BIO, to avoid copy?
-
-        cdef int bytes_written = BIO_write(
+        if BIO_static_mem_produce(
                 self._ssl_connection.incoming,
-                PyByteArray_AS_STRING(self._tcp_read_buffer),
-                nbytes)
-
-        if bytes_written <= 0:
-            raise ssl.SSLError(f"incoming BIO: write failed, rc={bytes_written}")
-        elif bytes_written != nbytes:
-            raise ssl.SSLError(f"incoming BIO: not all bytes have been written: {bytes_written} < {nbytes}")
+                <size_t>nbytes) != 1:
+            raise RuntimeError("incoming BIO: unable to publish received bytes")
 
         if self._state == DO_HANDSHAKE:
             self._do_handshake()
@@ -698,7 +727,11 @@ cdef class SSLProtocol(Protocol):
                                   self._check_handshake_timeout)
 
         try:
-            self._ssl_connection = SSLConnection(self._sslcontext, self._server_side, self._server_hostname)
+            self._ssl_connection = SSLConnection(
+                self._sslcontext,
+                self._server_side,
+                self._server_hostname
+            )
         except Exception as ex:
             self._on_handshake_complete(ex)
         else:
@@ -714,17 +747,30 @@ cdef class SSLProtocol(Protocol):
             self._fatal_error(ConnectionAbortedError(msg))
 
     cdef _do_handshake(self):
-        cdef int rc = SSL_do_handshake(self._ssl_connection.ssl_object)
-        if rc == 1:
-            self._on_handshake_complete(None)
-            return
+        cdef:
+            int rc
+            int ssl_error
 
-        cdef int ssl_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
-        if ssl_error in (SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE):
-            self._maybe_send_outgoing(True)
-            return
+        while True:
+            rc = SSL_do_handshake(self._ssl_connection.ssl_object)
+            if rc == 1:
+                self._on_handshake_complete(None)
+                return
 
-        self._on_handshake_complete(self._ssl_connection.make_exc_from_ssl_error("ssl handshake failed", ssl_error))
+            # Since our outgoing bio has limited capacity we may get
+            # SSL_ERROR_WANT_WRITE. Handshake does not need much space, but for
+            # correctness-sake we need flush and re-try
+            ssl_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
+            if ssl_error == SSL_ERROR_WANT_WRITE:
+                self._maybe_send_outgoing(True)
+                continue
+
+            if ssl_error == SSL_ERROR_WANT_READ:
+                self._maybe_send_outgoing(True)
+                return
+
+            self._on_handshake_complete(self._ssl_connection.make_exc_from_ssl_error("ssl handshake failed", ssl_error))
+            return
 
     cdef _on_handshake_complete(self, handshake_exc):
         if self._handshake_timeout_handle is not None:
@@ -1038,52 +1084,62 @@ cdef class SSLProtocol(Protocol):
 
         while data_len != 0:
             rc = SSL_write_ex(self._ssl_connection.ssl_object, data_ptr, data_len, &bytes_written)
+
+            _logger.info("SSL_write_ex(..., %d) = %d", bytes_written, rc)
+            if rc:
+                # Success path, we wrote all or some data
+                if data_len == <Py_ssize_t>bytes_written:
+                    self._maybe_send_outgoing(is_last)
+                    return None
+
+                # Not all data was written, this is most likely because outgoing
+                # static BIO ran out of memory
+                data_ptr += bytes_written
+                data_len -= bytes_written
+                self._maybe_send_outgoing(True)
             if not rc:
                 ssl_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
+
+                # On any error we always need to flush outgoing BIO
                 self._maybe_send_outgoing(True)
 
+                # Since outgoing BIO is a static memory it may simply run out
+                # of capacity
+                if ssl_error == SSL_ERROR_WANT_WRITE:
+                    continue
+
                 # This is rare but still possible. SSL may refuse to send data
-                # because of re-negotiation. Materialize and return remaining data
-                # SSL_ERROR_WANT_WRITE should not happen here as outgoing BIO grows dynamically.
+                # because of re-negotiation. Materialize and return remaining
+                # data. We will proceed when new data arrives and re-negotiation
+                # is complete
                 if ssl_error == SSL_ERROR_WANT_READ:
                     return aiofn_maybe_copy_buffer_tail(data, data_ptr,
                                                         data_len)
 
+                # Consider any other error as fatal, _write_impl caller will
+                # initiate disconnect.
                 raise self._ssl_connection.make_exc_from_ssl_error(
                     "SSL_write_ex failed", ssl_error)
 
-            if data_len == <Py_ssize_t>bytes_written:
-                self._maybe_send_outgoing(is_last)
-                return None
-
-            data_ptr += bytes_written
-            data_len -= bytes_written
-            self._maybe_send_outgoing(False)
-
     cdef _maybe_send_outgoing(self, bint is_last):
-        # Don't call BIO_read as it needs some destination and copy memory.
-        # Instead, get pointer to the data and data length, forward it to the
-        # transport. Transport will copy it anyway if it can't be sent
-        # immediately.
-        #
-        # Use BIO_seek instead of BIO_reset as it is more efficient.
-
-        cdef char* ptr
-        cdef long sz = BIO_get_mem_data(self._ssl_connection.outgoing, &ptr)
-
         # We call _maybe_send_outgoing if there MAY be some data to send,
         # Upstream logic doesn't check itself if there are actually some data
         # to send
+
+        cdef:
+            char* ptr
+            long sz = BIO_get_mem_data(self._ssl_connection.outgoing, &ptr)
+
         if sz <= 0:
             return
 
-        if sz < SSL_FLUSH_THRESHOLD and not is_last:
+        if sz < SSL_WRITE_BUFFER_SIZE and not is_last:
             # No need to send for now
             return
 
         self._transport.write_mem(ptr, sz)
-        if BIO_seek(self._ssl_connection.outgoing, sz) == -1:
-            raise RuntimeError("BIO_seek(outgoing) failed")
+        if BIO_static_mem_consume(self._ssl_connection.outgoing, <size_t>sz) != 1:
+            raise RuntimeError("BIO_static_mem_consume(outgoing) failed")
 
     # Incoming flow
 

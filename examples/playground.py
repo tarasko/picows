@@ -100,5 +100,5 @@ async def main(url):
 
 if __name__ == '__main__':
     basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=9)
-    asyncio.run(main("wss://echo.websocket.org"))
-#    asyncio.run(main("wss://127.0.0.1:9002"))
+#    asyncio.run(main("wss://echo.websocket.org"))
+    asyncio.run(main("wss://127.0.0.1:9002"))
