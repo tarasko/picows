@@ -166,7 +166,7 @@ cdef class SSLConnection:
             X509_VERIFY_PARAM_set_hostflags(ssl_verification_params, ssl_ctx_host_flags)
 
         SSL_set_mode(self.ssl_object,
-                     SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER | SSL_MODE_AUTO_RETRY)
+                     SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER | SSL_MODE_AUTO_RETRY | SSL_MODE_ENABLE_PARTIAL_WRITE)
 
         if self.server_hostname is not None:
             self._configure_hostname()
@@ -1083,9 +1083,23 @@ cdef class SSLProtocol(Protocol):
             int ssl_error
 
         while data_len != 0:
+            # SSL_write_ex behave differently from non-blocking write syscall
+            # If outgoing memory bio has some space, but doesn't have enough space
+            # SSL_write_ex returns 0 and SSL_ERROR_WANT_WRITE is set.
+            #
+            # In such case we flush outgoing buffer and restart SSL_write_ex with
+            # exactly same data_ptr, data_len.
+            #
+            # It is very confusing but bytes_written in such case may be > 16K
+            # because SSL_write_ex, despite previously returning error,
+            # has stored some of its processed data from the last step in its
+            # own internal buffer.
+            #
+            # outgoing buffer in such case may receive 2 SSL records with one
+            # SSL_write_ex call.
             rc = SSL_write_ex(self._ssl_connection.ssl_object, data_ptr, data_len, &bytes_written)
 
-            _logger.info("SSL_write_ex(..., %d) = %d", bytes_written, rc)
+            # _logger.info("SSL_write_ex(..., %d, %d) = %d", data_len, bytes_written, rc)
             if rc:
                 # Success path, we wrote all or some data
                 if data_len == <Py_ssize_t>bytes_written:
@@ -1093,11 +1107,12 @@ cdef class SSLProtocol(Protocol):
                     return None
 
                 # Not all data was written, this is most likely because outgoing
-                # static BIO ran out of memory
+                # static BIO ran out of memory or full SSL record was written
+                # (if SSL_ENABLE_PARTIAL_WRITE is set)
                 data_ptr += bytes_written
                 data_len -= bytes_written
-                self._maybe_send_outgoing(True)
-            if not rc:
+                self._maybe_send_outgoing(False)
+            else:
                 ssl_error = SSL_get_error(self._ssl_connection.ssl_object, rc)
 
                 # On any error we always need to flush outgoing BIO
@@ -1106,6 +1121,7 @@ cdef class SSLProtocol(Protocol):
                 # Since outgoing BIO is a static memory it may simply run out
                 # of capacity
                 if ssl_error == SSL_ERROR_WANT_WRITE:
+                    # _logger.info("SSL_ERROR_WANT_WRITE from SSL_write_ex(..., %d, %d)", data_len, bytes_written)
                     continue
 
                 # This is rare but still possible. SSL may refuse to send data
@@ -1135,9 +1151,11 @@ cdef class SSLProtocol(Protocol):
 
         if sz < SSL_WRITE_BUFFER_SIZE and not is_last:
             # No need to send for now
+            # _logger.info("Do not send now: outgoing_sz=%d, is_last=%d", sz, is_last)
             return
 
         self._transport.write_mem(ptr, sz)
+        # _logger.info("Send now: outgoing_sz=%d, is_last=%d", sz, is_last)
         if BIO_static_mem_consume(self._ssl_connection.outgoing, <size_t>sz) != 1:
             raise RuntimeError("BIO_static_mem_consume(outgoing) failed")
 
