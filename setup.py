@@ -54,7 +54,13 @@ def _parse_ssl_flags() -> tuple[list[str], list[str], list[str], list[str], list
     include_dirs = [path for path in include_dirs if Path(path).exists()]
     library_dirs = [path for path in library_dirs if Path(path).exists()]
 
-    if not include_dirs:
+    def _has_openssl_headers(paths: list[str]) -> bool:
+        for path in paths:
+            if (Path(path) / "openssl" / "ssl.h").exists():
+                return True
+        return False
+
+    if not _has_openssl_headers(include_dirs):
         openssl_includes = sysconfig.get_config_var("OPENSSL_INCLUDES") or ""
         includepy = sysconfig.get_config_var("INCLUDEPY") or ""
         confincludepy = sysconfig.get_config_var("CONFINCLUDEPY") or ""
@@ -81,19 +87,25 @@ def _parse_ssl_flags() -> tuple[list[str], list[str], list[str], list[str], list
             elif token:
                 include_candidates.insert(0, Path(token))
 
+        # Preserve existing include dirs (e.g. Python headers), and append OpenSSL-capable ones.
+        seen = set(include_dirs)
         for candidate in include_candidates:
             if (candidate / "openssl" / "ssl.h").exists():
-                include_dirs.append(str(candidate))
-                break
+                candidate_str = str(candidate)
+                if candidate_str not in seen:
+                    include_dirs.append(candidate_str)
+                    seen.add(candidate_str)
 
-        if not include_dirs:
+        if not _has_openssl_headers(include_dirs):
             for root in (Path(sys.base_prefix), Path(sys.prefix), Path(sys.exec_prefix)):
                 if not root.exists():
                     continue
                 for match in root.glob("**/include/openssl/ssl.h"):
-                    include_dirs.append(str(match.parent.parent))
-                    break
-                if include_dirs:
+                    candidate_str = str(match.parent.parent)
+                    if candidate_str not in seen:
+                        include_dirs.append(candidate_str)
+                        seen.add(candidate_str)
+                if _has_openssl_headers(include_dirs):
                     break
 
     if not library_dirs:
