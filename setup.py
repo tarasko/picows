@@ -35,10 +35,11 @@ pkg_extensions = [
               libraries=base_libraries, extra_compile_args=extra_compile_args),
     Extension("aiofastnet.transport", ["aiofastnet/transport.pyx"],
               libraries=base_libraries,
+              extra_compile_args=extra_compile_args),
+    Extension("aiofastnet.sslproto", sslproto_sources,
+              libraries=base_libraries,
               extra_compile_args=ssl_compile_args,
               extra_link_args=ssl_link_args),
-    Extension("aiofastnet.sslproto", sslproto_sources,
-              extra_compile_args=extra_compile_args),
     Extension("aiofastnet.sslproto_stdlib", ["aiofastnet/sslproto_stdlib.pyx"],
               libraries=base_libraries, extra_compile_args=extra_compile_args),
 ]
