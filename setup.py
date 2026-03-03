@@ -55,17 +55,46 @@ def _parse_ssl_flags() -> tuple[list[str], list[str], list[str], list[str], list
     library_dirs = [path for path in library_dirs if Path(path).exists()]
 
     if not include_dirs:
+        openssl_includes = sysconfig.get_config_var("OPENSSL_INCLUDES") or ""
+        includepy = sysconfig.get_config_var("INCLUDEPY") or ""
+        confincludepy = sysconfig.get_config_var("CONFINCLUDEPY") or ""
+        includedir = sysconfig.get_config_var("INCLUDEDIR") or ""
+
         include_candidates = [
+            Path(includepy) if includepy else None,
+            Path(includepy).parent if includepy else None,
+            Path(confincludepy) if confincludepy else None,
+            Path(confincludepy).parent if confincludepy else None,
+            Path(includedir) if includedir else None,
             Path(sys.base_prefix) / "include",
             Path(sys.prefix) / "include",
             Path(sys.exec_prefix) / "include",
             Path(sys.base_prefix) / "Library" / "include",
             Path(sys.prefix) / "Library" / "include",
+            Path(sys.exec_prefix) / "Library" / "include",
         ]
+        include_candidates = [path for path in include_candidates if path is not None]
+
+        for token in shlex.split(openssl_includes):
+            if token.startswith("-I"):
+                include_candidates.insert(0, Path(token[2:]))
+            elif token:
+                include_candidates.insert(0, Path(token))
+
         for candidate in include_candidates:
             if (candidate / "openssl" / "ssl.h").exists():
                 include_dirs.append(str(candidate))
                 break
+
+        if not include_dirs:
+            for root in (Path(sys.base_prefix), Path(sys.prefix), Path(sys.exec_prefix)):
+                if not root.exists():
+                    continue
+                for match in root.glob("**/include/openssl/ssl.h"):
+                    include_dirs.append(str(match.parent.parent))
+                    break
+                if include_dirs:
+                    break
 
     if not library_dirs:
         lib_candidates = [
