@@ -5,12 +5,13 @@ from logging import getLogger
 
 from cpython.contextvars cimport *
 from cpython.buffer cimport *
+from cpython.bytes cimport *
 from cpython.bytearray cimport *
 from cpython.memoryview cimport *
 from cpython.unicode cimport *
 
 from . import constants
-from .system cimport *
+from .utils cimport *
 from .openssl cimport *
 from .transport cimport *
 

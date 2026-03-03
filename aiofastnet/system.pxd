@@ -1,26 +1,5 @@
-from libc cimport errno
-
-from cpython.bytes cimport (
-    PyBytes_CheckExact, PyBytes_AS_STRING, PyBytes_GET_SIZE, _PyBytes_Resize,
-    PyBytes_FromStringAndSize
-)
-
-from cpython.bytearray cimport (
-    PyByteArray_CheckExact, PyByteArray_AS_STRING, PyByteArray_GET_SIZE
-)
-
-from cpython.memoryview cimport PyMemoryView_FromMemory
-
-from cpython.buffer cimport (
-    PyObject_GetBuffer, PyBuffer_Release, PyBUF_SIMPLE, PyBUF_READ
-)
-
 from cpython.object cimport (
     PyObject
-)
-
-from cpython.ref cimport (
-    Py_INCREF, Py_DECREF
 )
 
 cdef extern from * nogil:
@@ -147,67 +126,3 @@ cdef extern from * nogil:
 
     ssize_t aiofn_writev_sys(int fd, aiofn_iovec *iov, int iovcnt)
 
-
-cdef inline aiofn_unpack_buffer(object bytes_like_obj, char** ptr_out, Py_ssize_t* size_out):
-    cdef Py_buffer pybuf
-
-    if PyBytes_CheckExact(bytes_like_obj):
-        ptr_out[0] = PyBytes_AS_STRING(bytes_like_obj)
-        size_out[0] = PyBytes_GET_SIZE(bytes_like_obj)
-    elif PyByteArray_CheckExact(bytes_like_obj):
-        ptr_out[0] = PyByteArray_AS_STRING(bytes_like_obj)
-        size_out[0] = PyByteArray_GET_SIZE(bytes_like_obj)
-    elif bytes_like_obj is None:
-        ptr_out[0] = NULL
-        size_out[0] = 0
-    else:
-        PyObject_GetBuffer(bytes_like_obj, &pybuf, PyBUF_SIMPLE)
-        ptr_out[0] = <char*>pybuf.buf
-        size_out[0] = pybuf.len
-        # We can already release because we still keep the reference to the message
-        PyBuffer_Release(&pybuf)
-
-
-cdef inline bytes aiofn_shrink_bytes(PyObject* obj, Py_ssize_t new_size):
-    _PyBytes_Resize(&obj, new_size)
-    cdef bytes maybe_new_object = <bytes>obj
-    # Py_DECREF(maybe_new_object)
-    return maybe_new_object
-
-
-cdef inline object aiofn_maybe_copy_buffer(object buffer):
-    if buffer is None:
-        raise ValueError("cannot copy None buffer")
-
-    if PyBytes_CheckExact(buffer):
-        return buffer
-
-    return bytes(buffer)
-
-
-cdef inline object aiofn_maybe_copy_buffer_tail(object buffer, char* ptr, Py_ssize_t sz):
-    if buffer is None:
-        return PyBytes_FromStringAndSize(ptr, sz)
-
-    # Do not copy bytes content, it is safe to make a memory view
-    if PyBytes_CheckExact(buffer):
-        return memoryview(buffer)[PyBytes_GET_SIZE(buffer) - sz:]
-
-    # Always copy bytearray, bytearray may be used as a permanent write buffer
-    # in the upper level protocol.
-    if PyByteArray_CheckExact(buffer):
-        return PyBytes_FromStringAndSize(ptr, sz)
-
-    # For memoryview we check if it is made from bytes object.
-    # In such case it is safe to create another memoryview
-    cdef Py_buffer pybuf
-    PyObject_GetBuffer(buffer, &pybuf, PyBUF_SIMPLE)
-    cdef:
-        bint is_bytes = (<PyObject*>pybuf.obj != NULL) and PyBytes_CheckExact(pybuf.obj)
-        Py_ssize_t buffer_size = pybuf.len
-    PyBuffer_Release(&pybuf)
-
-    if is_bytes:
-        return memoryview(buffer)[buffer_size - sz:]
-    else:
-        return PyBytes_FromStringAndSize(ptr, sz)

@@ -22,7 +22,7 @@ from libc cimport errno
 from libc.string cimport memmove, memcpy
 from libc.stdlib cimport rand
 
-from aiofastnet.system cimport aiofn_unpack_buffer
+from aiofastnet.utils cimport aiofn_unpack_buffer
 from aiofastnet.transport cimport Transport, Protocol
 
 from .types import (PICOWS_DEBUG_LL, WSUpgradeRequest, WSUpgradeResponse,

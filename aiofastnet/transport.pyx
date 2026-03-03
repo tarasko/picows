@@ -1,96 +1,18 @@
 import collections
-import os
 import socket
 import warnings
 from asyncio.trsock import TransportSocket
 from asyncio import BufferedProtocol
 from logging import getLogger
 
-from .system cimport *
-
 from . import constants
 
+from .utils cimport *
+from cpython.bytes cimport *
 
-cdef _logger = getLogger('aiofastnet')
 
+cdef object _logger = getLogger('aiofastnet')
 cdef object _DATA_RECEIVED_MAX_SIZE = 256 * 1024
-
-
-cdef inline Py_ssize_t aiofn_recv(int sockfd, void* buf, Py_ssize_t len) except? -1:
-    cdef:
-        ssize_t bytes_read
-        int last_error
-
-    while True:
-        bytes_read = recv(sockfd, buf, len, 0)
-        if bytes_read >= 0:
-            return bytes_read
-
-        last_error = aiofn_get_last_error()
-        if last_error in (AIOFN_EWOULDBLOCK, AIOFN_EAGAIN):
-            return bytes_read
-
-        if not AIOFN_IS_WINDOWS and last_error == errno.EINTR:
-            continue
-
-        aiofn_set_exc_from_error(last_error)
-
-        return bytes_read
-
-
-cdef inline Py_ssize_t aiofn_send(int sockfd, void* buf, Py_ssize_t len) except? -1:
-    cdef:
-        ssize_t bytes_sent
-        int last_error
-
-    while True:
-        bytes_sent = send(sockfd, buf, len, 0)
-        if bytes_sent > 0:
-            return bytes_sent
-
-        if bytes_sent == -1:
-            last_error = aiofn_get_last_error()
-            if last_error in (AIOFN_EWOULDBLOCK, AIOFN_EAGAIN):
-                return bytes_sent
-
-            if not AIOFN_IS_WINDOWS and last_error == errno.EINTR:
-                continue
-
-            aiofn_set_exc_from_error(last_error)
-            return bytes_sent
-
-        if bytes_sent == 0:
-            # This should never happen, but who knows?
-            # May be len is 0?
-            raise RuntimeError(f"send syscall has sent 0 bytes and did not indicate any error, buf_len={len}")
-
-
-cdef inline Py_ssize_t aiofn_writev(int sockfd, aiofn_iovec* iov, Py_ssize_t iovcnt) except? -1:
-    cdef:
-        ssize_t bytes_sent
-        int last_error
-
-    while True:
-        bytes_sent = aiofn_writev_sys(sockfd, iov, iovcnt)
-
-        if bytes_sent > 0:
-            return bytes_sent
-
-        if bytes_sent == -1:
-            last_error = aiofn_get_last_error()
-            if last_error in (AIOFN_EWOULDBLOCK, AIOFN_EAGAIN):
-                return bytes_sent
-
-            if not AIOFN_IS_WINDOWS and last_error == errno.EINTR:
-                continue
-
-            aiofn_set_exc_from_error(last_error)
-            return bytes_sent
-
-        if bytes_sent == 0:
-            # This should never happen, but who knows?
-            # May be len is 0?
-            raise RuntimeError(f"writev syscall has sent 0 bytes and did not indicate any error")
 
 
 cdef _set_result_unless_cancelled(fut, result):
