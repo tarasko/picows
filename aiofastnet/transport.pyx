@@ -2,7 +2,6 @@ import collections
 import os
 import socket
 import warnings
-from itertools import islice
 from asyncio.trsock import TransportSocket
 from asyncio import BufferedProtocol
 from logging import getLogger
@@ -11,17 +10,9 @@ from .system cimport *
 
 from . import constants
 
-from cpython.buffer cimport (
-    PyObject_GetBuffer,
-    PyBuffer_Release,
-    PyBUF_SIMPLE
-)
-
 
 cdef _logger = getLogger('aiofastnet')
 
-cdef bint _HAS_SENDMSG = _get_has_sendmsg()
-cdef Py_ssize_t _SC_IOV_MAX = os.sysconf('SC_IOV_MAX') if _HAS_SENDMSG else 0
 cdef object _DATA_RECEIVED_MAX_SIZE = 256 * 1024
 
 
@@ -102,15 +93,6 @@ cdef inline Py_ssize_t aiofn_writev(int sockfd, aiofn_iovec* iov, Py_ssize_t iov
             raise RuntimeError(f"writev syscall has sent 0 bytes and did not indicate any error")
 
 
-cdef _get_has_sendmsg():
-    if hasattr(socket.socket, 'sendmsg'):
-        try:
-            os.sysconf('SC_IOV_MAX')
-            return True
-        except OSError:
-            return False
-
-
 cdef _set_result_unless_cancelled(fut, result):
     """Helper setting the result only if the future was not cancelled."""
     if fut.cancelled():
@@ -181,7 +163,7 @@ cdef class SelectorSocketTransport(Transport):
         object _sock
         int _sock_fd
         object _server
-        object _buffer
+        object _write_backlog
         int _conn_lost
         bint _closing
         bint _paused
@@ -211,7 +193,7 @@ cdef class SelectorSocketTransport(Transport):
         self._sock = sock
         self._sock_fd = sock.fileno()
         self._server = server
-        self._buffer = collections.deque()
+        self._write_backlog = collections.deque()
         self._conn_lost = 0  # Set when call to connection_lost scheduled.
         self._closing = False  # Set when close() called.
         self._paused = False  # Set when pause_reading() called
@@ -310,14 +292,14 @@ cdef class SelectorSocketTransport(Transport):
             return
         self._closing = True
         self._loop.remove_reader(self._sock_fd)
-        if not self._buffer:
+        if not self._write_backlog:
             self._conn_lost += 1
             self._loop.remove_writer(self._sock_fd)
             self._loop.call_soon(self._call_connection_lost, None)
 
     cpdef get_write_buffer_size(self):
         cdef Py_ssize_t total = 0
-        for data in self._buffer:
+        for data in self._write_backlog:
             total += len(data)
 
         if isinstance(self._protocol, Protocol):
@@ -458,7 +440,7 @@ cdef class SelectorSocketTransport(Transport):
             Py_ssize_t data_len, data_len_init = 0
             Py_ssize_t bytes_sent
 
-        if not self._buffer:
+        if not self._write_backlog:
             aiofn_unpack_buffer(data, &data_ptr, &data_len)
             data = self._write_one(data, data_ptr, data_len)
             if data is None:
@@ -469,7 +451,7 @@ cdef class SelectorSocketTransport(Transport):
         else:
             data = aiofn_maybe_copy_buffer(data)
 
-        self._buffer.append(data)
+        self._write_backlog.append(data)
         self._maybe_pause_protocol()
 
     cdef write_mem(self, char* ptr, Py_ssize_t sz):
@@ -482,7 +464,7 @@ cdef class SelectorSocketTransport(Transport):
             self._conn_lost += 1
             return
 
-        if not self._buffer:
+        if not self._write_backlog:
             data = self._write_one(None, ptr, sz)
             if data is None:
                 return
@@ -492,7 +474,7 @@ cdef class SelectorSocketTransport(Transport):
         else:
             data = PyBytes_FromStringAndSize(ptr, sz)
 
-        self._buffer.append(data)
+        self._write_backlog.append(data)
         self._maybe_pause_protocol()
 
     cpdef writelines(self, list_of_data):
@@ -509,16 +491,16 @@ cdef class SelectorSocketTransport(Transport):
             self._conn_lost += 1
             return
 
-        if self._buffer:
+        if self._write_backlog:
             for data in list_of_data:
-                self._buffer.append(aiofn_maybe_copy_buffer(data))
+                self._write_backlog.append(aiofn_maybe_copy_buffer(data))
             self._maybe_pause_protocol()
             return
 
         self._write_many(list_of_data)
 
         # If the entire buffer couldn't be written, register a write handler
-        if self._buffer:
+        if self._write_backlog:
             self._loop.add_writer(self._sock_fd, self._write_ready)
             self._maybe_pause_protocol()
 
@@ -529,7 +511,7 @@ cdef class SelectorSocketTransport(Transport):
         if self._closing or self._eof:
             return
         self._eof = True
-        if not self._buffer:
+        if not self._write_backlog:
             self._sock.shutdown(socket.SHUT_WR)
 
     cdef inline _write_one(self, object data, char* data_ptr, Py_ssize_t data_len):
@@ -568,26 +550,26 @@ cdef class SelectorSocketTransport(Transport):
             char* data_ptr
             Py_ssize_t data_len
 
-        if list_of_data is not self._buffer:
+        if list_of_data is not self._write_backlog:
             for data in list_of_data:
                 aiofn_unpack_buffer(data, &data_ptr, &data_len)
                 if data_len <= bytes_sent:
                     bytes_sent -= data_len
                     continue
                 elif bytes_sent <= 0:
-                    self._buffer.append(aiofn_maybe_copy_buffer(data))
+                    self._write_backlog.append(aiofn_maybe_copy_buffer(data))
                 else:
                     data_ptr += bytes_sent
                     data_len -= bytes_sent
-                    self._buffer.append(aiofn_maybe_copy_buffer_tail(data, data_ptr, data_len))
+                    self._write_backlog.append(aiofn_maybe_copy_buffer_tail(data, data_ptr, data_len))
         else:
             while bytes_sent > 0:
-                data = self._buffer.popleft()
+                data = self._write_backlog.popleft()
                 data_len = len(data)
                 if data_len <= bytes_sent:
                     bytes_sent -= data_len
                 else:
-                    self._buffer.appendleft(data[bytes_sent:])
+                    self._write_backlog.appendleft(data[bytes_sent:])
                     break
 
     cdef inline _write_many(self, list_of_data):
@@ -607,24 +589,24 @@ cdef class SelectorSocketTransport(Transport):
         self._adjust_leftover_buffer(list_of_data, bytes_sent)
 
     cpdef _write_ready(self):
-        assert self._buffer, 'Data should not be empty'
+        assert self._write_backlog, 'Data should not be empty'
         if self._conn_lost:
             return
         try:
-            self._write_many(self._buffer)
+            self._write_many(self._write_backlog)
         except (BlockingIOError, InterruptedError):
             pass
         except (SystemExit, KeyboardInterrupt):
             raise
         except BaseException as exc:
             self._loop.remove_writer(self._sock_fd)
-            self._buffer.clear()
+            self._write_backlog.clear()
             self._fatal_error(exc, 'Fatal write error on socket transport')
             if self._empty_waiter is not None:
                 self._empty_waiter.set_exception(exc)
         else:
             self._maybe_resume_protocol()
-            if not self._buffer:
+            if not self._write_backlog:
                 self._loop.remove_writer(self._sock_fd)
                 if self._empty_waiter is not None:
                     self._empty_waiter.set_result(None)
@@ -657,7 +639,7 @@ cdef class SelectorSocketTransport(Transport):
         if self._empty_waiter is not None:
             raise RuntimeError("Empty waiter is already set")
         self._empty_waiter = self._loop.create_future()
-        if not self._buffer:
+        if not self._write_backlog:
             self._empty_waiter.set_result(None)
         return self._empty_waiter
 
@@ -733,8 +715,8 @@ cdef class SelectorSocketTransport(Transport):
     cpdef _force_close(self, exc):
         if self._conn_lost:
             return
-        if self._buffer:
-            self._buffer.clear()
+        if self._write_backlog:
+            self._write_backlog.clear()
             self._loop.remove_writer(self._sock_fd)
         if not self._closing:
             self._closing = True
