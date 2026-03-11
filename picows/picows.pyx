@@ -22,8 +22,7 @@ from libc cimport errno
 from libc.string cimport memmove, memcpy
 from libc.stdlib cimport rand
 
-from aiofastnet.utils cimport aiofn_unpack_buffer
-from aiofastnet.transport cimport Transport, Protocol
+from aiofastnet cimport Transport, Protocol, aiofn_unpack_buffer
 
 from .types import (PICOWS_DEBUG_LL, WSUpgradeRequest, WSUpgradeResponse,
                     WSUpgradeResponseWithListener,
@@ -90,26 +89,6 @@ cdef uint8_t* _mask_payload(uint8_t* input, size_t input_len, uint32_t mask, uin
         apply_mask_1(input, input_len, curr_pos, rotated_mask, shifted_output)
 
     return shifted_output
-
-
-cdef _unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* msg_size_out):
-    cdef Py_buffer msg_buffer
-
-    if PyBytes_CheckExact(bytes_like_obj):
-        msg_ptr_out[0] = PyBytes_AS_STRING(bytes_like_obj)
-        msg_size_out[0] = PyBytes_GET_SIZE(bytes_like_obj)
-    elif PyByteArray_CheckExact(bytes_like_obj):
-        msg_ptr_out[0] = PyByteArray_AS_STRING(bytes_like_obj)
-        msg_size_out[0] = PyByteArray_GET_SIZE(bytes_like_obj)
-    elif bytes_like_obj is None:
-        msg_ptr_out[0] = NULL
-        msg_size_out[0] = 0
-    else:
-        PyObject_GetBuffer(bytes_like_obj, &msg_buffer, PyBUF_SIMPLE)
-        msg_ptr_out[0] = <char*>msg_buffer.buf
-        msg_size_out[0] = msg_buffer.len
-        # We can already release because we still keep the reference to the message
-        PyBuffer_Release(&msg_buffer)
 
 
 @cython.no_gc
@@ -329,7 +308,7 @@ cdef class WSListener:
 
 
 cdef class WSTransport:
-    def __init__(self, bint is_client_side, underlying_transport, logger, loop):
+    def __init__(self, bint is_client_side, Transport underlying_transport, logger, loop):
         self.underlying_transport = underlying_transport
         self.is_client_side = is_client_side
         self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
@@ -545,7 +524,7 @@ cdef class WSTransport:
             char* close_msg_ptr
             Py_ssize_t close_msg_length
 
-        _unpack_bytes_like(close_message, &close_msg_ptr, &close_msg_length)
+        aiofn_unpack_buffer(close_message, &close_msg_ptr, &close_msg_length)
 
         cdef:
             bytes msg = PyBytes_FromStringAndSize(NULL, close_msg_length + 2)
@@ -859,7 +838,7 @@ cdef class WSProtocol(Protocol, asyncio.BufferedProtocol):
         self._f_has_mask = 0
         self._f_payload_length_flag = 0
 
-    def connection_made(self, transport: asyncio.Transport):
+    def connection_made(self, transport: Transport):
         sock = transport.get_extra_info('socket')
         peername = transport.get_extra_info('peername')
         sockname = transport.get_extra_info('sockname')
@@ -955,7 +934,7 @@ cdef class WSProtocol(Protocol, asyncio.BufferedProtocol):
             char* ptr
             Py_ssize_t sz
 
-        _unpack_bytes_like(data, &ptr, &sz)
+        aiofn_unpack_buffer(data, &ptr, &sz)
 
         if self._read_buffer.size - self._f_new_data_start_pos < sz:
             self._read_buffer.resize(self._f_new_data_start_pos + sz)

@@ -7,7 +7,7 @@ readme = "README.rst"
 license-files = ["LICENSE"]
 dynamic = ["version"]
 keywords = ["websocket", "networking"]
-dependencies = ["multidict", "python-socks[asyncio]"]
+dependencies = ["aiofastnet", "multidict", "python-socks[asyncio]"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Framework :: AsyncIO",
@@ -38,7 +38,7 @@ Issues = "https://github.com/tarasko/picows/issues"
 Documentation = "https://picows.readthedocs.io/en/latest"
 
 [tool.setuptools]
-packages = ["picows", "aiofastnet"]
+packages = ["picows"]
 
 [tool.setuptools.dynamic]
 version = {attr = "picows.__version__"}
@@ -53,6 +53,6 @@ ignore_missing_imports = true
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["aiofastnet", "aiofastnet.*"]
+module = ["aiofastnet"]
 follow_imports = "skip"
 ignore_errors = true
