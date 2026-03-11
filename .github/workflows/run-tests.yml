@@ -83,9 +83,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements-test.txt
 
-    - uses: actions/checkout@v6
-    - name: Setup tmate session
-      uses: mxschmitt/action-tmate@v3
+#    - uses: actions/checkout@v6
+#    - name: Setup tmate session
+#      uses: mxschmitt/action-tmate@v3
 
     - name: Compile Cython extensions
       run: |
