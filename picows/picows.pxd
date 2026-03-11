@@ -1,5 +1,4 @@
 from libc.stdint cimport uint8_t, uint16_t, uint32_t, uint64_t
-from aiofastnet cimport Transport
 
 
 cdef enum WSParserState:
@@ -75,7 +74,7 @@ cdef class WSTransport:
     cdef:
         object __weakref__
 
-        readonly Transport underlying_transport    #: aiofastnet.Transport
+        readonly object underlying_transport    #: aiofastnet.Transport
         readonly bint is_client_side
         readonly bint is_secure
         readonly bint is_close_frame_sent

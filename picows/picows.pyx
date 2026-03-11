@@ -22,7 +22,6 @@ from libc cimport errno
 from libc.string cimport memmove, memcpy
 from libc.stdlib cimport rand
 
-from aiofastnet cimport Transport, Protocol, aiofn_unpack_buffer
 
 from .types import (PICOWS_DEBUG_LL, WSUpgradeRequest, WSUpgradeResponse,
                     WSUpgradeResponseWithListener,
@@ -89,6 +88,20 @@ cdef uint8_t* _mask_payload(uint8_t* input, size_t input_len, uint32_t mask, uin
         apply_mask_1(input, input_len, curr_pos, rotated_mask, shifted_output)
 
     return shifted_output
+
+
+cdef _unpack_buffer(object buffer, char** ptr_out, Py_ssize_t* size_out):
+    if buffer is None:
+        ptr_out[0] = NULL
+        size_out[0] = 0
+        return
+
+    cdef Py_buffer pybuf
+    PyObject_GetBuffer(buffer, &pybuf, PyBUF_SIMPLE)
+    ptr_out[0] = <char*>pybuf.buf
+    size_out[0] = pybuf.len
+    # We can already release because we still keep the reference to the message
+    PyBuffer_Release(&pybuf)
 
 
 @cython.no_gc
@@ -308,7 +321,7 @@ cdef class WSListener:
 
 
 cdef class WSTransport:
-    def __init__(self, bint is_client_side, Transport underlying_transport, logger, loop):
+    def __init__(self, bint is_client_side, underlying_transport, logger, loop):
         self.underlying_transport = underlying_transport
         self.is_client_side = is_client_side
         self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
@@ -393,13 +406,17 @@ cdef class WSTransport:
         if mask != 0:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask, <uint8_t*>msg_ptr)
 
-        if isinstance(self.underlying_transport, Transport):
-            (<Transport>self.underlying_transport).write_mem(<char*>header_ptr, header_size + msg_size)
-        elif self.is_secure:
-            self.underlying_transport.write(
-                PyBytes_FromStringAndSize(<char *>header_ptr, header_size + msg_size))
-        else:
-            self._try_native_write_then_transport_write(<char*>header_ptr, header_size + msg_size)
+        self.underlying_transport.write(PyMemoryView_FromMemory(
+            <char*>header_ptr, header_size + msg_size, PyBUF_READ
+        ))
+
+        # if isinstance(self.underlying_transport, Transport):
+        #     (<Transport>self.underlying_transport).write_mem(<char*>header_ptr, header_size + msg_size)
+        # elif self.is_secure:
+        #     self.underlying_transport.write(
+        #         PyBytes_FromStringAndSize(<char *>header_ptr, header_size + msg_size))
+        # else:
+        #     self._try_native_write_then_transport_write(<char*>header_ptr, header_size + msg_size)
 
         if msg_type == WSMsgType.CLOSE:
             self.is_close_frame_sent = True
@@ -465,7 +482,7 @@ cdef class WSTransport:
             Py_ssize_t msg_size
             char* masked_msg_ptr
 
-        aiofn_unpack_buffer(message, &msg_ptr, &msg_size)
+        _unpack_buffer(message, &msg_ptr, &msg_size)
 
         cdef:
             Py_ssize_t header_size = self._get_header_size(msg_size)
@@ -478,16 +495,10 @@ cdef class WSTransport:
             self._write_buffer.resize(msg_size + 64)
             masked_msg_ptr = <char*>_mask_payload(<uint8_t*>msg_ptr, msg_size, mask, <uint8_t*>self._write_buffer.data)
             lst = [header, PyMemoryView_FromMemory(masked_msg_ptr, msg_size, PyBUF_READ)]
-            if isinstance(self.underlying_transport, Transport):
-                (<Transport>self.underlying_transport).writelines(lst)
-            else:
-                self.underlying_transport.writelines(lst)
+            self.underlying_transport.writelines(lst)
         else:
             lst = [header, message]
-            if isinstance(self.underlying_transport, Transport):
-                (<Transport>self.underlying_transport).writelines(lst)
-            else:
-                self.underlying_transport.writelines(lst)
+            self.underlying_transport.writelines(lst)
 
         if msg_type == WSMsgType.CLOSE:
             self.is_close_frame_sent = True
@@ -524,7 +535,7 @@ cdef class WSTransport:
             char* close_msg_ptr
             Py_ssize_t close_msg_length
 
-        aiofn_unpack_buffer(close_message, &close_msg_ptr, &close_msg_length)
+        _unpack_buffer(close_message, &close_msg_ptr, &close_msg_length)
 
         cdef:
             bytes msg = PyBytes_FromStringAndSize(NULL, close_msg_length + 2)
@@ -723,7 +734,7 @@ cdef class WSTransport:
 #     )
 
 
-cdef class WSProtocol(Protocol, asyncio.BufferedProtocol):
+cdef class WSProtocol:
     cdef:
         readonly WSTransport transport
         readonly WSListener listener
@@ -926,25 +937,25 @@ cdef class WSProtocol(Protocol, asyncio.BufferedProtocol):
         if self.listener is not None:
             self.listener.resume_writing()
 
-    cpdef is_buffered_protocol(self):
+    def is_buffered_protocol(self):
         return True
 
-    cpdef data_received(self, data):
-        cdef:
-            char* ptr
-            Py_ssize_t sz
+    # def data_received(self, data):
+    #     cdef:
+    #         char* ptr
+    #         Py_ssize_t sz
+    #
+    #     _unpack_buffer(data, &ptr, &sz)
+    #
+    #     if self._read_buffer.size - self._f_new_data_start_pos < sz:
+    #         self._read_buffer.resize(self._f_new_data_start_pos + sz)
+    #
+    #     memcpy(self._read_buffer.data + self._f_new_data_start_pos, ptr, sz)
+    #     self._f_new_data_start_pos += sz
+    #
+    #     self._process_new_data()
 
-        aiofn_unpack_buffer(data, &ptr, &sz)
-
-        if self._read_buffer.size - self._f_new_data_start_pos < sz:
-            self._read_buffer.resize(self._f_new_data_start_pos + sz)
-
-        memcpy(self._read_buffer.data + self._f_new_data_start_pos, ptr, sz)
-        self._f_new_data_start_pos += sz
-
-        self._process_new_data()
-
-    cpdef get_buffer(self, Py_ssize_t size_hint):
+    def get_buffer(self, Py_ssize_t size_hint):
         # size_hint is un-reliable, uvloop provides a fixed value of 65536
         # and asyncio just always pass -1
         # Therefore, ignore it and just implement exponential buffer grow
@@ -962,7 +973,7 @@ cdef class WSProtocol(Protocol, asyncio.BufferedProtocol):
             self._read_buffer.size - self._f_new_data_start_pos,
             PyBUF_WRITE)
 
-    cpdef buffer_updated(self, Py_ssize_t nbytes):
+    def buffer_updated(self, Py_ssize_t nbytes):
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
                              self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)
