@@ -434,3 +434,4 @@ async def test_stress(connected_async_client):
 
     assert not connected_async_client.is_paused
 
+#
