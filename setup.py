@@ -9,9 +9,14 @@ vi = sys.version_info
 if vi < (3, 9):
     raise RuntimeError('picows requires Python 3.9 or greater')
 
+if os.name == 'nt':
+    libs = ["Ws2_32"]
+else:
+    libs = []
+
 
 pkg_extensions = [
-    Extension("picows.picows", ["picows/picows.pyx"]),
+    Extension("picows.picows", ["picows/picows.pyx"], libraries=libs),
 ]
 
 example_extensions = [
