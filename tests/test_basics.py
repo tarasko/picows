@@ -20,6 +20,11 @@ class MyException(Exception):
 event_loop_policy = multiloop_event_loop_policy()
 
 
+@pytest.fixture
+async def loop_debug():
+    asyncio.get_running_loop().set_debug(True)
+
+
 @pytest.mark.parametrize("msg_size", [0, 1, 2, 3, 4, 5, 6, 7, 8, 29, 64, 256 * 1024, 6*1024*1024])
 async def test_echo(connected_async_client, msg_size):
     msg = (b"ABCDEFGHIKLMNOPQ" * (int(msg_size / 16) + 1))[:msg_size]
