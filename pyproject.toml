@@ -5,7 +5,7 @@ authors = [{name = "Taras Kozlov", email = "tarasko.projects@gmail.com"}]
 requires-python = '>=3.9'
 readme = "README.rst"
 license-files = ["LICENSE"]
-dynamic = ["version"]
+dynamic = ["version", "dependencies"]
 keywords = ["websocket", "networking"]
 dependencies = ["aiofastnet", "multidict", "python-socks[asyncio]"]
 classifiers = [
@@ -41,6 +41,7 @@ Documentation = "https://picows.readthedocs.io/en/latest"
 packages = ["picows"]
 
 [tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
 version = {attr = "picows.__version__"}
 
 [tool.pytest.ini_options]
