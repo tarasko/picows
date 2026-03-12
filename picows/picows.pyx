@@ -104,6 +104,14 @@ cdef _unpack_buffer(object buffer, char** ptr_out, Py_ssize_t* size_out):
     PyBuffer_Release(&pybuf)
 
 
+cdef _is_aiofn_transport(transport):
+    try:
+        import aiofastnet
+        return isinstance(transport, aiofastnet.Transport)
+    except:
+        return False
+
+
 @cython.no_gc
 @cython.freelist(64)
 cdef class WSFrame:
@@ -337,6 +345,7 @@ cdef class WSTransport:
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
         self._write_buffer = MemoryBuffer(1024)
         self._socket = underlying_transport.get_extra_info('socket').fileno()
+        self._is_aiofn_transport = _is_aiofn_transport(underlying_transport)
 
     cdef Py_ssize_t _get_header_size(self, Py_ssize_t msg_size) noexcept:
         cdef Py_ssize_t sz = 4 if self.is_client_side else 0
@@ -406,15 +415,7 @@ cdef class WSTransport:
         if mask != 0:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask, <uint8_t*>msg_ptr)
 
-        self.underlying_transport.write(PyMemoryView_FromMemory(
-            <char*>header_ptr, header_size + msg_size, PyBUF_READ
-        ))
-
-        # if self.is_secure:
-        #     self.underlying_transport.write(
-        #         PyBytes_FromStringAndSize(<char *>header_ptr, header_size + msg_size))
-        # else:
-        #     self._try_native_write_then_transport_write(<char*>header_ptr, header_size + msg_size)
+        self._fast_write(<char*>header_ptr, header_size + msg_size)
 
         if msg_type == WSMsgType.CLOSE:
             self.is_close_frame_sent = True
@@ -492,9 +493,7 @@ cdef class WSTransport:
                                   msg_size, fin, rsv1)
 
         if msg_size == 0:
-            self.underlying_transport.write(PyMemoryView_FromMemory(
-                self._write_buffer.data, header_size, PyBUF_READ
-            ))
+            self._fast_write(self._write_buffer.data, header_size)
         elif not self.is_client_side:
             # Optimization for server side, writelines is generally somewhat
             # slower, and has to be cautious around user types, do extra
@@ -503,9 +502,7 @@ cdef class WSTransport:
             if msg_size <= 8192:
                 self._write_buffer.resize(header_size + msg_size)
                 memcpy(self._write_buffer.data + header_size, msg_ptr, msg_size)
-                self.underlying_transport.write(PyMemoryView_FromMemory(
-                    self._write_buffer.data, header_size + msg_size, PyBUF_READ
-                ))
+                self._fast_write(self._write_buffer.data, header_size + msg_size)
             else:
                 self._write_buffer.resize(header_size)
                 self._write_header(<uint8_t *> self._write_buffer.data,
@@ -526,9 +523,9 @@ cdef class WSTransport:
             # We have to re-locate header in case when _mask_payload had to
             # copy into a shifted position
             memmove(masked_msg_ptr - header_size, self._write_buffer.data, header_size)
-            self.underlying_transport.write(PyMemoryView_FromMemory(
-                <char*>(masked_msg_ptr - header_size), header_size + msg_size, PyBUF_READ
-            ))
+            self._fast_write(
+                <char*>(masked_msg_ptr - header_size), header_size + msg_size
+            )
 
         if msg_type == WSMsgType.CLOSE:
             self.is_close_frame_sent = True
@@ -712,7 +709,20 @@ cdef class WSTransport:
         self.response = response
         self.underlying_transport.write(response_bytes)
 
-    cdef _try_native_write_then_transport_write(self, char* ptr, Py_ssize_t sz):
+    cdef _fast_write(self, char* ptr, Py_ssize_t sz):
+        if self._is_aiofn_transport:
+            # aiofastnet guarantees that the data will be copied if it can't be
+            # sent immediately
+            self.underlying_transport.write(PyMemoryView_FromMemory(ptr, sz, PyBUF_READ))
+            return
+
+        if self.is_secure:
+            self.underlying_transport.write(PyBytes_FromStringAndSize(ptr, sz))
+            return
+
+        # Try to send data using system send. Pass copied data to asyncio if we
+        # get EAGAIN.
+
         if <Py_ssize_t>self.underlying_transport.get_write_buffer_size() > 0:
             self.underlying_transport.write(PyBytes_FromStringAndSize(ptr, sz))
             return
@@ -736,7 +746,7 @@ cdef class WSTransport:
             self.underlying_transport.write(PyBytes_FromStringAndSize(<char*> ptr + bytes_written, sz - bytes_written))
             return
 
-        # In case of errors we ask asyncio to try sending again.
+        # In case any errors we ask asyncio to try sending again.
         # Asyncio will try and based on error code may report 'disconnected' event.
         self.underlying_transport.write(PyBytes_FromStringAndSize(<char *> ptr, sz))
 

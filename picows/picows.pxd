@@ -91,6 +91,7 @@ cdef class WSTransport:
         bint _log_debug_enabled
         MemoryBuffer _write_buffer
         int _socket
+        bint _is_aiofn_transport
 
     cdef inline send_reuse_external_buffer(self, WSMsgType msg_type, char* msg_ptr, Py_ssize_t msg_size, bint fin=*, bint rsv1=*)
     cpdef send(self, WSMsgType msg_type, message, bint fin=*, bint rsv1=*)
@@ -105,7 +106,7 @@ cdef class WSTransport:
     cdef inline uint32_t _write_header(self,uint8_t* header_ptr, WSMsgType msg_type, Py_ssize_t msg_size, bint fin, bint rsv1) noexcept
     cdef inline _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, object extra_headers)
     cdef inline _send_http_handshake_response(self, response, bytes accept_val)
-    cdef inline _try_native_write_then_transport_write(self, char* ptr, Py_ssize_t sz)
+    cdef inline _fast_write(self, char* ptr, Py_ssize_t sz)
 
 
 cdef class WSListener:

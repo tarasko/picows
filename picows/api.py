@@ -422,34 +422,3 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
         port=port,
         **kwargs)
     return cast(asyncio.Server, server)
-    #
-    #
-    # ssl = kwargs.pop('ssl', None)
-    # ssl_handshake_timeout = kwargs.pop('ssl_handshake_timeout', None)
-    # ssl_shutdown_timeout = kwargs.pop('ssl_shutdown_timeout', None)
-    #
-    # if not ssl:
-    #     return await asyncio.get_running_loop().create_server(
-    #         ws_protocol_factory,
-    #         host=host,
-    #         port=port,
-    #         **kwargs)
-    #
-    # def ssl_protocol_factory():
-    #     ws_protocol = ws_protocol_factory()
-    #     ssl_protocol = SSLProtocol(
-    #         asyncio.get_running_loop(),
-    #         ws_protocol,
-    #         ssl,
-    #         server_side=True,
-    #         server_hostname=None,
-    #         call_connection_made=True,
-    #         ssl_handshake_timeout=ssl_handshake_timeout,
-    #         ssl_shutdown_timeout=ssl_shutdown_timeout)
-    #     return ssl_protocol
-    #
-    # return await asyncio.get_running_loop().create_server(
-    #     ssl_protocol_factory,
-    #     host=host,
-    #     port=port,
-    #     **kwargs)
