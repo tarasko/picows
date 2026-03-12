@@ -71,7 +71,7 @@ cdef:
 
 
 cdef uint8_t* _mask_payload(uint8_t* input, size_t input_len, uint32_t mask, uint8_t* output) noexcept:
-    # In case when input != output output may not have the same alignment as input.
+    # In case when input != output, output may not have the same alignment as input.
     # If so output will be shifted forward first, before actual masking begins.
     # Returns shifted output pointer
     cdef uint8_t* shifted_output = output
@@ -410,9 +410,7 @@ cdef class WSTransport:
             <char*>header_ptr, header_size + msg_size, PyBUF_READ
         ))
 
-        # if isinstance(self.underlying_transport, Transport):
-        #     (<Transport>self.underlying_transport).write_mem(<char*>header_ptr, header_size + msg_size)
-        # elif self.is_secure:
+        # if self.is_secure:
         #     self.underlying_transport.write(
         #         PyBytes_FromStringAndSize(<char *>header_ptr, header_size + msg_size))
         # else:
@@ -480,25 +478,57 @@ cdef class WSTransport:
         cdef:
             char* msg_ptr
             Py_ssize_t msg_size
-            char* masked_msg_ptr
 
         _unpack_buffer(message, &msg_ptr, &msg_size)
 
         cdef:
             Py_ssize_t header_size = self._get_header_size(msg_size)
-            bytes header = PyBytes_FromStringAndSize(NULL, header_size)
-            uint32_t mask = self._write_header(<uint8_t*>PyBytes_AS_STRING(header), msg_type, msg_size, fin, rsv1)
+            uint8_t header_ptr
+            uint32_t mask
+            uint8_t* masked_msg_ptr
+
+        self._write_buffer.resize(header_size)
+        mask = self._write_header(<uint8_t *>self._write_buffer.data, msg_type,
+                                  msg_size, fin, rsv1)
 
         if msg_size == 0:
-            self.underlying_transport.write(header)
-        elif mask != 0:
-            self._write_buffer.resize(msg_size + 64)
-            masked_msg_ptr = <char*>_mask_payload(<uint8_t*>msg_ptr, msg_size, mask, <uint8_t*>self._write_buffer.data)
-            lst = [header, PyMemoryView_FromMemory(masked_msg_ptr, msg_size, PyBUF_READ)]
-            self.underlying_transport.writelines(lst)
+            self.underlying_transport.write(PyMemoryView_FromMemory(
+                self._write_buffer.data, header_size, PyBUF_READ
+            ))
+        elif not self.is_client_side:
+            # Optimization for server side, writelines is generally somewhat
+            # slower, and has to be cautious around user types, do extra
+            # checking before attempting to send anything.
+            # Copy everything into our buffer and write.
+            if msg_size <= 8192:
+                self._write_buffer.resize(header_size + msg_size)
+                memcpy(self._write_buffer.data + header_size, msg_ptr, msg_size)
+                self.underlying_transport.write(PyMemoryView_FromMemory(
+                    self._write_buffer.data, header_size + msg_size, PyBUF_READ
+                ))
+            else:
+                self._write_buffer.resize(header_size)
+                self._write_header(<uint8_t *> self._write_buffer.data,
+                                   msg_type,
+                                   msg_size, fin, rsv1)
+                header = PyMemoryView_FromMemory(
+                    self._write_buffer.data, header_size, PyBUF_READ
+                )
+                self.underlying_transport.writelines([header, message])
         else:
-            lst = [header, message]
-            self.underlying_transport.writelines(lst)
+            # For client side always mask and copy
+            self._write_buffer.resize(header_size + msg_size + 64)
+            masked_msg_ptr = _mask_payload(
+                <uint8_t*>msg_ptr, msg_size,
+                mask,
+                <uint8_t*>self._write_buffer.data + header_size
+            )
+            # We have to re-locate header in case when _mask_payload had to
+            # copy into a shifted position
+            memmove(masked_msg_ptr - header_size, self._write_buffer.data, header_size)
+            self.underlying_transport.write(PyMemoryView_FromMemory(
+                <char*>(masked_msg_ptr - header_size), header_size + msg_size, PyBUF_READ
+            ))
 
         if msg_type == WSMsgType.CLOSE:
             self.is_close_frame_sent = True
@@ -849,7 +879,7 @@ cdef class WSProtocol:
         self._f_has_mask = 0
         self._f_payload_length_flag = 0
 
-    def connection_made(self, transport: Transport):
+    def connection_made(self, transport):
         sock = transport.get_extra_info('socket')
         peername = transport.get_extra_info('peername')
         sockname = transport.get_extra_info('sockname')
