@@ -3,8 +3,6 @@ picows.egg-info
 *.so
 *.pyd
 *.c
-!aiofastnet/static_mem_bio.c
-!aiofastnet/certdecode.c
 __pycache__
 *.html
 dist

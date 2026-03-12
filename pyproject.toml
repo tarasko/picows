@@ -51,8 +51,3 @@ asyncio_default_fixture_loop_scope = "function"
 files = "picows"
 ignore_missing_imports = true
 strict = true
-
-[[tool.mypy.overrides]]
-module = ["aiofastnet"]
-follow_imports = "skip"
-ignore_errors = true
