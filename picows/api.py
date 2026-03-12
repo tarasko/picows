@@ -272,7 +272,7 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
     if use_aiofastnet:
         create_connection = partial(aiofastnet.create_connection, loop)
     else:
-        create_connection = loop.create_connection
+        create_connection = loop.create_connection # type: ignore [assignment]
 
     while True:
         if parsed_url.username is not None or parsed_url.password is not None:
@@ -421,7 +421,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
     if use_aiofastnet:
         create_server = partial(aiofastnet.create_server, loop)
     else:
-        create_server = loop.create_server
+        create_server = loop.create_server  # type: ignore [assignment]
 
     def ws_protocol_factory() -> WSProtocol:
         return WSProtocol(
