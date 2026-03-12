@@ -774,7 +774,11 @@ cdef class WSTransport:
 #     )
 
 
-cdef class WSProtocol:
+cdef class WSProtocolBase:
+    pass
+
+
+cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
     cdef:
         readonly WSTransport transport
         readonly WSListener listener

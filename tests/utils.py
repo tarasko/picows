@@ -196,11 +196,12 @@ async def ClientAsyncContext(*args, **kwargs):
 
 
 @pytest.fixture()
-async def connected_async_client(echo_server):
+async def connected_async_client(echo_server, use_aiofastnet):
     async with ClientAsyncContext(AsyncClient, echo_server,
                                   ssl_context=create_client_ssl_context(),
                                   websocket_handshake_timeout=0.5,
-                                  enable_auto_pong=False
+                                  enable_auto_pong=False,
+                                  use_aiofastnet=use_aiofastnet
                                   ) as (transport, listener):
         yield listener
 
@@ -231,6 +232,14 @@ def create_client_ssl_context():
 
 def get_server_port(server: asyncio.Server):
     return server.sockets[0].getsockname()[1]
+
+
+@pytest.fixture(params=["native", "aiofastnet"])
+def use_aiofastnet(request):
+    if request.param == "native":
+        yield False
+    else:
+        yield True
 
 
 @pytest.fixture(params=["tcp", "ssl"])

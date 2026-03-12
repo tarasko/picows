@@ -10,7 +10,7 @@ from http import HTTPStatus
 from tests.utils import create_client_ssl_context, echo_server, \
     TIMEOUT, AsyncClient, ServerEchoListener, ClientAsyncContext, \
     ServerAsyncContext, get_server_port, multiloop_event_loop_policy, \
-    connected_async_client
+    connected_async_client, use_aiofastnet
 
 
 class MyException(Exception):
