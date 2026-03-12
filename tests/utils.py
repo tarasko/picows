@@ -12,8 +12,13 @@ import async_timeout
 import pytest
 
 import picows
+from picows import ws_create_server, ws_connect
 
 TIMEOUT = 1.0
+
+
+class TestException(Exception):
+    pass
 
 
 def multiloop_event_loop_policy():
@@ -165,6 +170,83 @@ class ServerEchoListener(picows.WSListener):
 
 
 @dataclass
+class Ssl:
+    client: Optional[ssl.SSLContext] = None
+    server: Optional[ssl.SSLContext] = None
+
+
+@pytest.fixture(params=["tcp", "ssl"])
+def ssl_context(request):
+    if request.param == "ssl":
+        yield Ssl(create_client_ssl_context(), create_server_ssl_context())
+    else:
+        yield Ssl()
+
+
+@pytest.fixture(params=["native", "aiofastnet"])
+def use_aiofastnet(request):
+    if request.param == "native":
+        yield False
+    else:
+        yield True
+
+
+@dataclass
+class WSServerInfo:
+    url: str
+    host: str
+    port: int
+
+
+@asynccontextmanager
+async def WSServer(protocol_factory=None, **kwargs):
+    if protocol_factory is None:
+        protocol_factory = lambda _: ServerEchoListener()
+
+    if kwargs.get('websocket_handshake_timeout') is None:
+        kwargs['websocket_handshake_timeout'] = 0.5
+
+    if kwargs.get('enable_auto_pong') is None:
+        kwargs['enable_auto_pong'] = False
+
+    ssl = kwargs.get("ssl")
+    server = await ws_create_server(protocol_factory, "127.0.0.1", 0, **kwargs)
+    resolved_port = server.sockets[0].getsockname()[1]
+    try:
+        yield WSServerInfo(f"{'wss' if ssl else 'ws'}://127.0.0.1:{resolved_port}/", "127.0.0.1", resolved_port)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+@asynccontextmanager
+async def WSClient(server, listener_factory=None, **kwargs):
+    if isinstance(server, WSServerInfo):
+        url = server.url
+    else:
+        url = server
+
+    if listener_factory is None:
+        listener_factory = lambda: AsyncClient()
+
+    if kwargs.get('websocket_handshake_timeout') is None:
+        kwargs['websocket_handshake_timeout'] = 0.5
+
+    if kwargs.get('enable_auto_pong') is None:
+        kwargs['enable_auto_pong'] = False
+
+    transport, listener = await ws_connect(listener_factory, url, **kwargs)
+    try:
+        yield listener
+    finally:
+        transport.disconnect(False)
+        try:
+            await transport.wait_disconnected()
+        except TestException:
+            pass
+
+
+@dataclass
 class ServerUrls:
     tcp_url: Optional[str]
     ssl_url: Optional[str]
@@ -232,14 +314,6 @@ def create_client_ssl_context():
 
 def get_server_port(server: asyncio.Server):
     return server.sockets[0].getsockname()[1]
-
-
-@pytest.fixture(params=["native", "aiofastnet"])
-def use_aiofastnet(request):
-    if request.param == "native":
-        yield False
-    else:
-        yield True
 
 
 @pytest.fixture(params=["tcp", "ssl"])
