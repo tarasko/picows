@@ -5,9 +5,8 @@ authors = [{name = "Taras Kozlov", email = "tarasko.projects@gmail.com"}]
 requires-python = '>=3.9'
 readme = "README.rst"
 license-files = ["LICENSE"]
-dynamic = ["version"]
+dynamic = ["version", "dependencies"]
 keywords = ["websocket", "networking"]
-dependencies = ["multidict", "python-socks[asyncio]"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Framework :: AsyncIO",
@@ -28,7 +27,7 @@ classifiers = [
 ]
 
 [build-system]
-requires = ["setuptools >= 78.0", "wheel", "Cython >= 3.0"]
+requires = ["setuptools >= 78.0", "wheel", "Cython >= 3.2"]
 build-backend = "setuptools.build_meta"
 
 [project.urls]
@@ -41,11 +40,16 @@ Documentation = "https://picows.readthedocs.io/en/latest"
 packages = ["picows"]
 
 [tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
 version = {attr = "picows.__version__"}
+
+[project.optional-dependencies]
+aiofastnet = ["aiofastnet"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
 
 [tool.mypy]
 files = "picows"

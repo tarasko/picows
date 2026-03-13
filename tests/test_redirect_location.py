@@ -7,7 +7,6 @@ import picows
 from picows import WSUpgradeResponse
 from picows.api import _maybe_handle_redirect
 from picows.url import parse_url
-from tests.utils import AsyncClient, ServerEchoListener, ServerAsyncContext, ClientAsyncContext, get_server_port
 
 
 async def test_redirect_location():

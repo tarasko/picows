@@ -2,10 +2,11 @@ import asyncio
 import socket
 import urllib.parse
 from dataclasses import dataclass
+from functools import partial
 from inspect import isawaitable
 from logging import getLogger
 from ssl import SSLContext
-from typing import Callable, Optional, Union, Dict, Any, Awaitable
+from typing import Callable, Optional, Union, Dict, Any, Awaitable, cast
 
 from python_socks.async_.asyncio import Proxy
 
@@ -19,6 +20,13 @@ from .url import parse_url, WSInvalidURL, WSParsedURL
 WSListenerFactory = Callable[[], WSListener]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
 WSSocketFactory = Callable[[WSParsedURL], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
+
+_HAS_AIOFASTNET = False
+try:
+    import aiofastnet
+    _HAS_AIOFASTNET = True
+except ImportError:
+    pass
 
 
 def _maybe_handle_redirect(exc: WSHandshakeError, old_parsed_url: WSParsedURL, max_redirects: int) -> WSParsedURL:
@@ -172,6 +180,7 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                      proxy: Optional[str] = None,
                      read_buffer_init_size: int = 16 * 1024,
                      socket_factory: Optional[WSSocketFactory] = None,
+                     use_aiofastnet: Optional[bool] = None,
                      **kwargs
                      ) -> tuple[WSTransport, WSListener]:
     """
@@ -239,6 +248,11 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
 
         If ``proxy`` is set, ``WSParsedURL`` passed to the factory is proxy
         endpoint coordinates, not final WebSocket server coordinates.
+    :param use_aiofastnet:
+        Use **aiofastnet** package to create client and server connections
+        instead of ``loop.create_server``, ``loop.create_connection`` native method.
+        **picows** will use **aiofastnet** by default if it is installed.
+        You can override default behavior by using this argument.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
 
@@ -247,13 +261,23 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
     assert "all_errors" not in kwargs, "explicit 'all_errors' argument for loop.create_connection is not supported"
     assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), \
         "invalid value of auto_ping_strategy parameter"
+    assert _HAS_AIOFASTNET or use_aiofastnet != True, "use_aiofastnet==True, but aiofastnet package is not installed"
 
-    kwargs.pop("zero_copy_unsafe_ssl_write", None)
+    if use_aiofastnet is None:
+        use_aiofastnet = _HAS_AIOFASTNET
+
+    # May sure people who are passing old argument are not going to get an exception
+    kwargs.pop('zero_copy_unsafe_ssl_write', None)
 
     logger = getLogger(f"picows.{logger_name}")
     parsed_url = parse_url(url)
     parsed_proxy_url = parse_url(proxy, False) if proxy is not None else None
     loop = asyncio.get_running_loop()
+
+    if use_aiofastnet:
+        create_connection = partial(aiofastnet.create_connection, loop)
+    else:
+        create_connection = loop.create_connection # type: ignore [assignment]
 
     while True:
         if parsed_url.username is not None or parsed_url.password is not None:
@@ -288,14 +312,14 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
             conn_socket = await _connect_through_optional_proxy(
                 loop, parsed_url, parsed_proxy_url, socket_factory, ssl, conn_kwargs)
 
-            (_, ws_protocol) = await loop.create_connection(
+            (_, ws_protocol) = await create_connection(
                 ws_protocol_factory,
-                conn_socket.host,       # type: ignore[arg-type]
-                conn_socket.port,       # type: ignore[arg-type]
+                conn_socket.host,
+                conn_socket.port,
                 ssl=ssl,
-                sock=conn_socket.sock,  # type: ignore[arg-type]
+                sock=conn_socket.sock,
                 **conn_kwargs
-            )
+                )
 
             await ws_protocol.wait_until_handshake_complete()
             return ws_protocol.transport, ws_protocol.listener
@@ -321,6 +345,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
                            enable_auto_pong: bool = True,
                            max_frame_size: int = 10 * 1024 * 1024,
                            read_buffer_init_size: int = 16 * 1024,
+                           use_aiofastnet: Optional[bool] = None,
                            **kwargs
                            ) -> asyncio.Server:
     """
@@ -386,12 +411,27 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
         Initial size of the internal read buffer. The buffer grows exponentially if new data doesn't fit.
         You may set this to the actual expected maximum frame size but don't push it too much. Contrary to `max_frame_size` which
         is just a safety check, setting big value here will force **picows** to actually allocate the specified amount of memory.
+    :param use_aiofastnet:
+        Use **aiofastnet** package to create client and server connections
+        instead of ``loop.create_server``, ``loop.create_connection`` native method.
+        **picows** will use **aiofastnet** by default if it is installed.
+        You can override default behavior by using this argument.
     :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
 
     assert auto_ping_strategy in (WSAutoPingStrategy.PING_WHEN_IDLE, WSAutoPingStrategy.PING_PERIODICALLY), "invalid value of auto_ping_strategy parameter"
+    assert _HAS_AIOFASTNET or use_aiofastnet != True, "use_aiofastnet==True, but aiofastnet package is not installed"
 
-    kwargs.pop("zero_copy_unsafe_ssl_write", None)
+    if use_aiofastnet is None:
+        use_aiofastnet = _HAS_AIOFASTNET
+
+    # May sure people who are passing old argument are not going to get an exception
+    kwargs.pop('zero_copy_unsafe_ssl_write', None)
+    loop = asyncio.get_running_loop()
+    if use_aiofastnet:
+        create_server = partial(aiofastnet.create_server, loop)
+    else:
+        create_server = loop.create_server  # type: ignore [assignment]
 
     def ws_protocol_factory() -> WSProtocol:
         return WSProtocol(
@@ -410,8 +450,9 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
             read_buffer_init_size
         )
 
-    return await asyncio.get_running_loop().create_server(
+    server = await create_server(
         ws_protocol_factory,
         host=host,
         port=port,
         **kwargs)
+    return cast(asyncio.Server, server)

@@ -1,5 +1,7 @@
 import os
 import sys
+import sysconfig
+from pathlib import Path
 from Cython.Build import cythonize
 from setuptools import Extension, setup
 
@@ -7,18 +9,18 @@ vi = sys.version_info
 if vi < (3, 9):
     raise RuntimeError('picows requires Python 3.9 or greater')
 
-
 if os.name == 'nt':
-    libraries = ["Ws2_32"]
+    libs = ["Ws2_32"]
 else:
-    libraries = None
+    libs = []
+
 
 pkg_extensions = [
-    Extension("picows.picows", ["picows/picows.pyx"], libraries=libraries),
+    Extension("picows.picows", ["picows/picows.pyx"], libraries=libs),
 ]
 
 example_extensions = [
-    Extension("examples.echo_client_cython", ["examples/echo_client_cython.pyx"], libraries=libraries),
+    Extension("examples.echo_client_cython", ["examples/echo_client_cython.pyx"])
 ]
 
 build_wheel = any(cmd in sys.argv for cmd in ("bdist_wheel",))
@@ -38,7 +40,7 @@ setup(
             'optimize.use_switch': False,
             'cdivision': True
         },
-        annotate=False,
+        annotate=True,
         gdb_debug=False,
     ),
     include_package_data=True,

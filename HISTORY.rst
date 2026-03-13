@@ -5,6 +5,12 @@ picows Release History
    :depth: 1
    :local:
 
+1.17.0 ()
+------------------
+
+* Improve masking performance on large frame.
+* Add aiofastnet as an optional dependency to speedup networking.
+
 1.16.0 (2026-02-27)
 ------------------
 

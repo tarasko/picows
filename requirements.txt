@@ -1,0 +1,3 @@
+aiofastnet
+multidict
+python-socks[asyncio]

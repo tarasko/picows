@@ -220,8 +220,8 @@ async def ws_connect(
     max_redirects: int = 5,
     proxy: Optional[str] = None,
     read_buffer_init_size: int = 16 * 1024,
-    zero_copy_unsafe_ssl_write: bool = False,
     socket_factory: Optional[WSSocketFactory] = None,
+    use_aiofastnet: Optional[bool] = None,
     **kwargs: Any
 ) -> tuple[WSTransport, WSListener]: ...
 
@@ -240,6 +240,6 @@ async def ws_create_server(
     enable_auto_pong: bool = True,
     max_frame_size: int = 10 * 1024 * 1024,
     read_buffer_init_size: int = 16 * 1024,
-    zero_copy_unsafe_ssl_write: bool = False,
+    use_aiofastnet: Optional[bool] = None,
     **kwargs: Any
 ) -> asyncio.Server: ...

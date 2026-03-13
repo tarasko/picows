@@ -22,6 +22,7 @@ from libc cimport errno
 from libc.string cimport memmove, memcpy
 from libc.stdlib cimport rand
 
+
 from .types import (PICOWS_DEBUG_LL, WSUpgradeRequest, WSUpgradeResponse,
                     WSUpgradeResponseWithListener,
                     WSHandshakeError, WSProtocolError, add_extra_headers)
@@ -54,12 +55,12 @@ cdef extern from "picows_compat.h" nogil:
     double picows_get_monotonic_time()
     ssize_t send(int sockfd, const void* buf, size_t len, int flags)
 
-    ctypedef size_t(*apply_mask_fn)(uint8_t*, size_t, size_t, uint32_t)
+    ctypedef size_t(*apply_mask_fn)(uint8_t*, size_t, size_t, uint32_t, uint8_t*)
 
     size_t rotate_right(uint32_t value, size_t num_bytes)
-    size_t mask_misaligned_bytes_at_front(uint8_t* input, size_t input_len, uint32_t mask, size_t alignment)
-    size_t apply_mask_4(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
-    size_t apply_mask_1(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask)
+    size_t mask_misaligned_bytes_at_front(uint8_t* input, size_t input_len, uint32_t mask, size_t alignment, uint8_t** output)
+    size_t apply_mask_4(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
+    size_t apply_mask_1(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
     apply_mask_fn get_apply_mask_fast_fn()
     size_t get_apply_mask_fast_alignment()
 
@@ -69,38 +70,46 @@ cdef:
     size_t apply_mask_fast_alignment = get_apply_mask_fast_alignment()
 
 
-cdef void _mask_payload(uint8_t* input, size_t input_len, uint32_t mask) noexcept:
-    cdef size_t curr_pos = mask_misaligned_bytes_at_front(input, input_len, mask, apply_mask_fast_alignment)
+cdef uint8_t* _mask_payload(uint8_t* input, size_t input_len, uint32_t mask, uint8_t* output) noexcept:
+    # In case when input != output, output may not have the same alignment as input.
+    # If so output will be shifted forward first, before actual masking begins.
+    # Returns shifted output pointer
+    cdef uint8_t* shifted_output = output
+    cdef size_t curr_pos = mask_misaligned_bytes_at_front(input, input_len, mask, apply_mask_fast_alignment, &shifted_output)
     cdef size_t rotated_mask = rotate_right(mask, curr_pos)
 
     if curr_pos < input_len:
-        curr_pos = apply_mask_fast(input, input_len, curr_pos, rotated_mask)
+        curr_pos = apply_mask_fast(input, input_len, curr_pos, rotated_mask, shifted_output)
 
     if curr_pos < input_len:
-        curr_pos = apply_mask_4(input, input_len, curr_pos, rotated_mask)
+        curr_pos = apply_mask_4(input, input_len, curr_pos, rotated_mask, shifted_output)
 
     if curr_pos < input_len:
-        apply_mask_1(input, input_len, curr_pos, rotated_mask)
+        apply_mask_1(input, input_len, curr_pos, rotated_mask, shifted_output)
+
+    return shifted_output
 
 
-cdef _unpack_bytes_like(object bytes_like_obj, char** msg_ptr_out, Py_ssize_t* msg_size_out):
-    cdef Py_buffer msg_buffer
+cdef _unpack_buffer(object buffer, char** ptr_out, Py_ssize_t* size_out):
+    if buffer is None:
+        ptr_out[0] = NULL
+        size_out[0] = 0
+        return
 
-    if PyBytes_CheckExact(bytes_like_obj):
-        msg_ptr_out[0] = PyBytes_AS_STRING(bytes_like_obj)
-        msg_size_out[0] = PyBytes_GET_SIZE(bytes_like_obj)
-    elif PyByteArray_CheckExact(bytes_like_obj):
-        msg_ptr_out[0] = PyByteArray_AS_STRING(bytes_like_obj)
-        msg_size_out[0] = PyByteArray_GET_SIZE(bytes_like_obj)
-    elif bytes_like_obj is None:
-        msg_ptr_out[0] = NULL
-        msg_size_out[0] = 0
-    else:
-        PyObject_GetBuffer(bytes_like_obj, &msg_buffer, PyBUF_SIMPLE)
-        msg_ptr_out[0] = <char*>msg_buffer.buf
-        msg_size_out[0] = msg_buffer.len
-        # We can already release because we still keep the reference to the message
-        PyBuffer_Release(&msg_buffer)
+    cdef Py_buffer pybuf
+    PyObject_GetBuffer(buffer, &pybuf, PyBUF_SIMPLE)
+    ptr_out[0] = <char*>pybuf.buf
+    size_out[0] = pybuf.len
+    # We can already release because we still keep the reference to the message
+    PyBuffer_Release(&pybuf)
+
+
+cdef _is_aiofn_transport(transport):
+    try:
+        import aiofastnet
+        return isinstance(transport, aiofastnet.Transport)
+    except:
+        return False
 
 
 @cython.no_gc
@@ -336,6 +345,60 @@ cdef class WSTransport:
         self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
         self._write_buffer = MemoryBuffer(1024)
         self._socket = underlying_transport.get_extra_info('socket').fileno()
+        self._is_aiofn_transport = _is_aiofn_transport(underlying_transport)
+
+    cdef Py_ssize_t _get_header_size(self, Py_ssize_t msg_size) noexcept:
+        cdef Py_ssize_t sz = 4 if self.is_client_side else 0
+
+        if msg_size < 126:
+            sz += 2
+        elif msg_size < (1 << 16):
+            sz += 4
+        else:
+            sz += 10
+
+        return sz
+
+    cdef uint32_t _write_header(self, uint8_t* header_ptr,
+                                WSMsgType msg_type,
+                                Py_ssize_t msg_size,
+                                bint fin, bint rsv1) noexcept:
+        # Return mask or 0 for server side
+
+        cdef:
+            uint8_t first_byte = <uint8_t>msg_type
+            uint8_t second_byte = 0x80 if self.is_client_side else 0
+            uint32_t mask = 0
+
+        if fin:
+            first_byte |= 0x80
+        if rsv1:
+            first_byte |= 0x40
+
+        header_ptr[0] = first_byte
+
+        if msg_size < 126:
+            header_ptr[1] = second_byte | <uint8_t>msg_size
+            header_ptr += 2
+        elif msg_size < (1 << 16):
+            header_ptr[1] = second_byte | 126
+            header_ptr += 2
+            extended_payload_length_16 = htons(<uint16_t>msg_size)
+            (<uint16_t*>header_ptr)[0] = extended_payload_length_16
+            header_ptr += 2
+        else:
+            header_ptr[1] = second_byte | 127
+            header_ptr += 2
+            extended_payload_length_64 = htobe64(<uint64_t>msg_size)
+            (<uint64_t*>header_ptr)[0] = extended_payload_length_64
+            header_ptr += 8
+
+        if self.is_client_side:
+            mask = <uint32_t>rand()
+            (<uint32_t*>header_ptr)[0] = mask
+            header_ptr += 4
+
+        return mask
 
     cdef send_reuse_external_buffer(self, WSMsgType msg_type,
                                     char* msg_ptr, Py_ssize_t msg_size,
@@ -345,55 +408,14 @@ cdef class WSTransport:
             return
 
         cdef:
-            uint8_t* header_ptr = <uint8_t*>msg_ptr
-            uint64_t extended_payload_length_64
-            uint32_t mask = 0
-            uint16_t extended_payload_length_16
-            uint8_t first_byte = <uint8_t>msg_type
-            uint8_t second_byte = 0
-            Py_ssize_t total_size = msg_size
+            Py_ssize_t header_size = self._get_header_size(msg_size)
+            char* header_ptr = msg_ptr - header_size
+            uint32_t mask = self._write_header(<uint8_t*>header_ptr, msg_type, msg_size, fin, rsv1)
 
-        if self.is_client_side:
-            mask = <uint32_t> rand()
-            second_byte = 0x80
-            total_size += 4
-            header_ptr -= 4
-            (<uint32_t*>header_ptr)[0] = mask
+        if mask != 0:
+            _mask_payload(<uint8_t*>msg_ptr, msg_size, mask, <uint8_t*>msg_ptr)
 
-        if fin:
-            first_byte |= 0x80
-
-        if rsv1:
-            first_byte |= 0x40
-
-        if msg_size < 126:
-            total_size += 2
-            header_ptr -= 2
-            header_ptr[0] = first_byte
-            header_ptr[1] = second_byte | <uint8_t>msg_size
-        elif msg_size < (1 << 16):
-            total_size += 4
-            header_ptr -= 4
-            header_ptr[0] = first_byte
-            header_ptr[1] = second_byte | 126
-            extended_payload_length_16 = htons(<uint16_t>msg_size)
-            (<uint16_t*>(header_ptr + 2))[0] = extended_payload_length_16
-        else:
-            total_size += 10
-            header_ptr -= 10
-            header_ptr[0] = first_byte
-            header_ptr[1] = second_byte | 127
-            extended_payload_length_64 = htobe64(<uint64_t>msg_size)
-            (<uint64_t*> (header_ptr + 2))[0] = extended_payload_length_64
-
-        if self.is_client_side:
-            _mask_payload(<uint8_t*>msg_ptr, msg_size, mask)
-
-        if self.is_secure:
-            self.underlying_transport.write(
-                PyMemoryView_FromMemory(<char *> header_ptr, total_size, PyBUF_WRITE))
-        else:
-            self._try_native_write_then_transport_write(<char*>header_ptr, total_size)
+        self._fast_write(<char*>header_ptr, header_size + msg_size)
 
         if msg_type == WSMsgType.CLOSE:
             self.is_close_frame_sent = True
@@ -433,37 +455,80 @@ cdef class WSTransport:
         self.send_reuse_external_buffer(msg_type, msg_ptr, msg_size, fin, rsv1)
 
     cpdef send(self, WSMsgType msg_type, message, bint fin=True, bint rsv1=False):
-        """        
+        """
         Send a frame over websocket with a message as its payload.
-        
-        Please note that this function has to copy the whole message into 
-        library's write buffer in order to be able to prepend websocket 
-        frame header and apply mask to the whole message. If you want to avoid 
-        copying please use :any:`WSTransport.send_reuse_external_bytearray` or 
+
+        Please note that this function has to copy the whole message into
+        library's write buffer in order to be able to prepend websocket
+        frame header and apply mask to the whole message. If you want to avoid
+        copying please use :any:`WSTransport.send_reuse_external_bytearray` or
         :any:`WSTransport.send_reuse_external_buffer`.
 
-        :param msg_type: :any:`WSMsgType` enum value\n 
+        :param msg_type: :any:`WSMsgType` enum value\n
         :param message: an optional bytes-like object
         :param fin: fin bit in websocket frame.
             Indicate that the frame is the last one in the message.
-        :param rsv1: first reserved bit in websocket frame. 
-            Some protocol extensions use it to indicate that payload 
-            is compressed.        
+        :param rsv1: first reserved bit in websocket frame.
+            Some protocol extensions use it to indicate that payload
+            is compressed.
         """
+        if self.is_close_frame_sent:
+            self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
+            return
+
         cdef:
             char* msg_ptr
-            Py_ssize_t msg_length
+            Py_ssize_t msg_size
 
-        _unpack_bytes_like(message, &msg_ptr, &msg_length)
+        _unpack_buffer(message, &msg_ptr, &msg_size)
 
-        # We can potentially do better here by combining memcpy memory traversal
-        # with masking. Still people who wants maximum performance should use
-        # send_reuse_external_bytearray instead of send to avoid memory copying
-        # at all
-        self._write_buffer.resize(msg_length + 16)
-        memcpy(self._write_buffer.data + 16, msg_ptr, msg_length)
+        cdef:
+            Py_ssize_t header_size = self._get_header_size(msg_size)
+            uint8_t header_ptr
+            uint32_t mask
+            uint8_t* masked_msg_ptr
 
-        self.send_reuse_external_buffer(msg_type, self._write_buffer.data + 16, msg_length, fin, rsv1)
+        self._write_buffer.resize(header_size)
+        mask = self._write_header(<uint8_t *>self._write_buffer.data, msg_type,
+                                  msg_size, fin, rsv1)
+
+        if msg_size == 0:
+            self._fast_write(self._write_buffer.data, header_size)
+        elif not self.is_client_side:
+            # Optimization for server side, writelines is generally somewhat
+            # slower, and has to be cautious around user types, do extra
+            # checking before attempting to send anything.
+            # Copy everything into our buffer and write.
+            if msg_size <= 8192:
+                self._write_buffer.resize(header_size + msg_size)
+                memcpy(self._write_buffer.data + header_size, msg_ptr, msg_size)
+                self._fast_write(self._write_buffer.data, header_size + msg_size)
+            else:
+                self._write_buffer.resize(header_size)
+                self._write_header(<uint8_t *> self._write_buffer.data,
+                                   msg_type,
+                                   msg_size, fin, rsv1)
+                header = PyMemoryView_FromMemory(
+                    self._write_buffer.data, header_size, PyBUF_READ
+                )
+                self.underlying_transport.writelines([header, message])
+        else:
+            # For client side always mask and copy
+            self._write_buffer.resize(header_size + msg_size + 64)
+            masked_msg_ptr = _mask_payload(
+                <uint8_t*>msg_ptr, msg_size,
+                mask,
+                <uint8_t*>self._write_buffer.data + header_size
+            )
+            # We have to re-locate header in case when _mask_payload had to
+            # copy into a shifted position
+            memmove(masked_msg_ptr - header_size, self._write_buffer.data, header_size)
+            self._fast_write(
+                <char*>(masked_msg_ptr - header_size), header_size + msg_size
+            )
+
+        if msg_type == WSMsgType.CLOSE:
+            self.is_close_frame_sent = True
 
     cpdef send_ping(self, message=None):
         """
@@ -494,16 +559,19 @@ cdef class WSTransport:
             return
 
         cdef:
-            char* msg_ptr
-            Py_ssize_t msg_length
+            char* close_msg_ptr
+            Py_ssize_t close_msg_length
 
-        _unpack_bytes_like(close_message, &msg_ptr, &msg_length)
+        _unpack_buffer(close_message, &close_msg_ptr, &close_msg_length)
 
-        self._write_buffer.resize(msg_length + 2 + 16)
-        (<uint16_t*>(self._write_buffer.data + 16))[0] = htons(<uint16_t>close_code)
-        memcpy(self._write_buffer.data + 2 + 16, msg_ptr, msg_length)
+        cdef:
+            bytes msg = PyBytes_FromStringAndSize(NULL, close_msg_length + 2)
+            char* msg_ptr = PyBytes_AS_STRING(msg)
 
-        self.send_reuse_external_buffer(WSMsgType.CLOSE, self._write_buffer.data + 16, msg_length + 2, True, False)
+        (<uint16_t*>msg_ptr)[0] = htons(<uint16_t>close_code)
+        memcpy(msg_ptr + 2, close_msg_ptr, close_msg_length)
+
+        self.send(WSMsgType.CLOSE, msg, True, False)
 
     cpdef disconnect(self, bint graceful=True):
         """
@@ -641,7 +709,20 @@ cdef class WSTransport:
         self.response = response
         self.underlying_transport.write(response_bytes)
 
-    cdef _try_native_write_then_transport_write(self, char* ptr, Py_ssize_t sz):
+    cdef _fast_write(self, char* ptr, Py_ssize_t sz):
+        if self._is_aiofn_transport:
+            # aiofastnet guarantees that the data will be copied if it can't be
+            # sent immediately
+            self.underlying_transport.write(PyMemoryView_FromMemory(ptr, sz, PyBUF_READ))
+            return
+
+        if self.is_secure:
+            self.underlying_transport.write(PyBytes_FromStringAndSize(ptr, sz))
+            return
+
+        # Try to send data using system send. Pass copied data to asyncio if we
+        # get EAGAIN.
+
         if <Py_ssize_t>self.underlying_transport.get_write_buffer_size() > 0:
             self.underlying_transport.write(PyBytes_FromStringAndSize(ptr, sz))
             return
@@ -665,13 +746,9 @@ cdef class WSTransport:
             self.underlying_transport.write(PyBytes_FromStringAndSize(<char*> ptr + bytes_written, sz - bytes_written))
             return
 
-        # In case of errors we ask asyncio to try sending again.
+        # In case any errors we ask asyncio to try sending again.
         # Asyncio will try and based on error code may report 'disconnected' event.
         self.underlying_transport.write(PyBytes_FromStringAndSize(<char *> ptr, sz))
-
-
-cdef class WSProtocolBase:
-    pass
 
 
 # uvloop and asyncio use different checks to detect BufferedProtocol
@@ -695,6 +772,10 @@ cdef class WSProtocolBase:
 #     asyncio.set_event_loop_policy(
 #         asyncio.WindowsSelectorEventLoopPolicy()
 #     )
+
+
+cdef class WSProtocolBase:
+    pass
 
 
 cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
@@ -812,7 +893,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         self._f_has_mask = 0
         self._f_payload_length_flag = 0
 
-    def connection_made(self, transport: asyncio.Transport):
+    def connection_made(self, transport):
         sock = transport.get_extra_info('socket')
         peername = transport.get_extra_info('peername')
         sockname = transport.get_extra_info('sockname')
@@ -900,14 +981,15 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         if self.listener is not None:
             self.listener.resume_writing()
 
+    def is_buffered_protocol(self):
+        return True
 
-    # Uncomment this to try non-buffered protocols.
     # def data_received(self, data):
     #     cdef:
     #         char* ptr
     #         Py_ssize_t sz
     #
-    #     _unpack_bytes_like(data, &ptr, &sz)
+    #     _unpack_buffer(data, &ptr, &sz)
     #
     #     if self._read_buffer.size - self._f_new_data_start_pos < sz:
     #         self._read_buffer.resize(self._f_new_data_start_pos + sz)
@@ -920,9 +1002,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
     def get_buffer(self, Py_ssize_t size_hint):
         # size_hint is un-reliable, uvloop provides a fixed value of 65536
         # and asyncio just always pass -1
-        # Therefore, ignore it and just implement exponential buffer grow when
-        # buffer utilization hits a thresholds.
-        self._maybe_grow_read_buffer()
+        # Therefore, ignore it and just implement exponential buffer grow
+        # after reading data when buffer utilization hits a thresholds.
 
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
@@ -940,7 +1021,9 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         if self._log_debug_enabled:
             self._logger.log(PICOWS_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
                              self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)
+
         self._f_new_data_start_pos += nbytes
+        self._maybe_grow_read_buffer()
         self._process_new_data()
 
     async def wait_until_handshake_complete(self):
@@ -951,7 +1034,6 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         if utilization > 90 or self._read_buffer.size - self._f_new_data_start_pos <= 256:
             # Double buffer size
             self._read_buffer.resize(self._read_buffer.size * 2)
-
 
     cdef inline _process_new_data(self):
         if self._state == WSParserState.WAIT_UPGRADE_RESPONSE:
@@ -1363,7 +1445,9 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             if self._f_has_mask:
                 _mask_payload(<uint8_t*>self._read_buffer.data + self._f_payload_start_pos,
                               self._f_payload_length,
-                              self._f_mask)
+                              self._f_mask,
+                              <uint8_t*>self._read_buffer.data + self._f_payload_start_pos
+                              )
 
             frame = <WSFrame>WSFrame.__new__(WSFrame)
             frame.payload_ptr = self._read_buffer.data + self._f_payload_start_pos
