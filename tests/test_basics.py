@@ -7,18 +7,11 @@ import pytest
 import async_timeout
 
 from http import HTTPStatus
-from tests.utils import create_client_ssl_context, echo_server, \
-    TIMEOUT, AsyncClient, ServerEchoListener, ClientAsyncContext, \
-    ServerAsyncContext, get_server_port, multiloop_event_loop_policy, \
-    connected_async_client, use_aiofastnet, WSServer, WSClient, ssl_context, \
-    TestException
+from tests.utils import (TIMEOUT, AsyncClient,  multiloop_event_loop_policy,
+                         use_aiofastnet, WSServer, WSClient, ssl_context,
+                         TestException)
 
 event_loop_policy = multiloop_event_loop_policy()
-
-
-@pytest.fixture
-async def loop_debug():
-    asyncio.get_running_loop().set_debug(True)
 
 
 @pytest.mark.parametrize("msg_size", [0, 1, 2, 3, 4, 5, 6, 7, 8, 29, 64, 256 * 1024, 6*1024*1024])

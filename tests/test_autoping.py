@@ -4,7 +4,7 @@ import async_timeout
 import pytest
 
 import picows
-from tests.utils import (ServerAsyncContext, ClientAsyncContext, TIMEOUT,
+from tests.utils import (TIMEOUT,
                          CloseFrame, materialize_frame, WSServer, WSClient,
                          AsyncClient)
 

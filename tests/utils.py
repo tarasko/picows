@@ -69,6 +69,25 @@ def multiloop_event_loop_policy():
     return event_loop_policy
 
 
+def create_server_ssl_context():
+    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    ssl_context.load_cert_chain(pathlib.Path(__file__).parent / "picows_test.crt",
+                                pathlib.Path(__file__).parent / "picows_test.key")
+    ssl_context.check_hostname = False
+    ssl_context.hostname_checks_common_name = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    return ssl_context
+
+
+def create_client_ssl_context():
+    ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+    ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
+    ssl_context.check_hostname = False
+    ssl_context.hostname_checks_common_name = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    return ssl_context
+
+
 class BinaryFrame:
     def __init__(self, frame: picows.WSFrame):
         self.msg_type = frame.msg_type
@@ -191,6 +210,11 @@ def use_aiofastnet(request):
         yield True
 
 
+@pytest.fixture
+async def loop_debug():
+    asyncio.get_running_loop().set_debug(True)
+
+
 @dataclass
 class WSServerInfo:
     url: str
@@ -244,89 +268,4 @@ async def WSClient(server, listener_factory=None, **kwargs):
             await transport.wait_disconnected()
         except TestException:
             pass
-
-
-@dataclass
-class ServerUrls:
-    tcp_url: Optional[str]
-    ssl_url: Optional[str]
-
-
-@asynccontextmanager
-async def ServerAsyncContext(server, shutdown_timeout=TIMEOUT):
-    server_task = asyncio.create_task(server.serve_forever())
-    await server.__aenter__()
-    try:
-        yield ServerUrls(f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}",
-                         f"wss://127.0.0.1:{server.sockets[0].getsockname()[1]}")
-    finally:
-        server_task.cancel()
-        await server.__aexit__()
-        with pytest.raises(asyncio.CancelledError):
-            async with async_timeout.timeout(shutdown_timeout):
-                await server_task
-
-
-@asynccontextmanager
-async def ClientAsyncContext(*args, **kwargs):
-    transport, listener = await picows.ws_connect(*args, **kwargs)
-    try:
-        yield (transport, listener)
-    finally:
-        transport.disconnect(graceful=False)
-        await transport.wait_disconnected()
-
-
-@pytest.fixture()
-async def connected_async_client(echo_server, use_aiofastnet):
-    async with ClientAsyncContext(AsyncClient, echo_server,
-                                  ssl_context=create_client_ssl_context(),
-                                  websocket_handshake_timeout=0.5,
-                                  enable_auto_pong=False,
-                                  use_aiofastnet=use_aiofastnet
-                                  ) as (transport, listener):
-        yield listener
-
-        # Teardown client
-        transport.send_close(picows.WSCloseCode.GOING_AWAY, b"poka poka")
-        # Gracefull shutdown, expect server to disconnect us because we have sent close message
-        await transport.wait_disconnected()
-
-
-def create_server_ssl_context():
-    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    ssl_context.load_cert_chain(pathlib.Path(__file__).parent / "picows_test.crt",
-                                pathlib.Path(__file__).parent / "picows_test.key")
-    ssl_context.check_hostname = False
-    ssl_context.hostname_checks_common_name = False
-    ssl_context.verify_mode = ssl.CERT_NONE
-    return ssl_context
-
-
-def create_client_ssl_context():
-    ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-    ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
-    ssl_context.check_hostname = False
-    ssl_context.hostname_checks_common_name = False
-    ssl_context.verify_mode = ssl.CERT_NONE
-    return ssl_context
-
-
-def get_server_port(server: asyncio.Server):
-    return server.sockets[0].getsockname()[1]
-
-
-@pytest.fixture(params=["tcp", "ssl"])
-async def echo_server(request):
-    use_ssl = request.param in ("ssl", )
-    server = await picows.ws_create_server(lambda _: ServerEchoListener(),
-                                           "127.0.0.1",
-                                           0,
-                                           ssl=create_server_ssl_context() if use_ssl else None,
-                                           websocket_handshake_timeout=0.5,
-                                           enable_auto_pong=False)
-
-    async with ServerAsyncContext(server) as server_ctx:
-        yield server_ctx.ssl_url if use_ssl else server_ctx.tcp_url
-
 
