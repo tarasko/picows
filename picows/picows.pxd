@@ -74,7 +74,7 @@ cdef class WSTransport:
     cdef:
         object __weakref__
 
-        readonly object underlying_transport    #: aiofastnet.Transport
+        readonly object underlying_transport    #: asyncio.Transport
         readonly bint is_client_side
         readonly bint is_secure
         readonly bint is_close_frame_sent
