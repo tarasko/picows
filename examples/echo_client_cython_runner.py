@@ -1,8 +1,8 @@
-import asyncio
-from logging import INFO, basicConfig, ERROR
-import ssl
+# This example shows how to use cythonize implementation of WSListener interface
+# See echo_client_cython.pyx
 
-import uvloop
+import asyncio
+import ssl
 
 from picows import ws_connect
 from examples.echo_client_cython import ClientListenerCython
@@ -18,7 +18,6 @@ def create_client_ssl_context():
 
 
 async def main(url, msg_size, duration, ssl_context):
-    # asyncio.get_running_loop().set_debug(True)
     transport, client = await ws_connect(
         lambda: ClientListenerCython(msg_size, duration),
         url,
@@ -27,7 +26,5 @@ async def main(url, msg_size, duration, ssl_context):
 
 
 if __name__ == '__main__':
-    uvloop.install()
-    basicConfig(level=INFO)
     ssl_context = create_client_ssl_context()
-    asyncio.run(main("wss://127.0.0.1:9002", 256, 10, ssl_context))
+    asyncio.run(main("wss://127.0.0.1:9002", 256, 1, ssl_context))
