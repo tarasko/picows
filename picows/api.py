@@ -248,6 +248,11 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
 
         If ``proxy`` is set, ``WSParsedURL`` passed to the factory is proxy
         endpoint coordinates, not final WebSocket server coordinates.
+    :param use_aiofastnet:
+        Use **aiofastnet** package to create client and server connections
+        instead of ``loop.create_server``, ``loop.create_connection`` native method.
+        **picows** will use **aiofastnet** by default if it is installed.
+        You can override default behavior by using this argument.
     :return: :any:`WSTransport` object and a user handler returned by `ws_listener_factory()`
     """
 
@@ -406,6 +411,11 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
         Initial size of the internal read buffer. The buffer grows exponentially if new data doesn't fit.
         You may set this to the actual expected maximum frame size but don't push it too much. Contrary to `max_frame_size` which
         is just a safety check, setting big value here will force **picows** to actually allocate the specified amount of memory.
+    :param use_aiofastnet:
+        Use **aiofastnet** package to create client and server connections
+        instead of ``loop.create_server``, ``loop.create_connection`` native method.
+        **picows** will use **aiofastnet** by default if it is installed.
+        You can override default behavior by using this argument.
     :return: `asyncio.Server <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.Server>`_ object
     """
 
