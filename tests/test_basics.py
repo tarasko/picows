@@ -92,8 +92,8 @@ async def test_send_external_bytearray_asserts(use_aiofastnet, ssl_context):
 
 
 async def test_max_frame_size_violation_huge_frame_from_client(use_aiofastnet, ssl_context):
-    msg = os.urandom(30 * 1024 * 1024)
-    async with WSServer(ssl=ssl_context.server, use_aiofastnet=use_aiofastnet) as server:
+    msg = os.urandom(128 * 1024)
+    async with WSServer(ssl=ssl_context.server, use_aiofastnet=use_aiofastnet, max_frame_size=64*1024) as server:
         async with WSClient(server, ssl_context=ssl_context.client, use_aiofastnet=use_aiofastnet) as client:
             client.transport.send(picows.WSMsgType.BINARY, msg)
             frame = await client.get_message()
@@ -104,8 +104,8 @@ async def test_max_frame_size_violation_huge_frame_from_client(use_aiofastnet, s
 async def test_max_frame_size_violation_huge_frame_from_server(use_aiofastnet, ssl_context):
     async with WSServer(ssl=ssl_context.server, use_aiofastnet=use_aiofastnet) as server:
         with pytest.raises(picows.WSError, match="violates max allowed size"):
-            async with WSClient(server, ssl_context=ssl_context.client, use_aiofastnet=use_aiofastnet) as client:
-                client.transport.send(picows.WSMsgType.TEXT, b"random_30000000")
+            async with WSClient(server, ssl_context=ssl_context.client, use_aiofastnet=use_aiofastnet, max_frame_size=64*1024) as client:
+                client.transport.send(picows.WSMsgType.TEXT, b"random_100000")
                 async with async_timeout.timeout(1.0):
                     await client.transport.wait_disconnected()
 
