@@ -257,7 +257,7 @@ async def test_is_user_specific_pong_exception():
                          [None, picows.WSAutoPingStrategy.PING_WHEN_IDLE, picows.WSAutoPingStrategy.PING_PERIODICALLY],
                          ids=["no_auto_ping", "auto_ping_when_idle", "auto_ping_periodically"])
 async def test_roundtrip_time(use_notify, auto_ping_strategy):
-    class ClientListenerUseNotify(picows.WSListener):
+    class ClientListenerUseNotify(AsyncClient):
         def is_user_specific_pong(self, frame):
             return False
 
@@ -265,22 +265,18 @@ async def test_roundtrip_time(use_notify, auto_ping_strategy):
             if frame.msg_type == picows.WSMsgType.PONG:
                 transport.notify_user_specific_pong_received()
 
-    server = await picows.ws_create_server(lambda _: picows.WSListener(),
-                                           "127.0.0.1", 0)
-
-    async with ServerAsyncContext(server) as server_ctx:
-        client_listener_factory = ClientListenerUseNotify if use_notify else picows.WSListener
+    async with WSServer(lambda _: picows.WSListener(), enable_auto_pong=True) as server:
+        client_listener_factory = ClientListenerUseNotify if use_notify else AsyncClient
         client_enable_auto_ping = auto_ping_strategy is not None
         client_auto_ping_strategy = auto_ping_strategy or picows.WSAutoPingStrategy.PING_WHEN_IDLE
-        async with ClientAsyncContext(client_listener_factory, server_ctx.tcp_url,
-                                      enable_auto_ping=client_enable_auto_ping,
-                                      auto_ping_idle_timeout=0.5,
-                                      auto_ping_reply_timeout=0.5,
-                                      auto_ping_strategy=client_auto_ping_strategy,
-                                      enable_auto_pong=True) as (transport, listener):
-
+        async with WSClient(server, client_listener_factory,
+                            enable_auto_ping=client_enable_auto_ping,
+                            auto_ping_idle_timeout=0.5,
+                            auto_ping_reply_timeout=0.5,
+                            auto_ping_strategy=client_auto_ping_strategy,
+                            enable_auto_pong=True) as client:
             async with async_timeout.timeout(2):
-                results = await transport.measure_roundtrip_time(5)
+                results = await client.transport.measure_roundtrip_time(5)
                 assert len(results) == 5
                 for rtt in results:
                     assert rtt > 0 and rtt < 1.0
@@ -288,7 +284,7 @@ async def test_roundtrip_time(use_notify, auto_ping_strategy):
             await asyncio.sleep(0.7)
 
             async with async_timeout.timeout(2):
-                results = await transport.measure_roundtrip_time(5)
+                results = await client.transport.measure_roundtrip_time(5)
                 assert len(results) == 5
                 for rtt in results:
                     assert rtt > 0 and rtt < 1.0
@@ -296,21 +292,18 @@ async def test_roundtrip_time(use_notify, auto_ping_strategy):
 
 @pytest.mark.parametrize("with_auto_ping", [False, True], ids=["no_auto_ping", "with_auto_ping"])
 async def test_roundtrip_latency_disconnect(with_auto_ping):
-    class ClientListener(picows.WSListener):
+    class ClientListener(AsyncClient):
         def send_user_specific_ping(self, transport):
             transport.send_ping()
             # Disconnect immediately to test that the client will not hang up
             # waiting indefinitely for PONG
             transport.disconnect()
 
-    server = await picows.ws_create_server(lambda _: picows.WSListener(),
-                                           "127.0.0.1", 0)
-
-    async with async_timeout.timeout(TIMEOUT):
-        async with ServerAsyncContext(server) as server_ctx:
-            async with ClientAsyncContext(ClientListener, server_ctx.tcp_url,
-                                          enable_auto_ping=with_auto_ping,
-                                          auto_ping_idle_timeout=0.5,
-                                          auto_ping_reply_timeout=0.5) as (transport, listener):
+    async with WSServer(lambda _: picows.WSListener(), enable_auto_pong=True) as server:
+        async with async_timeout.timeout(TIMEOUT):
+            async with WSClient(server, ClientListener,
+                                enable_auto_ping=with_auto_ping,
+                                auto_ping_idle_timeout=0.5,
+                                auto_ping_reply_timeout=0.5) as client:
                 with pytest.raises(ConnectionResetError):
-                    await transport.measure_roundtrip_time(5)
+                    await client.transport.measure_roundtrip_time(5)

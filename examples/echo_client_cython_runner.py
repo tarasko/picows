@@ -27,7 +27,7 @@ async def main(url, msg_size, duration, ssl_context):
 
 
 if __name__ == '__main__':
-    # uvloop.install()
+    uvloop.install()
     basicConfig(level=INFO)
     ssl_context = create_client_ssl_context()
     asyncio.run(main("wss://127.0.0.1:9002", 256, 10, ssl_context))
