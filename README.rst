@@ -43,6 +43,14 @@ Use pip to install it::
 
     $ pip install picows
 
+For better network performance, especially when using SSL, you can install the
+optional ``aiofastnet`` extra::
+
+    $ pip install picows[aiofastnet]
+
+``aiofastnet`` is a separate open-source project that re-implements asyncio
+transport and SSL internals with a focus on lower overhead.
+
 
 Documentation
 =============
