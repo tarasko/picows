@@ -38,8 +38,7 @@ is also included for reference. You can find benchmark sources and more results
 Installation
 ============
 
-picows requires Python 3.9 or greater and is available on PyPI.
-Use pip to install it::
+picows requires Python 3.9 or greater and is available on PyPI::
 
     $ pip install picows
 
