@@ -48,7 +48,7 @@ optional ``aiofastnet`` extra::
 
     $ pip install picows[aiofastnet]
 
-``aiofastnet`` is a separate open-source project that re-implements asyncio
+`aiofastnet <https://github.com/tarasko/aiofastnet>`_ is a separate open-source project that re-implements asyncio
 transport and SSL internals with a focus on lower overhead.
 
 
