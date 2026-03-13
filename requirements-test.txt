@@ -1,5 +1,5 @@
 setuptools >= 78.0
-Cython >= 3.0
+Cython >= 3.2
 aiofastnet
 multidict
 python-socks
