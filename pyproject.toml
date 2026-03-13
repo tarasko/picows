@@ -43,6 +43,9 @@ packages = ["picows"]
 dependencies = {file = ["requirements.txt"]}
 version = {attr = "picows.__version__"}
 
+[project.optional-dependencies]
+aiofastnet = ["aiofastnet"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
