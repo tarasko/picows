@@ -78,10 +78,10 @@ async def _create_connected_socket(
 
     sock_or_awaitable = socket_factory(parsed_url)
     sock: Optional[socket.socket]
-    if isawaitable(sock_or_awaitable):
-        sock = await sock_or_awaitable
-    elif isinstance(sock_or_awaitable, socket.socket):
+    if sock_or_awaitable is None or isinstance(sock_or_awaitable, socket.socket):
         sock = sock_or_awaitable
+    elif isawaitable(sock_or_awaitable):
+        sock = await sock_or_awaitable
     else:
         raise TypeError(f"user socket_factory() returned invalid type: {type(sock_or_awaitable).__name__}")
 
