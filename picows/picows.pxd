@@ -75,11 +75,11 @@ cdef class WSTransport:
         object __weakref__
 
         readonly object underlying_transport    #: asyncio.Transport
+        readonly object request                 #: WSUpgradeRequest
+        readonly object response                #: WSUpgradeResponse
         readonly bint is_client_side
         readonly bint is_secure
         readonly bint is_close_frame_sent
-        readonly object request                 #: WSUpgradeRequest
-        readonly object response                #: WSUpgradeResponse
 
         bint auto_ping_expect_pong
         object pong_received_at_future
@@ -87,11 +87,13 @@ cdef class WSTransport:
         object disconnected_future             #: asyncio.Future
 
         object _loop
-        object _logger                          #: Logger
-        bint _log_debug_enabled
+        object _logger                         #: Logger
         MemoryBuffer _write_buffer
+
+        unsigned long _thread_id
         int _socket
         bint _is_aiofn_transport
+        bint _log_debug_enabled
 
     cdef inline send_reuse_external_buffer(self, WSMsgType msg_type, char* msg_ptr, Py_ssize_t msg_size, bint fin=*, bint rsv1=*)
     cpdef send(self, WSMsgType msg_type, message, bint fin=*, bint rsv1=*)
@@ -102,7 +104,12 @@ cdef class WSTransport:
     cpdef disconnect(self, bint graceful=*)
     cpdef notify_user_specific_pong_received(self)
 
+    cdef inline _check_thread(self, meth)
     cdef inline Py_ssize_t _get_header_size(self, Py_ssize_t msg_size) noexcept
+    cdef inline _send_buffer(self, WSMsgType msg_type,
+                             char* msg_ptr, Py_ssize_t msg_size,
+                             bint fin, bint rsv1)
+    cdef inline _send(self, WSMsgType msg_type, message, bint fin, bint rsv1)
     cdef inline uint32_t _write_header(self,uint8_t* header_ptr, WSMsgType msg_type, Py_ssize_t msg_size, bint fin, bint rsv1) noexcept
     cdef inline _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, object extra_headers)
     cdef inline _send_http_handshake_response(self, response, bytes accept_val)
