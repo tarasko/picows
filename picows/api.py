@@ -77,7 +77,7 @@ async def _create_connected_socket(
         return None
 
     sock_or_awaitable = socket_factory(parsed_url)
-    sock: socket.socket
+    sock: Optional[socket.socket]
     if isawaitable(sock_or_awaitable):
         sock = await sock_or_awaitable
     elif isinstance(sock_or_awaitable, socket.socket):
