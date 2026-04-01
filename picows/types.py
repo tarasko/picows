@@ -2,10 +2,13 @@ from http import HTTPStatus
 from typing import Union, Optional, Mapping, Iterable, Final, cast, Any, NewType
 from multidict import CIMultiDict
 
-PICOWS_DEBUG_LL: Final = 9
 WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
+WSBuffer = Union[bytes, bytearray, memoryview]
 WSHost = NewType('WSHost', str)
 WSPort = NewType('WSPort', int)
+
+
+PICOWS_DEBUG_LL: Final = 9
 
 
 class WSError(Exception):

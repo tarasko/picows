@@ -77,10 +77,13 @@ async def _create_connected_socket(
         return None
 
     sock_or_awaitable = socket_factory(parsed_url)
+    sock: socket.socket
     if isawaitable(sock_or_awaitable):
         sock = await sock_or_awaitable
-    else:
+    elif isinstance(sock_or_awaitable, socket.socket):
         sock = sock_or_awaitable
+    else:
+        raise TypeError(f"user socket_factory() returned invalid type: {type(sock).__name__}")
 
     if sock is not None:
         sock.setblocking(False)
@@ -136,10 +139,10 @@ async def _connect_through_optional_proxy(
                     port=parsed_url.port,
                 )
             except ReplyError as e:
-                await stream.close() # type: ignore[no-untyped-call]
-                raise ProxyError(e, error_code=e.error_code) # type: ignore[no-untyped-call]
+                await stream.close()
+                raise ProxyError(e, error_code=e.error_code)
             except (asyncio.CancelledError, Exception):
-                await stream.close() # type: ignore[no-untyped-call]
+                await stream.close()
                 raise
         else:
             proxy_socket = await proxy_obj.connect(
@@ -279,6 +282,7 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
     else:
         create_connection = loop.create_connection # type: ignore [assignment]
 
+    ssl: Optional[Union[SSLContext, bool]]
     while True:
         if parsed_url.username is not None or parsed_url.password is not None:
             logger.warning("Basic authentication was requested in URL, but it is not currently supported, ignore username and password")

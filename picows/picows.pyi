@@ -1,21 +1,8 @@
 import asyncio
-import socket
 from enum import Enum
-from ssl import SSLContext
-from http import HTTPStatus
-from collections.abc import Callable, Mapping, Iterable
-from typing import Final, Optional, Any, Union, NewType, Awaitable
-from multidict import CIMultiDict
+from typing import Optional
 
-
-PICOWS_DEBUG_LL: Final = 9
-WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
-WSListenerFactory = Callable[[], WSListener]
-WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
-WSBuffer = Union[bytes, bytearray, memoryview]
-WSHost = NewType('WSHost', str)
-WSPort = NewType('WSPort', int)
-WSSocketFactory = Callable[[WSParsedURL], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
+from .types import (WSUpgradeRequest, WSUpgradeResponse, WSBuffer)
 
 
 class WSMsgType(Enum):
@@ -47,35 +34,6 @@ class WSCloseCode(Enum):
 class WSAutoPingStrategy(Enum):
     PING_WHEN_IDLE = 1
     PING_PERIODICALLY = 2
-
-
-class WSError(Exception): ...
-
-
-class WSUpgradeFailure(WSError):
-    raw_header: Optional[bytes]
-    raw_body: Optional[bytes]
-    response: Optional[WSUpgradeResponse]
-
-
-class WSProtocolError(WSError):
-    code: WSCloseCode
-
-
-class WSInvalidURL(WSError):
-    url: str
-
-
-class WSParsedURL:
-    url: str
-    is_secure: bool
-    netloc: str
-    host: WSHost
-    port: WSPort
-    path: str
-    query: str
-    username: Optional[str] = None
-    password: Optional[str] = None
 
 
 class WSFrame:
@@ -154,92 +112,3 @@ class WSListener:
     def is_user_specific_pong(self, frame: WSFrame) -> bool: ...
     def pause_writing(self) -> None: ...
     def resume_writing(self) -> None: ...
-
-
-class WSUpgradeRequest:
-    @property
-    def method(self) -> bytes: ...
-
-    @property
-    def path(self) -> bytes: ...
-
-    @property
-    def version(self) -> bytes: ...
-
-    @property
-    def headers(self) -> CIMultiDict[str]: ...
-
-
-class WSUpgradeResponse:
-    @staticmethod
-    def create_error_response(
-            status: Union[int, HTTPStatus],
-            body: Optional[bytes]=None,
-            extra_headers: Optional[WSHeadersLike]=None
-    ) -> WSUpgradeResponse: ...
-
-    @staticmethod
-    def create_101_response(
-            extra_headers: Optional[WSHeadersLike]=None
-    ) -> WSUpgradeResponse: ...
-
-    @staticmethod
-    def create_redirect_response(
-            status: Union[int, HTTPStatus],
-            location: str,
-            extra_headers: Optional[WSHeadersLike]=None) -> WSUpgradeResponse: ...
-
-    @property
-    def version(self) -> bytes: ...
-
-    @property
-    def status(self) -> HTTPStatus: ...
-
-    @property
-    def headers(self) -> CIMultiDict[str]: ...
-
-
-class WSUpgradeResponseWithListener:
-    def __init__(self, response: WSUpgradeResponse, listener: Optional[WSListener]): ...
-
-
-async def ws_connect(
-    ws_listener_factory: WSListenerFactory,
-    url: str,
-    *args: Any,
-    ssl_context: Union[SSLContext, None] = None,
-    disconnect_on_exception: bool = True,
-    websocket_handshake_timeout: float = 5,
-    logger_name: str = "client",
-    enable_auto_ping: bool = False,
-    auto_ping_idle_timeout: float = 10,
-    auto_ping_reply_timeout: float = 10,
-    auto_ping_strategy: WSAutoPingStrategy = ...,
-    enable_auto_pong: bool = True,
-    extra_headers: Optional[WSHeadersLike] = None,
-    max_redirects: int = 5,
-    proxy: Optional[str] = None,
-    read_buffer_init_size: int = 16 * 1024,
-    socket_factory: Optional[WSSocketFactory] = None,
-    use_aiofastnet: Optional[bool] = None,
-    **kwargs: Any
-) -> tuple[WSTransport, WSListener]: ...
-
-async def ws_create_server(
-    ws_listener_factory: WSServerListenerFactory,
-    host: Union[str, Iterable[str], None] = None,
-    port: Union[int, None] = None,
-    *args: Any,
-    disconnect_on_exception: bool = True,
-    websocket_handshake_timeout: float = 5,
-    logger_name: str = "server",
-    enable_auto_ping: bool = False,
-    auto_ping_idle_timeout: float = 20,
-    auto_ping_reply_timeout: float = 20,
-    auto_ping_strategy: WSAutoPingStrategy = ...,
-    enable_auto_pong: bool = True,
-    max_frame_size: int = 10 * 1024 * 1024,
-    read_buffer_init_size: int = 16 * 1024,
-    use_aiofastnet: Optional[bool] = None,
-    **kwargs: Any
-) -> asyncio.Server: ...
