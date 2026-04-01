@@ -1,6 +1,6 @@
 setuptools >= 78.0
 Cython >= 3.2
-aiofastnet
+aiofastnet >= 0.2.0
 multidict
 python-socks
 pytest
