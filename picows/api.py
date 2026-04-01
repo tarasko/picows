@@ -83,7 +83,7 @@ async def _create_connected_socket(
     elif isinstance(sock_or_awaitable, socket.socket):
         sock = sock_or_awaitable
     else:
-        raise TypeError(f"user socket_factory() returned invalid type: {type(sock).__name__}")
+        raise TypeError(f"user socket_factory() returned invalid type: {type(sock_or_awaitable).__name__}")
 
     if sock is not None:
         sock.setblocking(False)
