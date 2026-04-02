@@ -1,3 +1,12 @@
+"""Free-threaded WebSocket echo server example.
+
+This example starts multiple Python threads, each running its own asyncio
+event loop and WebSocket server on the same address. With ``reuse_port=True``,
+every thread binds the same TCP port and the operating system distributes new
+connections between those listening sockets, delegating load balancing to the
+OS instead of doing it in user space.
+"""
+
 import asyncio
 from threading import current_thread, Thread, Event
 

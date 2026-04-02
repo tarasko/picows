@@ -1,3 +1,10 @@
+"""Free-threaded WebSocket echo client example.
+
+This example starts multiple Python threads, each running its own asyncio
+event loop and a WebSocket client connection. Every client continuously sends
+echo requests until interrupted, then reports per-thread throughput.
+"""
+
 import asyncio
 from threading import current_thread, Event, Thread
 from time import time
