@@ -1,5 +1,5 @@
 import asyncio
-import threading
+from threading import current_thread, Thread, Event
 
 from picows import ws_create_server, WSFrame, WSTransport, WSListener, \
     WSMsgType, WSUpgradeRequest
@@ -7,7 +7,7 @@ from picows import ws_create_server, WSFrame, WSTransport, WSListener, \
 
 class ServerClientListener(WSListener):
     def on_ws_connected(self, transport: WSTransport):
-        print("New client connected")
+        print(f"{current_thread().name}: new client connected")
 
     def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
         if frame.msg_type == WSMsgType.CLOSE:
@@ -17,8 +17,8 @@ class ServerClientListener(WSListener):
             transport.send(frame.msg_type, frame.get_payload_as_bytes(), frame.fin, frame.rsv1)
 
 
-class ServerThread(threading.Thread):
-    def __init__(self, index, stop_event: threading.Event):
+class ServerThread(Thread):
+    def __init__(self, index, stop_event: Event):
         super().__init__(name=f"echo-server-{index}")
         self.stop_event = stop_event
 
@@ -31,11 +31,11 @@ class ServerThread(threading.Thread):
                                                         "127.0.0.1", 9001,
                                                         reuse_port=True)
         for s in server.sockets:
-            print(f"{threading.current_thread().name}: server started on {s.getsockname()}")
+            print(f"{current_thread().name}: server started on {s.getsockname()}")
 
         await asyncio.to_thread(self.stop_event.wait)
         print(
-            f"{threading.current_thread().name}: close event received, disconnect clients and stop server")
+            f"{current_thread().name}: close event received, disconnect clients and stop server")
 
         server.close_clients()
         server.close()
@@ -45,15 +45,15 @@ class ServerThread(threading.Thread):
         try:
             asyncio.run(self.run_async())
         except BaseException as exc:
-            print(f"Exception raised by server thread: {exc}")
+            print(f"{current_thread().name}: exception raised by server thread: {exc}")
         finally:
             self.stop_event.set()
 
 
 def main():
-    NUM_THREADS = 4
-    stop_event = threading.Event()
-    threads = [ServerThread(index, stop_event) for index in range(NUM_THREADS)]
+    num_threads = 2
+    stop_event = Event()
+    threads = [ServerThread(index, stop_event) for index in range(num_threads)]
 
     for thread in threads:
         thread.start()

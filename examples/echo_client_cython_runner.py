@@ -7,6 +7,7 @@ import ssl
 from picows import ws_connect
 from examples.echo_client_cython import ClientListenerCython
 
+USE_TLS = False
 
 def create_client_ssl_context():
     ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
@@ -26,5 +27,8 @@ async def main(url, msg_size, duration, ssl_context):
 
 
 if __name__ == '__main__':
-    ssl_context = create_client_ssl_context()
-    asyncio.run(main("wss://127.0.0.1:9002", 256, 1, ssl_context))
+    if USE_TLS:
+        ssl_context = create_client_ssl_context()
+        asyncio.run(main("wss://127.0.0.1:9002", 256, 1, ssl_context))
+    else:
+        asyncio.run(main("ws://127.0.0.1:9001", 256, 1, None))
