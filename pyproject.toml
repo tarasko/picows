@@ -44,7 +44,7 @@ dependencies = {file = ["requirements.txt"]}
 version = {attr = "picows.__version__"}
 
 [project.optional-dependencies]
-aiofastnet = ["aiofastnet >= 0.2.0"]
+aiofastnet = []
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

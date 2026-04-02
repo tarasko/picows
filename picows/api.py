@@ -139,10 +139,11 @@ async def _connect_through_optional_proxy(
                     port=parsed_url.port,
                 )
             except ReplyError as e:
-                await stream.close() # type: ignore [no-untyped-call]
-                raise ProxyError(e, error_code=e.error_code) # type: ignore [no-untyped-call]
+                await stream.close()  # type: ignore[no-untyped-call]
+                raise ProxyError(  # type: ignore[no-untyped-call]
+                    e, error_code=e.error_code)
             except (asyncio.CancelledError, Exception):
-                await stream.close() # type: ignore [no-untyped-call]
+                await stream.close()  # type: ignore[no-untyped-call]
                 raise
         else:
             proxy_socket = await proxy_obj.connect(

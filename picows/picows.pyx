@@ -17,6 +17,7 @@ from cpython.memoryview cimport PyMemoryView_FromMemory
 from cpython.mem cimport PyMem_Malloc, PyMem_Realloc, PyMem_Free
 from cpython.buffer cimport PyBUF_WRITE, PyBUF_READ, PyBUF_SIMPLE, PyObject_GetBuffer, PyBuffer_Release
 from cpython.unicode cimport PyUnicode_FromStringAndSize, PyUnicode_DecodeASCII
+from cpython.pythread cimport PyThread_get_thread_ident
 
 from libc cimport errno
 from libc.string cimport memmove, memcpy
@@ -331,21 +332,31 @@ cdef class WSListener:
 cdef class WSTransport:
     def __init__(self, bint is_client_side, underlying_transport, logger, loop):
         self.underlying_transport = underlying_transport
+        self.request = None
+        self.response = None
         self.is_client_side = is_client_side
         self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
         self.is_close_frame_sent = False
-        self.request = None
-        self.response = None #
         self.auto_ping_expect_pong = False
         self.pong_received_at_future = None
         self.listener_proxy = None
         self.disconnected_future = loop.create_future()
         self._loop = loop
         self._logger = logger
-        self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
         self._write_buffer = MemoryBuffer(1024)
+        self._thread_id = PyThread_get_thread_ident()
         self._socket = underlying_transport.get_extra_info('socket').fileno()
         self._is_aiofn_transport = _is_aiofn_transport(underlying_transport)
+        self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
+
+    cdef _check_thread(self, meth):
+        cdef unsigned long curr_thread_id = PyThread_get_thread_ident()
+        if self._thread_id != curr_thread_id:
+            raise RuntimeError(
+                f"WSTransport.{meth} called from a wrong thread: "
+                f"transport thread id={self._thread_id}, "
+                f"curr thread_id={curr_thread_id}"
+            )
 
     cdef Py_ssize_t _get_header_size(self, Py_ssize_t msg_size) noexcept:
         cdef Py_ssize_t sz = 4 if self.is_client_side else 0
@@ -400,13 +411,9 @@ cdef class WSTransport:
 
         return mask
 
-    cdef send_reuse_external_buffer(self, WSMsgType msg_type,
-                                    char* msg_ptr, Py_ssize_t msg_size,
-                                    bint fin=True, bint rsv1=False):
-        if self.is_close_frame_sent:
-            self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
-            return
-
+    cdef _send_buffer(self, WSMsgType msg_type,
+                      char* msg_ptr, Py_ssize_t msg_size,
+                      bint fin, bint rsv1):
         cdef:
             Py_ssize_t header_size = self._get_header_size(msg_size)
             char* header_ptr = msg_ptr - header_size
@@ -420,58 +427,7 @@ cdef class WSTransport:
         if msg_type == WSMsgType.CLOSE:
             self.is_close_frame_sent = True
 
-    cpdef send_reuse_external_bytearray(self, WSMsgType msg_type,
-                                        bytearray buffer,
-                                        Py_ssize_t msg_offset,
-                                        bint fin=True, bint rsv1=False):
-        """
-        Send a frame over websocket with a message as its payload. 
-        This function does not copy message to prepare websocket frames. 
-        It reuses bytearray's memory to write websocket frame header at the front.
-        
-        :param msg_type: :any:`WSMsgType` enum value\n 
-        :param msg_offset: specifies where message begins in the bytearray. 
-            Must be at least 14 to let picows to write websocket frame header in front of the message.
-        :param buffer: bytearray that contains message and some extra space (at least 14 bytes) in the beginning.
-            The len of the message is determined as `len(buffer) - msg_offset`         
-        :param fin: fin bit in websocket frame.
-            Indicate that the frame is the last one in the message.
-        :param rsv1: first reserved bit in websocket frame. 
-            Some protocol extensions use it to indicate that payload is compressed.        
-        """
-        assert buffer is not None, "buffer is None"
-        assert msg_offset >= 14, "buffer must have at least 14 bytes available before message starts, check msg_offset parameter"
-
-        cdef:
-            char* buffer_ptr = PyByteArray_AS_STRING(buffer)
-            Py_ssize_t buffer_size = PyByteArray_GET_SIZE(buffer)
-
-        assert buffer_size >= msg_offset, "msg_offset points beyond buffer end, msg_offset > len(buffer)"
-
-        cdef:
-            char* msg_ptr = buffer_ptr + msg_offset
-            Py_ssize_t msg_size = buffer_size - msg_offset
-
-        self.send_reuse_external_buffer(msg_type, msg_ptr, msg_size, fin, rsv1)
-
-    cpdef send(self, WSMsgType msg_type, message, bint fin=True, bint rsv1=False):
-        """
-        Send a frame over websocket with a message as its payload.
-
-        Please note that this function has to copy the whole message into
-        library's write buffer in order to be able to prepend websocket
-        frame header and apply mask to the whole message. If you want to avoid
-        copying please use :any:`WSTransport.send_reuse_external_bytearray` or
-        :any:`WSTransport.send_reuse_external_buffer`.
-
-        :param msg_type: :any:`WSMsgType` enum value\n
-        :param message: an optional bytes-like object
-        :param fin: fin bit in websocket frame.
-            Indicate that the frame is the last one in the message.
-        :param rsv1: first reserved bit in websocket frame.
-            Some protocol extensions use it to indicate that payload
-            is compressed.
-        """
+    cdef _send(self, WSMsgType msg_type, message, bint fin, bint rsv1):
         if self.is_close_frame_sent:
             self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
             return
@@ -530,13 +486,86 @@ cdef class WSTransport:
         if msg_type == WSMsgType.CLOSE:
             self.is_close_frame_sent = True
 
+    cdef send_reuse_external_buffer(self, WSMsgType msg_type,
+                                    char* msg_ptr, Py_ssize_t msg_size,
+                                    bint fin=True, bint rsv1=False):
+        self._check_thread("send_reuse_external_buffer")
+
+        if self.is_close_frame_sent:
+            self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
+            return
+
+        self._send_buffer(msg_type, msg_ptr, msg_size, fin, rsv1)
+
+    cpdef send_reuse_external_bytearray(self, WSMsgType msg_type,
+                                        bytearray buffer,
+                                        Py_ssize_t msg_offset,
+                                        bint fin=True, bint rsv1=False):
+        """
+        Send a frame over websocket with a message as its payload. 
+        This function does not copy message to prepare websocket frames. 
+        It reuses bytearray's memory to write websocket frame header at the front.
+        
+        :param msg_type: :any:`WSMsgType` enum value\n 
+        :param msg_offset: specifies where message begins in the bytearray. 
+            Must be at least 14 to let picows to write websocket frame header in front of the message.
+        :param buffer: bytearray that contains message and some extra space (at least 14 bytes) in the beginning.
+            The len of the message is determined as `len(buffer) - msg_offset`         
+        :param fin: fin bit in websocket frame.
+            Indicate that the frame is the last one in the message.
+        :param rsv1: first reserved bit in websocket frame. 
+            Some protocol extensions use it to indicate that payload is compressed.        
+        """
+        assert buffer is not None, "buffer is None"
+        assert msg_offset >= 14, "buffer must have at least 14 bytes available before message starts, check msg_offset parameter"
+
+        self._check_thread("send_reuse_external_bytearray")
+
+        if self.is_close_frame_sent:
+            self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
+            return
+
+        cdef:
+            char* buffer_ptr = PyByteArray_AS_STRING(buffer)
+            Py_ssize_t buffer_size = PyByteArray_GET_SIZE(buffer)
+
+        assert buffer_size >= msg_offset, "msg_offset points beyond buffer end, msg_offset > len(buffer)"
+
+        cdef:
+            char* msg_ptr = buffer_ptr + msg_offset
+            Py_ssize_t msg_size = buffer_size - msg_offset
+
+        self._send_buffer(msg_type, msg_ptr, msg_size, fin, rsv1)
+
+    cpdef send(self, WSMsgType msg_type, message, bint fin=True, bint rsv1=False):
+        """
+        Send a frame over websocket with a message as its payload.
+
+        Please note that this function has to copy the whole message into
+        library's write buffer in order to be able to prepend websocket
+        frame header and apply mask to the whole message. If you want to avoid
+        copying please use :any:`WSTransport.send_reuse_external_bytearray` or
+        :any:`WSTransport.send_reuse_external_buffer`.
+
+        :param msg_type: :any:`WSMsgType` enum value\n
+        :param message: an optional bytes-like object
+        :param fin: fin bit in websocket frame.
+            Indicate that the frame is the last one in the message.
+        :param rsv1: first reserved bit in websocket frame.
+            Some protocol extensions use it to indicate that payload
+            is compressed.
+        """
+        self._check_thread("send")
+        self._send(msg_type, message, fin, rsv1)
+
     cpdef send_ping(self, message=None):
         """
         Send a PING control frame with an optional message.
         
         :param message: an optional bytes-like object
         """
-        self.send(WSMsgType.PING, message)
+        self._check_thread("send_ping")
+        self._send(WSMsgType.PING, message, True, False)
 
     cpdef send_pong(self, message=None):
         """
@@ -544,7 +573,8 @@ cdef class WSTransport:
 
         :param message: an optional bytes-like object
         """
-        self.send(WSMsgType.PONG, message)
+        self._check_thread("send_pong")
+        self._send(WSMsgType.PONG, message, True, False)
 
     cpdef send_close(self, WSCloseCode close_code=WSCloseCode.NO_INFO, close_message=None):
         """
@@ -555,8 +585,7 @@ cdef class WSTransport:
         :param close_code: :any:`WSCloseCode` value                
         :param close_message: an optional bytes-like object        
         """
-        if self.underlying_transport.is_closing():
-            return
+        self._check_thread("send_close")
 
         cdef:
             char* close_msg_ptr
@@ -571,7 +600,7 @@ cdef class WSTransport:
         (<uint16_t*>msg_ptr)[0] = htons(<uint16_t>close_code)
         memcpy(msg_ptr + 2, close_msg_ptr, close_msg_length)
 
-        self.send(WSMsgType.CLOSE, msg, True, False)
+        self._send(WSMsgType.CLOSE, msg, True, False)
 
     cpdef disconnect(self, bint graceful=True):
         """
@@ -582,6 +611,8 @@ cdef class WSTransport:
 
         :param graceful: If True then send any remaining outgoing data in the buffer before closing the socket. This may potentially significantly delay on_ws_disconnected event since OS may wait for TCP_ACK for the data that was previously sent and until OS ack timeout fires up the socket will remain in connected state.           
         """
+        self._check_thread("disconnect")
+
         if graceful:
             self.underlying_transport.close()
         else:
@@ -610,6 +641,8 @@ cdef class WSTransport:
         waiter does not cancel internal disconnect bookkeeping.
 
         """
+        self._check_thread("wait_disconnected")
+
         await asyncio.shield(self.disconnected_future)
 
     async def measure_roundtrip_time(self, int rounds) -> list[float]:
@@ -619,6 +652,8 @@ cdef class WSTransport:
         :param rounds: how many ping-pong rounds to do
         :return: list of measured roundtrip times
         """
+
+        self._check_thread("measure_roundtrip_time")
 
         cdef double ping_at
         cdef double pong_at
@@ -658,6 +693,8 @@ cdef class WSTransport:
         the auto-ping loop doesn’t expect pong messages. 
         In such cases, the method simply does nothing.
         """
+        self._check_thread("notify_user_specific_pong_received")
+
         self.auto_ping_expect_pong = False
 
         if self.pong_received_at_future is not None:

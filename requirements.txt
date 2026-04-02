@@ -1,2 +1,3 @@
 multidict
 python-socks[asyncio]
+aiofastnet >= 0.2.0
