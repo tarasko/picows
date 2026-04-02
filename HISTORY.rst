@@ -11,6 +11,7 @@ picows Release History
 * Raise exception if WSTransport methods are called from a wrong thread.
 * Add examples illustrating how to properly utilized multithreading with free-threaded Python.
 * Install aiofastnet and use it by default.
+* Fix docs compilation and add 'free threaded python' topic guide
 
 1.17.0 (2026-03-13)
 ------------------
