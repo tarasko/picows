@@ -5,6 +5,13 @@ picows Release History
    :depth: 1
    :local:
 
+1.18.0
+------------------
+
+* Raise exception if WSTransport methods are called from a wrong thread.
+* Add examples illustrating how to properly utilized multithreading with free-threaded Python.
+* Install aiofastnet and use it by default.
+
 1.17.0 (2026-03-13)
 ------------------
 

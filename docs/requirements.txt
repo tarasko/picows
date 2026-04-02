@@ -1,5 +1,7 @@
 Cython>=3.0
 sphinx-toolbox
+Sphinx<9
+sphinx-autodoc-typehints<3.9
 enum-tools
 multidict
 python-socks

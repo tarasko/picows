@@ -42,15 +42,6 @@ picows requires Python 3.9 or greater and is available on PyPI::
 
     $ pip install picows
 
-For better network performance, especially when using SSL, you can install the
-optional ``aiofastnet`` extra::
-
-    $ pip install picows[aiofastnet]
-
-`aiofastnet <https://github.com/tarasko/aiofastnet>`_ is a separate open-source project that re-implements asyncio
-transport and SSL internals with a focus on lower overhead.
-
-
 Documentation
 =============
 

@@ -381,3 +381,28 @@ control connection establishment behavior), use ``socket_factory``:
 .. note::
     **picows** already enables `TCP_NODELAY` and, when available on the
     platform, `TCP_QUICKACK` to reduce latency by default.
+
+Free-threaded Python support
+----------------------------
+
+**picows** is fully compatible with free-threaded Python.
+**picows** transports do not require the GIL and can run in parallel in different threads.
+
+For a multithreaded server, start one thread per event loop and call
+:any:`ws_create_server` in each thread with ``reuse_port=True``. This allows all
+server threads to bind the same host/port pair and lets the operating system
+distribute new TCP connections between them.
+
+For a multithreaded client, create one event loop per thread and call
+:any:`ws_connect` for as many client connections as you want from each thread,
+depending on how you want to distribute load between threads. If a client
+thread should stop on a signal from another thread, use a thread-safe primitive
+such as ``threading.Event`` and wait for it from the event loop with
+``asyncio.to_thread``.
+
+Transport methods must be called from the thread that owns the transport.
+Otherwise, an exception will be raised.
+
+See `echo_server_threaded.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_server_threaded.py>`_
+and `echo_client_threaded.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_threaded.py>`_
+for complete runnable examples.
