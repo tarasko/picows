@@ -146,6 +146,7 @@ Features
 ====================
 * Maximally efficient WebSocket frame parser and builder implemented in Cython
 * Reuse memory as much as possible, avoid reallocations, and avoid unnecessary Python object creation
+* Use `aiofastnet <https://github.com/tarasko/aiofastnet>`_  to achieve excellent TCP/TLS performance regardless of the event loop used.
 * Provide a Cython .pxd for efficient integration of user Cythonized code with picows
 * Ability to check if a frame is the last one in the receiving buffer
 * Auto ping-pong with an option to customize ping/pong messages.
