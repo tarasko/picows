@@ -5,7 +5,7 @@ picows Release History
    :depth: 1
    :local:
 
-1.18.0
+1.18.0 (2026-04-03)
 ------------------
 
 * Raise exception if WSTransport methods are called from a wrong thread.
