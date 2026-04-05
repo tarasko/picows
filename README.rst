@@ -94,13 +94,13 @@ Connects to an echo server, sends a message, and disconnects after receiving a r
             transport.disconnect()
 
 
-    async def main(url):
-        transport, client = await ws_connect(ClientListener, url)
+    async def main():
+        transport, client = await ws_connect(ClientListener, "ws://127.0.0.1:9001")
         await transport.wait_disconnected()
 
 
     if __name__ == '__main__':
-        asyncio.run(main("ws://127.0.0.1:9001"))
+        asyncio.run(main())
 
 This prints:
 
