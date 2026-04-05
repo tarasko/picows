@@ -69,7 +69,7 @@ significant overhead even when messages are small, un-fragmented (with every Web
 and uncompressed.
 
 The async iteration interface relies on ``asyncio.Futures``, which adds additional
-work for the event loop postpone actual message processing and introduce a significant delay. 
+work for the event loop, postpone actual message processing and introduce a significant delay. 
 Moreover, it’s not always necessary to process every message. 
 In some use cases, only the latest message matters, and previous ones can be discarded 
 without even parsing their content.
