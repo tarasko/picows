@@ -81,8 +81,8 @@ jobs:
       run: |
         pytest -v --cov=picows --cov-report=xml
     - name: Upload coverage report
-      run: |
-        uses: codecov/codecov-action@v6
+      uses: codecov/codecov-action@v6
+
 
   build:
     strategy:
