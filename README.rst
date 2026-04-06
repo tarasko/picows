@@ -25,6 +25,10 @@ Introduction
     :target: https://deepwiki.com/tarasko/picows 
     :alt: Ask DeepWiki
 
+.. image:: https://img.shields.io/endpoint?url=https://codspeed.io/badge.json
+    :target: https://codspeed.io/tarasko/picows?utm_source=badge
+    :alt: CodSpeed
+
 **picows** is a high-performance Python library designed for building asyncio WebSocket clients and servers.
 Implemented in Cython, it offers exceptional speed and efficiency, surpassing other popular Python WebSocket libraries.
 
