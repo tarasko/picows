@@ -88,7 +88,7 @@ jobs:
 
     - name: Compile Cython extensions
       run: |
-        python setup.py build_ext --inplace
+        python setup.py build_ext --inplace --dev
 
     - name: Run tests
       run: |

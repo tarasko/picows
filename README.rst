@@ -175,7 +175,7 @@ Contributing / Building From Source
 
 4. Build in place and run tests::
 
-    $ python setup.py build_ext --inplace
+    $ python setup.py build_ext --inplace --dev
     $ pytest -s -v
 
     # Run specific test with picows debug logs enabled

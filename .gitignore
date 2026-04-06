@@ -11,3 +11,5 @@ build
 perf.data
 perf.data.old
 playground.py
+.coverage
+cython_debug

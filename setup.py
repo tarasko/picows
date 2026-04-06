@@ -15,8 +15,34 @@ else:
     libs = []
 
 
+def _consume_build_ext_flag(flag: str) -> bool:
+    if "build_ext" not in sys.argv:
+        return False
+
+    try:
+        sys.argv.remove(flag)
+    except ValueError:
+        return False
+    return True
+
+with_annotate = _consume_build_ext_flag("--with-annotate")
+with_debug = _consume_build_ext_flag("--with-debug")
+with_coverage = _consume_build_ext_flag("--with-coverage")
+
+dev = _consume_build_ext_flag("--dev")
+if dev:
+    with_annotate = True
+    with_debug = True
+    with_coverage = True
+
+
+macros = [("CYTHON_TRACE", "1"),
+          ("CYTHON_TRACE_NOGIL", "1"),
+          ("CYTHON_USE_SYS_MONITORING", "0")] if with_coverage else None
+
 pkg_extensions = [
-    Extension("picows.picows", ["picows/picows.pyx"], libraries=libs),
+    Extension("picows.picows", ["picows/picows.pyx"],
+              libraries=libs, define_macros=macros),
 ]
 
 example_extensions = [
@@ -38,10 +64,11 @@ setup(
             'wraparound': False,
             'initializedcheck': False,
             'optimize.use_switch': False,
-            'cdivision': True
+            'cdivision': True,
+            'linetrace': with_coverage
         },
-        annotate=True,
-        gdb_debug=False,
+        annotate=with_annotate,
+        gdb_debug=with_debug,
     ),
     include_package_data=True,
 )

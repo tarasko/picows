@@ -50,8 +50,23 @@ aiofastnet = []
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+addopts = "--cov=picows --cov-report=term-missing --cov-report=html"
 
 [tool.mypy]
 files = "picows"
 ignore_missing_imports = true
 strict = true
+
+[tool.coverage.run]
+source = ["picows"]
+branch = true
+plugins = ["Cython.Coverage"]
+core = "ctrace"
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
