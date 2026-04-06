@@ -9,10 +9,26 @@ from picows.api import _maybe_handle_redirect
 from picows.url import parse_url
 
 
+async def test_url_non_ascii():
+    # Test non-ASCII characters
+    parsed_url = parse_url("ws://роскомнадзор.ру:666/ws?param=val")
+    assert parsed_url.host == 'xn--80aijjkgebfljd.xn--p1ag'
+    assert parsed_url.port == 666
+    assert parsed_url.path == "/ws"
+    assert parsed_url.query == "param=val"
+    assert parsed_url.user_info is None
+
+
 async def test_redirect_location():
     exc = picows.WSHandshakeError("initial redirect")
     parsed_url = parse_url("ws://test_login:test_pws@my.domain.org/ws?param=val")
     assert not parsed_url.is_secure
+
+    with pytest.raises(picows.WSInvalidURL, match="scheme isn't ws or wss"):
+        parse_url("www://hello.com")
+
+    with pytest.raises(picows.WSInvalidURL, match="hostname isn't provided"):
+        parse_url("ws://:2345")
 
     # Test empty response in exception
     with pytest.raises(picows.WSHandshakeError, match="initial redirect"):
