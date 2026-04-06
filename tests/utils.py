@@ -95,6 +95,7 @@ def create_client_ssl_context():
 
 class BinaryFrame:
     def __init__(self, frame: picows.WSFrame):
+        self.frame_str = str(frame)
         self.msg_type = frame.msg_type
         self.payload_as_bytes = frame.get_payload_as_bytes()
         self.payload_as_bytes_from_mv = bytes(frame.get_payload_as_memoryview())
@@ -104,6 +105,7 @@ class BinaryFrame:
 
 class TextFrame:
     def __init__(self, frame: picows.WSFrame):
+        self.frame_str = str(frame)
         self.msg_type = frame.msg_type
         self.payload_as_ascii_text = frame.get_payload_as_ascii_text()
         self.payload_as_utf8_text = frame.get_payload_as_utf8_text()
@@ -113,6 +115,7 @@ class TextFrame:
 
 class CloseFrame:
     def __init__(self, frame: picows.WSFrame):
+        self.frame_str = str(frame)
         self.msg_type = frame.msg_type
         self.close_code = frame.get_close_code()
         self.close_message = frame.get_close_message()

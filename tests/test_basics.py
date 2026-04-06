@@ -22,6 +22,7 @@ async def test_echo(use_aiofastnet, ssl_context, msg_size):
 
             client.transport.send(picows.WSMsgType.BINARY, msg, False, False)
             frame = await client.get_message()
+            assert frame.frame_str.startswith("WSFrame(BINARY, fin=False, rsv1=False")
             assert frame.msg_type == picows.WSMsgType.BINARY
             assert frame.payload_as_bytes == msg
             assert frame.payload_as_bytes_from_mv == msg
@@ -32,12 +33,14 @@ async def test_echo(use_aiofastnet, ssl_context, msg_size):
             ba += msg
             client.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, ba, 16)
             frame = await client.get_message()
+            assert frame.frame_str.startswith("WSFrame(BINARY, fin=True, rsv1=False")
             assert frame.msg_type == picows.WSMsgType.BINARY
             assert frame.payload_as_bytes == msg
 
             msg = base64.b64encode(msg)
             client.transport.send(picows.WSMsgType.TEXT, msg, True, True)
             frame = await client.get_message()
+            assert frame.frame_str.startswith("WSFrame(TEXT, fin=True, rsv1=True")
             assert frame.msg_type == picows.WSMsgType.TEXT
             assert frame.payload_as_ascii_text == msg.decode("ascii")
             assert frame.payload_as_utf8_text == msg.decode("utf8")
@@ -61,12 +64,14 @@ async def test_echo_control_frames(use_aiofastnet, ssl_context):
             # Check ping
             client.transport.send_ping(b"hi")
             frame = await client.get_message()
+            assert frame.frame_str.startswith("WSFrame(PING, fin=True, rsv1=False")
             assert frame.msg_type == picows.WSMsgType.PING
             assert frame.payload_as_bytes == b"hi"
 
             # Check pong
             client.transport.send_pong(b"hi")
             frame = await client.get_message()
+            assert frame.frame_str.startswith("WSFrame(PONG, fin=True, rsv1=False")
             assert frame.msg_type == picows.WSMsgType.PONG
             assert frame.payload_as_bytes == b"hi"
 
@@ -74,6 +79,7 @@ async def test_echo_control_frames(use_aiofastnet, ssl_context):
             client.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"goodbye")
             assert client.transport.is_close_frame_sent
             frame = await client.get_message()
+            assert frame.frame_str.startswith("WSFrame(CLOSE, fin=True, rsv1=False")
             assert frame.msg_type == picows.WSMsgType.CLOSE
             assert frame.close_code == picows.WSCloseCode.GOING_AWAY
             assert frame.close_message == b"goodbye"

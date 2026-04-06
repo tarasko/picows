@@ -68,4 +68,6 @@ skip_covered = false
 exclude_lines = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
+    "raise MemoryError",
+    "assert False"
 ]
