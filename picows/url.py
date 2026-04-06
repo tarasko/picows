@@ -46,7 +46,6 @@ class WSParsedURL:
         """Username and password tuple if specified, otherwise None"""
         if self.username is None:
             return None
-        assert self.password is not None
         return self.username, self.password
 
 

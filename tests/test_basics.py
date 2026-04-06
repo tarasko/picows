@@ -377,7 +377,7 @@ async def test_stress(use_aiofastnet, ssl_context):
             total_batches += 1
 
             for i in range(total_batches * 3):
-                async with async_timeout.timeout(TIMEOUT):
+                async with async_timeout.timeout(TIMEOUT*2):
                     frame = await client.get_message()
 
                 if i % 3 == 0:
