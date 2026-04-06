@@ -749,7 +749,8 @@ cdef class WSTransport:
     cdef _fast_write(self, char* ptr, Py_ssize_t sz):
         if self._is_aiofn_transport:
             # aiofastnet guarantees that the data will be copied if it can't be
-            # sent immediately
+            # sent immediately, we can safely use non-owning memory view to our
+            # buffer
             self.underlying_transport.write(PyMemoryView_FromMemory(ptr, sz, PyBUF_READ))
             return
 
@@ -757,25 +758,14 @@ cdef class WSTransport:
             self.underlying_transport.write(PyBytes_FromStringAndSize(ptr, sz))
             return
 
-        # Try to send data using system send. Pass copied data to asyncio if we
-        # get EAGAIN.
-
         if <Py_ssize_t>self.underlying_transport.get_write_buffer_size() > 0:
             self.underlying_transport.write(PyBytes_FromStringAndSize(ptr, sz))
             return
 
+        # Try to send data using system send. Pass copied data to asyncio if we
+        # get EAGAIN.
+
         cdef Py_ssize_t bytes_written = send(self._socket, ptr, <size_t>sz, 0)
-
-        # From libuv code (unix/stream.c):
-        #   Due to a possible kernel bug at least in OS X 10.10 "Yosemite",
-        #   EPROTOTYPE can be returned while trying to write to a socket
-        #   that is shutting down. If we retry the write, we should get
-        #   the expected EPIPE instead.
-
-        while (bytes_written == PICOWS_SOCKET_ERROR and
-               ((not PLATFORM_IS_WINDOWS and errno.errno == errno.EINTR) or
-                (PLATFORM_IS_APPLE and errno.errno == errno.EPROTOTYPE))):
-            bytes_written = send(self._socket, self._write_buffer.data, sz, 0)
 
         if bytes_written == sz:
             return
