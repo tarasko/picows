@@ -170,9 +170,6 @@ Contributing / Building From Source
     # To run tests
     $ pip install -r requirements-test.txt
 
-    # To build docs
-    $ pip install -r docs/requirements.txt
-
 4. Build in place and run tests::
 
     $ python setup.py build_ext --inplace --dev
@@ -181,6 +178,11 @@ Contributing / Building From Source
     # Run specific test with picows debug logs enabled
     $ pytest -s -v -k test_client_handshake_timeout[uvloop-plain] --log-cli-level 9
 
-5. Build docs::
+5. Build coverage report::
 
+    $ pytest -s -v --cov=picows --cov-report=html
+
+6. Build docs::
+
+    $ pip install -r docs/requirements.txt
     $ make -C docs clean html

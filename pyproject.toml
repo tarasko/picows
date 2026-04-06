@@ -50,7 +50,6 @@ aiofastnet = []
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-addopts = "--cov=picows --cov-report=term-missing --cov-report=html"
 
 [tool.mypy]
 files = "picows"

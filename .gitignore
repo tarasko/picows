@@ -13,3 +13,4 @@ perf.data.old
 playground.py
 .coverage
 cython_debug
+coverage.xml
