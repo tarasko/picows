@@ -6,6 +6,9 @@ Introduction
 .. image:: https://img.shields.io/github/actions/workflow/status/tarasko/picows/run-tests.yml?branch=master&label=tests
     :target: https://github.com/tarasko/picows/actions/workflows/run-tests.yml?query=branch%3Amaster
 
+.. image:: https://codecov.io/github/tarasko/picows/graph/badge.svg?token=5XWETRS10A
+    :target: https://codecov.io/github/tarasko/picows
+
 .. image:: https://badge.fury.io/py/picows.svg
     :target: https://pypi.org/project/picows
     :alt: Latest PyPI package version
