@@ -33,6 +33,8 @@ jobs:
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
   mypy-checks:
+    timeout-minutes: 1
+
     strategy:
       matrix:
         pyver: ['3.9', '3.10', '3.11', '3.12', '>=3.13.5', '3.14']
@@ -60,7 +62,7 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 5
 
     steps:
     - uses: actions/checkout@v6
@@ -80,7 +82,7 @@ jobs:
         pytest -v --cov=picows --cov-report=xml
     - name: Upload coverage report
       run: |
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
 
   build:
     strategy:
