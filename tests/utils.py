@@ -6,6 +6,7 @@ import ssl
 import sys
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from logging import getLogger
 from typing import Union, Optional
 
 import async_timeout
@@ -15,6 +16,10 @@ import picows
 from picows import ws_create_server, ws_connect
 
 TIMEOUT = 1.0
+
+# Enable picows debug logging for coverage reports
+# Also check that all of them are well formatted
+getLogger("picows").setLevel(9)
 
 
 class TestException(Exception):

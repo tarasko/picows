@@ -55,3 +55,17 @@ testpaths = ["tests"]
 files = "picows"
 ignore_missing_imports = true
 strict = true
+
+[tool.coverage.run]
+source = ["picows"]
+branch = true
+plugins = ["Cython.Coverage"]
+core = "ctrace"
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]

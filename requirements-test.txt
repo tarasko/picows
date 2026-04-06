@@ -3,8 +3,10 @@ Cython >= 3.2
 aiofastnet >= 0.2.0
 multidict
 python-socks
+coverage
 pytest
 pytest-asyncio
+pytest-cov
 async_timeout
 uvloop; sys_platform != 'win32'
 winloop; sys_platform == 'win32'
