@@ -44,7 +44,7 @@ class WSParsedURL:
     @property
     def user_info(self) -> Optional[tuple[str, str]]:
         """Username and password tuple if specified, otherwise None"""
-        if self.username is None:
+        if self.username is None or self.password is None:
             return None
         return self.username, self.password
 
