@@ -86,7 +86,7 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
 
   benchmarks:
-    name: Run benchmarks
+    name: benchmarks
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
