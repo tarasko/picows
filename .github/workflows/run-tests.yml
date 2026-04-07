@@ -87,7 +87,8 @@ jobs:
 
   benchmarks:
     name: benchmarks
-    runs-on: ubuntu-latest
+    #runs-on: ubuntu-latest
+    runs-on: codspeed-macro
     timeout-minutes: 10
 
     steps:
