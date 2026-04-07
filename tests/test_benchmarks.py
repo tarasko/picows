@@ -28,12 +28,12 @@ class EchoClient(picows.WSListener):
 
 @pytest.mark.codspeed
 @pytest.mark.parametrize("msg_size", [64, 8192, 32 * 1024])
-def test_bench_echo(msg_size, benchmark):
+def test_bench_echo(ssl_context, msg_size, benchmark):
     msg = b"X" * msg_size
 
     async def run():
-        async with WSServer() as server:
-            async with WSClient(server, EchoClient) as client:
+        async with WSServer(ssl=ssl_context.server) as server:
+            async with WSClient(server, EchoClient, ssl_context=ssl_context.client) as client:
                 client.start_echo_loop(msg, 40000)
                 await client.transport.wait_disconnected()
 
