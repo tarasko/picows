@@ -25,3 +25,6 @@ def pytest_ignore_collect(
         collection_path.name == "test_benchmarks.py"
         and not _is_codspeed_enabled(config)
     )
+
+
+pytest_plugins = ["tests.fixtures"]

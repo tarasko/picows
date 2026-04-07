@@ -1,7 +1,4 @@
 import asyncio
-import concurrent
-from concurrent.futures.thread import ThreadPoolExecutor
-
 import pytest
 
 import picows
@@ -30,14 +27,14 @@ class EchoClient(picows.WSListener):
 
 
 @pytest.mark.codspeed
-@pytest.mark.parametrize("msg_size", [64, 8192, 64 * 1024])
+@pytest.mark.parametrize("msg_size", [64, 8192, 32 * 1024])
 def test_bench_echo(msg_size, benchmark):
     msg = b"X" * msg_size
 
     async def run():
         async with WSServer() as server:
             async with WSClient(server, EchoClient) as client:
-                client.start_echo_loop(msg, 2000)
+                client.start_echo_loop(msg, 40000)
                 await client.transport.wait_disconnected()
 
-    benchmark.pedantic(asyncio.run, (run(), ), rounds=1, iterations=1)
+    benchmark.pedantic(lambda: asyncio.run(run()), rounds=1, iterations=1)
