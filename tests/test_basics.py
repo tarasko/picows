@@ -7,9 +7,8 @@ import pytest
 import async_timeout
 
 from http import HTTPStatus
-from tests.utils import (TIMEOUT, AsyncClient,  multiloop_event_loop_policy,
-                         use_aiofastnet, WSServer, WSClient, ssl_context,
-                         TestException)
+from tests.utils import (TIMEOUT, AsyncClient, WSServer, WSClient, TestException)
+from tests.fixtures import multiloop_event_loop_policy
 
 event_loop_policy = multiloop_event_loop_policy()
 

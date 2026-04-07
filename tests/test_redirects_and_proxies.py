@@ -11,12 +11,16 @@ from tiny_proxy import HttpProxyHandler, Socks4ProxyHandler, Socks5ProxyHandler
 
 import picows
 from picows.url import parse_url
-from tests.utils import AsyncClient, multiloop_event_loop_policy, \
-    WSClient, WSServer, create_server_ssl_context, ssl_context, use_aiofastnet
+from tests.utils import AsyncClient, WSClient, WSServer
+from tests.fixtures import (
+    multiloop_event_loop_policy,
+    create_server_ssl_context
+)
 
 event_loop_policy = multiloop_event_loop_policy()
 
 _logger = getLogger(__name__)
+
 
 def _create_proxy_handler(proxy_type: str):
     if proxy_type == "http":

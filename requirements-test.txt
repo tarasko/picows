@@ -7,6 +7,7 @@ coverage
 pytest
 pytest-asyncio
 pytest-cov
+pytest-codspeed
 async_timeout
 uvloop; sys_platform != 'win32'
 winloop; sys_platform == 'win32'

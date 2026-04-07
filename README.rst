@@ -9,6 +9,10 @@ Introduction
 .. image:: https://codecov.io/github/tarasko/picows/graph/badge.svg?token=5XWETRS10A
     :target: https://codecov.io/github/tarasko/picows
 
+.. image:: https://img.shields.io/endpoint?url=https://codspeed.io/badge.json
+    :target: https://codspeed.io/tarasko/picows?utm_source=badge
+    :alt: CodSpeed
+
 .. image:: https://badge.fury.io/py/picows.svg
     :target: https://pypi.org/project/picows
     :alt: Latest PyPI package version

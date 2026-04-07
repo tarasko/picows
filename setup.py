@@ -32,8 +32,8 @@ with_coverage = _consume_build_ext_flag("--with-coverage")
 dev = _consume_build_ext_flag("--dev")
 if dev:
     with_annotate = True
-    with_debug = True
-    with_coverage = True
+    with_debug = False
+    with_coverage = False
 
 
 macros = [("CYTHON_TRACE", "1"),
