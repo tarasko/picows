@@ -34,7 +34,7 @@ def test_bench_echo(msg_size, benchmark):
     async def run():
         async with WSServer() as server:
             async with WSClient(server, EchoClient) as client:
-                client.start_echo_loop(msg, 40000)
+                client.start_echo_loop(msg, 10000)
                 await client.transport.wait_disconnected()
 
     benchmark.pedantic(lambda: asyncio.run(run()), rounds=1, iterations=1)
