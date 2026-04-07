@@ -1,186 +1,50 @@
-import asyncio
-import os
+import concurrent
+from concurrent.futures.thread import ThreadPoolExecutor
+
+import pytest
 
 import picows
-from picows import ws_create_server, ws_connect, WSMsgType, WSCloseCode
-from picows.url import parse_url
+from tests.utils import WSServer, WSClient
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-class _EchoServerListener(picows.WSListener):
-    def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-        if frame.msg_type == WSMsgType.CLOSE:
-            transport.send_close(frame.get_close_code(), frame.get_close_message())
-            transport.disconnect()
-        else:
-            transport.send(frame.msg_type, frame.get_payload_as_bytes())
-
-
-class _BenchClient(picows.WSListener):
-    def __init__(self):
-        self._received = asyncio.Event()
-        self._count = 0
-        self._target = 0
+class EchoClient(picows.WSListener):
+    transport: picows.WSTransport
+    _msg: bytes = None
+    _done_fut: concurrent.futures.Future[None] = None
+    _rounds: int = None
 
     def on_ws_connected(self, transport: picows.WSTransport):
         self.transport = transport
 
     def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-        self._count += 1
-        if self._count >= self._target:
-            self._received.set()
+        self._rounds -= 1
+        if self._rounds > 0:
+            self.transport.send(picows.WSMsgType.BINARY, self._msg)
+        else:
+            self._done_fut.set_result(None)
+            self.transport.disconnect()
 
-    async def wait_for(self, n: int):
-        self._count = 0
-        self._target = n
-        self._received.clear()
-        await self._received.wait()
-
-
-async def _echo_roundtrip(msg: bytes, iterations: int):
-    """Send *iterations* messages through a loopback echo server and wait for all replies."""
-    server = await ws_create_server(
-        lambda _: _EchoServerListener(),
-        "127.0.0.1", 0,
-        websocket_handshake_timeout=5,
-        enable_auto_pong=False,
-    )
-    port = server.sockets[0].getsockname()[1]
-    url = f"ws://127.0.0.1:{port}/"
-
-    transport, client = await ws_connect(
-        _BenchClient,
-        url,
-        websocket_handshake_timeout=5,
-        enable_auto_pong=False,
-    )
-
-    try:
-        for _ in range(iterations):
-            transport.send(WSMsgType.BINARY, msg)
-        await client.wait_for(iterations)
-    finally:
-        transport.disconnect(False)
-        try:
-            await transport.wait_disconnected()
-        except Exception:
-            pass
-        server.close()
-        await server.wait_closed()
+    def start_echo_loop(self, msg, rounds, done_fut):
+        self._msg = msg
+        self._done_fut = done_fut
+        self._rounds = rounds
+        self.transport.send(picows.WSMsgType.BINARY, self._msg)
 
 
-# ---------------------------------------------------------------------------
-# URL parsing benchmarks
-# ---------------------------------------------------------------------------
+@pytest.mark.codspeed
+@pytest.mark.parametrize("msg_size", [64, 8192, 64 * 1024])
+async def test_bench_echo(msg_size, benchmark):
+    # benchmark.pendantic is non-async.
+    # But we need it to measure performance of a particular async function
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        async with WSServer() as server:
+            async with WSClient(server, EchoClient) as client:
+                msg = b"X" * msg_size
 
-def test_bench_parse_url_simple(benchmark):
-    """Benchmark parsing a simple WebSocket URL."""
-    benchmark(parse_url, "ws://example.com/path")
+                done_fut = concurrent.futures.Future()
+                p_f = executor.submit(benchmark.pedantic, done_fut.result, rounds=1, iterations=1)
 
+                client.start_echo_loop(msg, 10000, done_fut)
+                await client.transport.wait_disconnected()
 
-def test_bench_parse_url_with_query(benchmark):
-    """Benchmark parsing a URL with query parameters."""
-    benchmark(parse_url, "wss://example.com:8443/v1/ws?token=abc123&mode=fast")
-
-
-# ---------------------------------------------------------------------------
-# Echo roundtrip benchmarks (various payload sizes)
-# ---------------------------------------------------------------------------
-
-def test_bench_echo_roundtrip_small(benchmark):
-    """Benchmark echo roundtrip with a small (64 byte) message."""
-    msg = b"A" * 64
-
-    def run():
-        asyncio.get_event_loop().run_until_complete(_echo_roundtrip(msg, 100))
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        benchmark.pedantic(run, rounds=5, iterations=1)
-    finally:
-        loop.close()
-
-
-def test_bench_echo_roundtrip_medium(benchmark):
-    """Benchmark echo roundtrip with a medium (4 KB) message."""
-    msg = b"B" * 4096
-
-    def run():
-        asyncio.get_event_loop().run_until_complete(_echo_roundtrip(msg, 100))
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        benchmark.pedantic(run, rounds=5, iterations=1)
-    finally:
-        loop.close()
-
-
-def test_bench_echo_roundtrip_large(benchmark):
-    """Benchmark echo roundtrip with a large (64 KB) message."""
-    msg = b"C" * 65536
-
-    def run():
-        asyncio.get_event_loop().run_until_complete(_echo_roundtrip(msg, 50))
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        benchmark.pedantic(run, rounds=5, iterations=1)
-    finally:
-        loop.close()
-
-
-# ---------------------------------------------------------------------------
-# Frame send benchmarks (measure frame building / sending throughput)
-# ---------------------------------------------------------------------------
-
-async def _send_frames(msg: bytes, count: int):
-    """Connect to an echo server and send *count* frames as fast as possible."""
-    server = await ws_create_server(
-        lambda _: _EchoServerListener(),
-        "127.0.0.1", 0,
-        websocket_handshake_timeout=5,
-        enable_auto_pong=False,
-    )
-    port = server.sockets[0].getsockname()[1]
-    url = f"ws://127.0.0.1:{port}/"
-
-    transport, client = await ws_connect(
-        _BenchClient,
-        url,
-        websocket_handshake_timeout=5,
-        enable_auto_pong=False,
-    )
-
-    try:
-        for _ in range(count):
-            transport.send(WSMsgType.BINARY, msg)
-        await client.wait_for(count)
-    finally:
-        transport.disconnect(False)
-        try:
-            await transport.wait_disconnected()
-        except Exception:
-            pass
-        server.close()
-        await server.wait_closed()
-
-
-def test_bench_send_many_small_frames(benchmark):
-    """Benchmark sending 1000 small (32 byte) frames."""
-    msg = b"X" * 32
-
-    def run():
-        asyncio.get_event_loop().run_until_complete(_send_frames(msg, 1000))
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        benchmark.pedantic(run, rounds=5, iterations=1)
-    finally:
-        loop.close()
+                p_f.result()
