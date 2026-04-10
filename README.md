@@ -29,7 +29,7 @@ Implemented in Cython, it offers exceptional speed and efficiency, surpassing ot
 
 [![Benchmark chart](https://raw.githubusercontent.com/tarasko/websocket-benchmark/master/results/benchmark-Linux-256.png)](https://github.com/tarasko/websocket-benchmark/blob/master)
 
-The above chart shows the performance of echo clients communicating with a server through a loopback interface using popular Python libraries.
+The above chart shows the performance of various echo clients communicating with the same high-peformance C++ server through a loopback interface.
 [boost.beast client](https://www.boost.org/library/latest/beast/) is also included for reference. You can find benchmark sources and more results [here](https://github.com/tarasko/websocket-benchmark).
 
 ## 💡 Key Features
