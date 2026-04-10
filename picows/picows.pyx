@@ -999,12 +999,14 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         return False
 
     def pause_writing(self):
-        self._logger.warning("Protocol writing pause requested, crossed writing buffer high-watermark")
+        if self._log_debug_enabled:
+            self._logger.debug("Protocol writing pause requested, crossed writing buffer high-watermark")
         if self.listener is not None:
             self.listener.pause_writing()
 
     def resume_writing(self):
-        self._logger.warning("Protocol writing resume requested, crossed writing buffer low-watermark,")
+        if self._log_debug_enabled:
+            self._logger.debug("Protocol writing resume requested, crossed writing buffer low-watermark,")
         if self.listener is not None:
             self.listener.resume_writing()
 
