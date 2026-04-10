@@ -18,7 +18,7 @@ Implemented in Cython, it offers exceptional speed and efficiency, surpassing ot
 The above chart shows the performance of echo clients communicating with a server through a loopback interface using popular Python libraries.
 [boost.beast client](https://www.boost.org/library/latest/beast/) is also included for reference. You can find benchmark sources and more results [here](https://github.com/tarasko/websocket-benchmark).
 
-## Installation
+## 📦 Installation
 
 picows requires Python 3.9 or greater and is available on PyPI:
 
@@ -32,7 +32,7 @@ https://picows.readthedocs.io/en/stable/
 
 Make sure to check [topic guides](https://picows.readthedocs.io/en/stable/guides.html) for the most common usage patterns and questions.
 
-## Key Features
+## 💡 Key Features
 
 - Maximally efficient WebSocket frame parser and builder implemented in Cython
 - Reuse memory as much as possible, avoid reallocations, and avoid unnecessary Python object creation
@@ -66,7 +66,7 @@ Since a message can span multiple frames, it is up to the user to decide the mos
 effective strategy for concatenating them. Each frame object includes additional
 details about the current parser state, which may help optimize the behavior of the user's application.
 
-## Getting started
+## 🤔 Getting started
 
 ### Echo client
 
@@ -137,7 +137,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-## Contributing / Building From Source
+:hammer: ## Contributing / Building From Source
 
 1. Fork and clone the repository:
 
