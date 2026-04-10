@@ -1,15 +1,17 @@
+# 
 ![picows banner](https://raw.githubusercontent.com/tarasko/picows/master/docs/source/_static/banner.png)
 
-# picows
+<div align="center">
+    <a href='https://github.com/tarasko/picows/actions/workflows/run-tests.yml?query=branch%3Amaster' target="_blank"><img alt='tests' src='https://img.shields.io/github/actions/workflow/status/tarasko/picows/run-tests.yml?branch=master&label=tests'></a>
+    <a href='https://codecov.io/github/tarasko/picows' target="_blank"><img alt='codecov' src='https://codecov.io/github/tarasko/picows/graph/badge.svg?token=5XWETRS10A'></a>
+    <a href='https://pypi.org/project/picows' target="_blank"><img alt='pypi' src='https://badge.fury.io/py/picows.svg'></a>
+    <a href='https://pypistats.org/packages/picows' target="_blank"><img alt='downloads' src='https://img.shields.io/pypi/dm/picows'></a>
+    <a href='https://picows.readthedocs.io/en/latest/' target="_blank"><img alt='docs' src='https://readthedocs.org/projects/picows/badge/?version=latest'></a>
+    <a href='https://codspeed.io/tarasko/picows?utm_source=badge' target="_blank"><img alt='codspeed' src='https://img.shields.io/endpoint?url=https://codspeed.io/badge.json'></a>
+    <a href='https://deepwiki.com/tarasko/picows' target="_blank"><img alt='codspeed' src='https://deepwiki.com/badge.svg'></a>
+</div>
 
-[![tests](https://img.shields.io/github/actions/workflow/status/tarasko/picows/run-tests.yml?branch=master&label=tests)](https://github.com/tarasko/picows/actions/workflows/run-tests.yml?query=branch%3Amaster)
-[![codecov](https://codecov.io/github/tarasko/picows/graph/badge.svg?token=5XWETRS10A)](https://codecov.io/github/tarasko/picows)
-[![PyPI version](https://badge.fury.io/py/picows.svg)](https://pypi.org/project/picows)
-[![Downloads](https://img.shields.io/pypi/dm/picows)](https://pypistats.org/packages/picows)
-[![Read the Docs](https://readthedocs.org/projects/picows/badge/?version=latest)](https://picows.readthedocs.io/en/latest/)
-[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://codspeed.io/tarasko/picows?utm_source=badge)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tarasko/picows)
-
+## :zap: Introduction
 **picows** is a high-performance Python library designed for building asyncio WebSocket clients and servers.
 Implemented in Cython, it offers exceptional speed and efficiency, surpassing other popular Python WebSocket libraries.
 
