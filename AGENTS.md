@@ -1,6 +1,6 @@
 ## Description
 
-Read README.rst for the basic understanding of what this project is.
+Read README.md for the basic understanding of what this project is.
 
 picows - this is the main package
 
