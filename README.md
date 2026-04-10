@@ -50,7 +50,7 @@ picows requires Python 3.9 or greater and is available on PyPI:
 pip install picows
 ```
 
-## Motivation
+## :moneybag: Motivation
 
 Popular WebSocket libraries provide high-level interfaces that handle timeouts,
 flow control, optional compression/decompression, and reassembly of WebSocket messages
@@ -65,7 +65,7 @@ Moreover, it is not always necessary to process every message.
 In some use cases, only the latest message matters, and previous ones can be discarded
 without even parsing their content.
 
-## API Design
+## :construction_worker: API Design
 
 The library achieves superior performance by offering an efficient, non-async data path, similar to the
 [transport/protocol design from asyncio](https://docs.python.org/3/library/asyncio-protocol.html#asyncio-transports-protocols).
