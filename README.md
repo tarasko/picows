@@ -1,7 +1,7 @@
 # 
 ![picows banner](https://raw.githubusercontent.com/tarasko/picows/master/docs/source/_static/banner.png)
 
-<div align="center">
+<p align="center">
     <a href='https://github.com/tarasko/picows/actions/workflows/run-tests.yml?query=branch%3Amaster' target="_blank"><img alt='tests' src='https://img.shields.io/github/actions/workflow/status/tarasko/picows/run-tests.yml?branch=master&label=tests'></a>
     <a href='https://codecov.io/github/tarasko/picows' target="_blank"><img alt='codecov' src='https://codecov.io/github/tarasko/picows/graph/badge.svg?token=5XWETRS10A'></a>
     <a href='https://pypi.org/project/picows' target="_blank"><img alt='pypi' src='https://badge.fury.io/py/picows.svg'></a>
@@ -9,7 +9,19 @@
     <a href='https://picows.readthedocs.io/en/latest/' target="_blank"><img alt='docs' src='https://readthedocs.org/projects/picows/badge/?version=latest'></a>
     <a href='https://codspeed.io/tarasko/picows?utm_source=badge' target="_blank"><img alt='codspeed' src='https://img.shields.io/endpoint?url=https://codspeed.io/badge.json'></a>
     <a href='https://deepwiki.com/tarasko/picows' target="_blank"><img alt='codspeed' src='https://deepwiki.com/badge.svg'></a>
+</p>
+
+<div align="center">
+  <a href="https://picows.readthedocs.io/en/stable/">Documentation</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="https://github.com/tarasko/picows/issues">Issues</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="https://github.com/tarasko/picows/discussions">Discussions</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="https://github.com/tarasko/picows/tree/master/examples">Examples</a>
+  <br />
 </div>
+
 
 ## :zap: Introduction
 **picows** is a high-performance Python library designed for building asyncio WebSocket clients and servers.
@@ -20,20 +32,6 @@ Implemented in Cython, it offers exceptional speed and efficiency, surpassing ot
 The above chart shows the performance of echo clients communicating with a server through a loopback interface using popular Python libraries.
 [boost.beast client](https://www.boost.org/library/latest/beast/) is also included for reference. You can find benchmark sources and more results [here](https://github.com/tarasko/websocket-benchmark).
 
-## 📦 Installation
-
-picows requires Python 3.9 or greater and is available on PyPI:
-
-```bash
-pip install picows
-```
-
-## Documentation
-
-https://picows.readthedocs.io/en/stable/
-
-Make sure to check [topic guides](https://picows.readthedocs.io/en/stable/guides.html) for the most common usage patterns and questions.
-
 ## 💡 Key Features
 
 - Maximally efficient WebSocket frame parser and builder implemented in Cython
@@ -43,6 +41,14 @@ Make sure to check [topic guides](https://picows.readthedocs.io/en/stable/guides
 - Ability to check if a frame is the last one in the receiving buffer
 - Auto ping-pong with an option to customize ping/pong messages
 - Convenient method to measure websocket roundtrip time using ping/pong messages
+
+## 📦 Installation
+
+picows requires Python 3.9 or greater and is available on PyPI:
+
+```bash
+pip install picows
+```
 
 ## Motivation
 
@@ -139,7 +145,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-:hammer: ## Contributing / Building From Source
+## :hammer: Contributing / Building From Source
 
 1. Fork and clone the repository:
 
