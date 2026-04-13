@@ -178,15 +178,28 @@ pytest -s -v
 pytest -s -v -k test_client_handshake_timeout[uvloop-plain] --log-cli-level 9
 ```
 
-5. Build coverage report:
+5. Run perf, see call graph
 
 ```bash
+$ perf record -F 999 -g --call-graph lbr --user-callchains -- python -m examples.perf_test --msg-size 8192 --ssl
+$ perf report -G -n --stdio
+```
+
+6. Build coverage report:
+
+Building for coverage testing requires enabling line tracing in cython, which 
+significantly slows down extension modules. It is disabled by default. You
+would need to rebuild specifically with coverage support.
+
+```bash
+python setup.py build_ext --inplace --dev --with-coverage
 pytest -s -v --cov=picows --cov-report=html
 ```
 
-6. Build docs:
+7. Build docs:
 
 ```bash
 pip install -r docs/requirements.txt
 make -C docs clean html
 ```
+
