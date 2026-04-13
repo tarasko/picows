@@ -27,8 +27,10 @@ async def main(url, msg_size, duration, ssl_context):
 
 
 if __name__ == '__main__':
+    import winloop
+    winloop.install()
     if USE_TLS:
         ssl_context = create_client_ssl_context()
-        asyncio.run(main("wss://127.0.0.1:9002", 256, 1, ssl_context))
+        asyncio.run(main("wss://127.0.0.1:9002", 256, 5, ssl_context))
     else:
-        asyncio.run(main("ws://127.0.0.1:9001", 256, 1, None))
+        asyncio.run(main("ws://127.0.0.1:9001", 256, 5, None))

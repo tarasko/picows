@@ -27,31 +27,42 @@ def _consume_build_ext_flag(flag: str) -> bool:
 
 with_annotate = _consume_build_ext_flag("--with-annotate")
 with_debug = _consume_build_ext_flag("--with-debug")
+with_examples = _consume_build_ext_flag("--with-examples")
 with_coverage = _consume_build_ext_flag("--with-coverage")
 
 dev = _consume_build_ext_flag("--dev")
 if dev:
     with_annotate = True
-    with_debug = False
-    with_coverage = False
+    with_examples = True
 
 
 macros = [("CYTHON_TRACE", "1"),
           ("CYTHON_TRACE_NOGIL", "1"),
           ("CYTHON_USE_SYS_MONITORING", "0")] if with_coverage else None
 
-pkg_extensions = [
+
+if os.name == 'nt' and with_debug:
+    extra_compile_args = ['/Zi']
+    extra_link_args = ['/DEBUG']
+else:
+    extra_compile_args = None
+    extra_link_args = None
+
+
+extensions = [
     Extension("picows.picows", ["picows/picows.pyx"],
-              libraries=libs, define_macros=macros),
+              libraries=libs, define_macros=macros,
+              extra_compile_args=extra_compile_args,
+              extra_link_args=extra_link_args),
 ]
 
-example_extensions = [
-    Extension("examples.echo_client_cython", ["examples/echo_client_cython.pyx"])
-]
-
-build_wheel = any(cmd in sys.argv for cmd in ("bdist_wheel",))
-extensions = (pkg_extensions + example_extensions) if not build_wheel and os.name != 'nt' else pkg_extensions
-
+if with_examples:
+    extensions.append(
+        Extension("examples.echo_client_cython", ["examples/echo_client_cython.pyx"],
+                  libraries=libs, define_macros=macros,
+                  extra_compile_args=extra_compile_args,
+                  extra_link_args=extra_link_args))
+    
 setup(
     ext_modules=cythonize(
         extensions,

@@ -14,3 +14,4 @@ playground.py
 .coverage
 cython_debug
 coverage.xml
+picows.etl*
