@@ -1,7 +1,7 @@
 Всем привет!
 
 Меня зовут Тарас, я автор библиотеки [picows](https://github.com/tarasko/picows) —
-ультрабыстрых вебсокетов для asyncio. В этой статье я расскажу, почему вообще
+ультрабыстрых вебсокетов для [asyncio](https://docs.python.org/3/library/asyncio.html). В этой статье я расскажу, почему вообще
 появилась ещё одна библиотека для вебсокетов, покажу результаты бенчмарков и
 заодно порассуждаю о производительности в asyncio.
 
@@ -24,7 +24,7 @@ C/C++/Cython.
 переваливает за 10000, а то и за 20000 в секунду. Сами сообщения при этом
 обычно небольшие: JSON размером порядка 200 байт.
 
-Я взял вебсокеты из aiohttp и довольно быстро понял, что библиотека не
+Я взял вебсокеты из [aiohttp](https://github.com/aio-libs/aiohttp) и довольно быстро понял, что библиотека не
 справляется. Даже если вообще ничего не делать со входящими сообщениями, они
 скапливаются во внутренней очереди aiohttp, а в тяжёлых случаях RCVBUF сокета
 успевает забиться под завязку и возникает backpressure. Задержка между приёмом
@@ -53,7 +53,7 @@ async def run():
 как следствие, быстро потерянные деньги. С aiohttp задержка вполне доходила и
 до 100 мс.
 
-Другая популярная библиотека, websockets, оказалась ещё медленнее. При этом
+Другая популярная библиотека, [websockets](https://github.com/python-websockets/websockets), оказалась ещё медленнее. При этом
 именно websockets на тот момент активно рекламировала себя как самую быструю
 современную async-библиотеку, но никаких конкретных бенчмарков и сравнений не
 показывала.
@@ -231,7 +231,7 @@ if __name__ == '__main__':
 клиента с минимальными задержками. 
 
 В моих тестах **picows** показывает RPS в 2-2.5 раза выше, чем websockets и aiohttp.
-Aiohttp немного быстрее websockets за счёт того, что у неё более эффективный
+aiohttp немного быстрее websockets за счёт того, что у неё более эффективный
 парсер фреймов, переписанный на C. Отрыв **picows** особенно велик для небольших
 сообщений, когда задержки библиотек доминируют над временем, проведённым в
 системных вызовах `read/send`.
@@ -247,10 +247,10 @@ boost.beast. Когда я впервые увидел эти результат
 1.5 КБ boost.beast всегда делает как минимум 2 системных вызова, что и
 сказывается на производительности.
 
-`uvloop` по-прежнему немного быстрее `asyncio` на реальных тестах, но разница
+`uvloop` по-прежнему немного быстрее asyncio на реальных тестах, но разница
 уже не очень велика.
 
-`ws4py` не использует asyncio loop: клиент у этой библиотеки синхронный, сокет
+[ws4py](https://github.com/Lawouach/WebSocket-for-Python) не использует asyncio loop: клиент у этой библиотеки синхронный, сокет
 работает в блокирующем режиме, в нём нет вызова `epoll_wait`. Отсюда и лучшие
 результаты. Я добавил эту библиотеку, потому что у этого проекта больше 1000
 звёзд на GitHub.
@@ -263,8 +263,8 @@ boost.beast. Когда я впервые увидел эти результат
 [asyncio.Future](https://docs.python.org/3/library/asyncio-future.html#asyncio.Future) переписали на C.
 Однако основной цикл в
 [base_events.py](https://github.com/python/cpython/blob/main/Lib/asyncio/base_events.py#L1984)
-остаётся по-прежнему на Python. Взаимодействие с модулем `selectors` тоже
-осуществляется через обычные Python-вызовы. asyncio и selectors не
+остаётся по-прежнему на Python. Взаимодействие с модулем [selectors](https://docs.python.org/3/library/selectors.html) тоже
+осуществляется через обычные Python-вызовы. `asyncio` и `selectors` не
 интегрированы друг с другом на уровне C. Поэтому чтение данных в uvloop
 по-прежнему немного быстрее, чем в asyncio.
 
@@ -274,8 +274,8 @@ boost.beast. Когда я впервые увидел эти результат
 данных и на чтение, и на запись.
 
 Последние версии **picows** используют высокоэффективную замену методов
-[create_connection](https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.create_connection)
-и [create_server](https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.create_server),
+[asyncio.loop.create_connection](https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.create_connection)
+и [asyncio.loop.create_server](https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.create_server),
 предоставляемую пакетом [aiofastnet](https://github.com/tarasko/aiofastnet).
 `aiofastnet` реализован на C/Cython и взаимодействует с OpenSSL напрямую.
 Это даёт дополнительный прирост производительности при использовании
