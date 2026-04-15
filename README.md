@@ -139,7 +139,7 @@ details about the current parser state, which may help to further optimize the b
 picows doesn't offer high-level features like permessage-deflate extension support and async iter interface for reading. This features are 
 often not required in the real world, significantly slow down the data path and make impossible to do the actual zero-copy interface.
 
-High-level features like these can be easily implemented on top of picows API in most suitable way. 
+High-level features like these can be easily implemented on top of picows API in the most suitable way. 
 Check out [topic guides](https://picows.readthedocs.io/en/stable/guides.html) and [examples](https://github.com/tarasko/picows/tree/master/examples) for the most common usage patterns.
 
 ## :hammer: Contributing / Building From Source
