@@ -107,7 +107,7 @@ class ServerClientListener(WSListener):
             transport.send_close(frame.get_close_code(), frame.get_close_message())
             transport.disconnect()
         else:
-            transport.send(frame.msg_type, frame.get_payload_as_bytes())
+            transport.send(frame.msg_type, frame.get_payload_as_memoryview())
 
 
 async def main():
