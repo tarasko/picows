@@ -29,7 +29,7 @@ Originally a part of algorithmic trading project, it has a very efficient C impl
 
 Using picows you get unmatch, best in its class, latency and throughput!
 
-The library was designed and hand-made by the industry professionls. The code is easily readable, tested and well-maintained, not AI slop.
+The library was designed and hand-made by the industry professionals. The code is easily readable, tested and well-maintained, not AI slop.
 
 
 [![Benchmark chart](https://raw.githubusercontent.com/tarasko/websocket-benchmark/master/results/benchmark-Linux-256.png)](https://github.com/tarasko/websocket-benchmark/blob/master)
