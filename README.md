@@ -27,7 +27,7 @@
 **picows** is lightweight and ultra-fast Python WebSockets client and server library for asyncio.
 Originally a part of algorithmic trading project, it has a very efficient C implementation, zero-copy interface and all possible speedups for the modern architectures.
 
-picows was designed and hand-made by the industry professional. The code is easily readable, well-tested and well-maintained, no AI slop.
+picows was designed and hand-made by the industry professionals. The code is easily readable, well-tested and well-maintained, not AI slop.
 
 Using this library you get unmatch, best in its class, latency and throughput!
 
@@ -54,30 +54,6 @@ picows requires Python 3.9 or greater and is available on PyPI:
 ```bash
 pip install picows
 ```
-
-## :moneybag: Motivation
-
-Popular WebSocket libraries provide high-level interfaces that handle timeouts,
-flow control, optional compression/decompression, and reassembly of WebSocket messages
-from frames, while also implementing async iteration interfaces.
-These features are typically implemented in pure Python, resulting in
-significant overhead even when messages are small, un-fragmented (with every WebSocket frame marked as final),
-and uncompressed.
-
-The async iteration interface relies on `asyncio.Futures`, which adds additional
-work for the event loop, postpone actual message processing and introduce a significant delay.
-Moreover, it is not always necessary to process every message.
-In some use cases, only the latest message matters, and previous ones can be discarded
-without even parsing their content.
-
-## :construction_worker: API Design
-
-The library achieves superior performance by offering an efficient, non-async data path, similar to the
-[transport/protocol design from asyncio](https://docs.python.org/3/library/asyncio-protocol.html#asyncio-transports-protocols).
-The user handler receives WebSocket frame objects instead of complete messages.
-Since a message can span multiple frames, it is up to the user to decide the most
-effective strategy for concatenating them. Each frame object includes additional
-details about the current parser state, which may help optimize the behavior of the user's application.
 
 ## 🤔 Getting started
 
@@ -149,6 +125,22 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+## :construction_worker: API Design
+
+The library achieves superior performance by offering an efficient, non-async data path, similar to the
+[transport/protocol design from asyncio](https://docs.python.org/3/library/asyncio-protocol.html#asyncio-transports-protocols).
+
+The user handler receives WebSocket frame objects instead of complete messages.
+Since a message can span multiple frames, it is up to the user to decide the most
+effective strategy for concatenating them. Each frame object includes additional low-level
+details about the current parser state, which may help to further optimize the behavior of the user's application.
+
+picows doesn't offer high-level features like permessage-deflate extension support and async iter interface for reading. This features are 
+often not required in the real world, significantly slow down the data path and make impossible to do the actual zero-copy interface.
+
+High-level features like these can be easily implemented on top of picows API in most suitable way. 
+Check out [topic guides](https://picows.readthedocs.io/en/stable/guides.html) and [examples](https://github.com/tarasko/picows/tree/master/examples) for the most common usage patterns.
 
 ## :hammer: Contributing / Building From Source
 
