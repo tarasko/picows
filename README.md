@@ -24,8 +24,13 @@
 
 
 ## :zap: Introduction
-**picows** is a high-performance Python library designed for building asyncio WebSocket clients and servers.
-Implemented in Cython, it offers exceptional speed and efficiency, surpassing other popular Python WebSocket libraries.
+**picows** is lightweight and ultra-fast Python WebSockets client and server library for asyncio.
+Originally a part of algorithmic trading project, it has a very efficient C implementation, zero-copy interface and all possible speedups for the modern architectures.
+
+picows was desinged and hand-made by the industry professional. The code is easily readable, well-tested and well-maintained, not your typical AI slop.
+
+Using this library you get un-match, best in its class, latency and throughput!
+
 
 [![Benchmark chart](https://raw.githubusercontent.com/tarasko/websocket-benchmark/master/results/benchmark-Linux-256.png)](https://github.com/tarasko/websocket-benchmark/blob/master)
 
@@ -34,7 +39,7 @@ The above chart shows the performance of various echo clients communicating with
 
 ## 💡 Key Features
 
-- Maximally efficient WebSocket frame parser and builder implemented in Cython
+- Maximally efficient WebSocket frame parser and builder implemented in C/Cython
 - Reuse memory as much as possible, avoid reallocations, and avoid unnecessary Python object creation
 - Use [aiofastnet](https://github.com/tarasko/aiofastnet) to achieve excellent TCP/TLS performance regardless of the event loop used
 - Provide a Cython `.pxd` for efficient integration of user Cythonized code with picows
