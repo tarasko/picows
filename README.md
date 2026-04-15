@@ -144,6 +144,8 @@ Check out [topic guides](https://picows.readthedocs.io/en/stable/guides.html) an
 
 ## :hammer: Contributing / Building From Source
 
+Contributions are welcome!
+
 1. Fork and clone the repository:
 
 ```bash
