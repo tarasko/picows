@@ -16,3 +16,4 @@ playground.py
 cython_debug
 coverage.xml
 picows.etl*
+.codex

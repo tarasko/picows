@@ -1,8 +1,10 @@
 import os
 import platform
 import sys
+from typing import List
+
 from Cython.Build import cythonize
-from setuptools.command.build_ext import build_ext as _build_ext
+from setuptools.command.build_ext import build_ext
 from setuptools import Extension, setup
 
 vi = sys.version_info
@@ -49,55 +51,78 @@ else:
     extra_link_args = None
 
 
-def _mask_compile_units():
+def _get_mask_compile_units() -> List[str]:
     machine = platform.machine().lower()
-    if machine in {"x86_64", "amd64", "x64"}:
-        return [
-            ("picows/mask_sse2.c", {"unix": ["-msse2"], "mingw32": ["-msse2"], "msvc": []}),
-            ("picows/mask_avx2.c", {"unix": ["-mavx2"], "mingw32": ["-mavx2"], "msvc": ["/arch:AVX2"]}),
-            ("picows/mask_avx512.c", {"unix": ["-mavx512f"], "mingw32": ["-mavx512f"], "msvc": ["/arch:AVX512"]}),
-        ]
+    if machine in {"x86_64", "amd64", "x64", "i386", "i686", "x86"}:
+        return ["picows/mask_sse2.c", "picows/mask_avx2.c", "picows/mask_avx512.c"]
 
-    if machine in {"i386", "i686", "x86"}:
-        return [
-            ("picows/mask_sse2.c", {"unix": ["-msse2"], "mingw32": ["-msse2"], "msvc": ["/arch:SSE2"]}),
-            ("picows/mask_avx2.c", {"unix": ["-mavx2"], "mingw32": ["-mavx2"], "msvc": ["/arch:AVX2"]}),
-            ("picows/mask_avx512.c", {"unix": ["-mavx512f"], "mingw32": ["-mavx512f"], "msvc": ["/arch:AVX512"]}),
-        ]
-
-    if machine in {"aarch64", "arm64", "armv7l", "armv8l"}:
-        return [
-            ("picows/mask_neon.c", {"unix": []}),
-        ]
-
-    return []
+    elif machine in {"aarch64", "arm64", "armv7l", "armv8l"}:
+        return ["picows/mask_neon.c"]
+    else:
+        return []
 
 
-class build_ext(_build_ext):
-    def build_extension(self, ext):
-        compile_units = getattr(ext, "picows_extra_compile_units", None)
-        if compile_units:
+def _get_extra_postargs(source: str, compiler_type: str):
+    machine = platform.machine().lower()
+    if "_sse2" in source:
+        if compiler_type in ("unix", "mingw32"):
+            return ["-msse2"]
+
+        elif compiler_type == "msvc":
+            if machine in {"i386", "i686", "x86"}:
+                return ["/arch:SSE2"]
+            else:
+                return []
+        else:
+            assert False, f"attempt to compile {source} with unknown compiler type {compiler_type}"
+    elif "_avx2" in source:
+        if compiler_type in ("unix", "mingw32"):
+            return ["-mavx2"]
+
+        elif compiler_type == "msvc":
+            return ["/arch:AVX2"]
+
+        else:
+            assert False, f"attempt to compile {source} with unknown compiler type {compiler_type}"
+
+    elif "_avx512" in source:
+        if compiler_type in ("unix", "mingw32"):
+            return ["-mavx512f"]
+
+        elif compiler_type == "msvc":
+            return ["/arch:AVX512"]
+
+        else:
+            assert False, f"attempt to compile {source} with unknown compiler type {compiler_type}"
+    else:
+        # Other sources don't need extra-flags
+        return []
+
+
+class picows_build_ext(build_ext):
+    """
+    setuptools does not allow to specify extra compile args per source file,
+    only per extension.
+    We want picows.picows extensions sources to include all applicable mask_*
+    files and each file should be compiled with it own arch flags. The only way
+    is to hack build_ext command and compile all necessary mask_* files and
+    add them to extra_objects
+    """
+
+    def build_extension(self, ext: Extension):
+        if ext.name == "picows.picows":
             self.mkpath(self.build_temp)
-            extra_objects = list(ext.extra_objects or [])
-            for source, flags_by_compiler in compile_units:
-                extra_postargs = flags_by_compiler.get(self.compiler.compiler_type)
-                if extra_postargs is None:
-                    extra_postargs = flags_by_compiler.get("default")
-                if extra_postargs is None:
-                    continue
-
+            for source in _get_mask_compile_units():
                 objects = self.compiler.compile(
                     [source],
                     output_dir=self.build_temp,
                     macros=ext.define_macros,
                     include_dirs=ext.include_dirs,
                     debug=self.debug,
-                    extra_postargs=extra_postargs,
+                    extra_postargs=_get_extra_postargs(source, self.compiler.compiler_type),
                     depends=ext.depends,
                 )
-                extra_objects.extend(objects)
-
-            ext.extra_objects = extra_objects
+                ext.extra_objects .extend(objects)
 
         super().build_extension(ext)
 
@@ -117,31 +142,25 @@ if with_examples:
                   extra_compile_args=extra_compile_args,
                   extra_link_args=extra_link_args))
 
-cythonized_extensions = cythonize(
-    extensions,
-    compiler_directives={
-        'language_level': vi[0],
-        'freethreading_compatible': True,
-        'profile': False,
-        'nonecheck': False,
-        'boundscheck': False,
-        'wraparound': False,
-        'initializedcheck': False,
-        'optimize.use_switch': False,
-        'cdivision': True,
-        'linetrace': with_coverage
-    },
-    annotate=with_annotate,
-    gdb_debug=with_debug,
-)
-
-for ext in cythonized_extensions:
-    if ext.name == "picows.picows":
-        ext.picows_extra_compile_units = _mask_compile_units()
-
 
 setup(
-    ext_modules=cythonized_extensions,
-    cmdclass={"build_ext": build_ext},
+    ext_modules=cythonize(
+        extensions,
+        compiler_directives={
+            'language_level': vi[0],
+            'freethreading_compatible': True,
+            'profile': False,
+            'nonecheck': False,
+            'boundscheck': False,
+            'wraparound': False,
+            'initializedcheck': False,
+            'optimize.use_switch': False,
+            'cdivision': True,
+            'linetrace': with_coverage
+        },
+        annotate=with_annotate,
+        gdb_debug=with_debug,
+    ),
+    cmdclass={"build_ext": picows_build_ext},
     include_package_data=True,
 )
