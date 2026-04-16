@@ -1,6 +1,6 @@
 #include "compat.h"
 
-#if defined(ARCH_NEON) && !defined(__WINDOWS__)
+#if defined(ARCH_NEON) && !defined(_WIN32)
 #include <arm_neon.h>
 
 size_t apply_mask_neon(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)

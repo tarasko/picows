@@ -42,7 +42,7 @@
     #include <arpa/inet.h>
     #include <sys/endian.h>
     #define be64toh(x) betoh64(x)
-#elif defined(__WINDOWS__)
+#elif defined(_WIN32)
     #include <winsock2.h>
     #if BYTE_ORDER == LITTLE_ENDIAN
         #define be64toh(x) ntohll(x)
