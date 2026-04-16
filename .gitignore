@@ -3,6 +3,7 @@ picows.egg-info
 *.so
 *.pyd
 *.c
+!picows/mask_*.c
 __pycache__
 *.html
 dist

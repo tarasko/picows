@@ -39,7 +39,7 @@ cdef:
     bytes _WS_KEY = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
-cdef extern from "picows_compat.h" nogil:
+cdef extern from "compat.h" nogil:
     cdef int PLATFORM_IS_APPLE
     cdef int PLATFORM_IS_LINUX
     cdef int PLATFORM_IS_WINDOWS

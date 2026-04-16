@@ -1,8 +1,8 @@
 import os
+import platform
 import sys
-import sysconfig
-from pathlib import Path
 from Cython.Build import cythonize
+from setuptools.command.build_ext import build_ext as _build_ext
 from setuptools import Extension, setup
 
 vi = sys.version_info
@@ -49,9 +49,59 @@ else:
     extra_link_args = None
 
 
+def _mask_compile_units():
+    if os.name == 'nt':
+        return []
+
+    machine = platform.machine().lower()
+    if machine in {"x86_64", "amd64", "i386", "i686", "x86"}:
+        return [
+            ("picows/mask_sse2.c", {"unix": ["-msse2"]}),
+            ("picows/mask_avx2.c", {"unix": ["-mavx2"]}),
+            ("picows/mask_avx512.c", {"unix": ["-mavx512f"]}),
+        ]
+
+    if machine in {"aarch64", "arm64", "armv7l", "armv8l"}:
+        return [
+            ("picows/mask_neon.c", {"unix": []}),
+        ]
+
+    return []
+
+
+class build_ext(_build_ext):
+    def build_extension(self, ext):
+        compile_units = getattr(ext, "picows_extra_compile_units", None)
+        if compile_units:
+            self.mkpath(self.build_temp)
+            extra_objects = list(ext.extra_objects or [])
+            for source, flags_by_compiler in compile_units:
+                extra_postargs = flags_by_compiler.get(self.compiler.compiler_type)
+                if extra_postargs is None:
+                    extra_postargs = flags_by_compiler.get("default")
+                if extra_postargs is None:
+                    continue
+
+                objects = self.compiler.compile(
+                    [source],
+                    output_dir=self.build_temp,
+                    macros=ext.define_macros,
+                    include_dirs=ext.include_dirs,
+                    debug=self.debug,
+                    extra_postargs=extra_postargs,
+                    depends=ext.depends,
+                )
+                extra_objects.extend(objects)
+
+            ext.extra_objects = extra_objects
+
+        super().build_extension(ext)
+
+
 extensions = [
-    Extension("picows.picows", ["picows/picows.pyx"],
+    Extension("picows.picows", ["picows/picows.pyx", "picows/mask_dispatch.c"],
               libraries=libs, define_macros=macros,
+              depends=["picows/compat.h"],
               extra_compile_args=extra_compile_args,
               extra_link_args=extra_link_args),
 ]
@@ -62,24 +112,32 @@ if with_examples:
                   libraries=libs, define_macros=macros,
                   extra_compile_args=extra_compile_args,
                   extra_link_args=extra_link_args))
-    
+
+cythonized_extensions = cythonize(
+    extensions,
+    compiler_directives={
+        'language_level': vi[0],
+        'freethreading_compatible': True,
+        'profile': False,
+        'nonecheck': False,
+        'boundscheck': False,
+        'wraparound': False,
+        'initializedcheck': False,
+        'optimize.use_switch': False,
+        'cdivision': True,
+        'linetrace': with_coverage
+    },
+    annotate=with_annotate,
+    gdb_debug=with_debug,
+)
+
+for ext in cythonized_extensions:
+    if ext.name == "picows.picows":
+        ext.picows_extra_compile_units = _mask_compile_units()
+
+
 setup(
-    ext_modules=cythonize(
-        extensions,
-        compiler_directives={
-            'language_level': vi[0],
-            'freethreading_compatible': True,
-            'profile': False,
-            'nonecheck': False,
-            'boundscheck': False,
-            'wraparound': False,
-            'initializedcheck': False,
-            'optimize.use_switch': False,
-            'cdivision': True,
-            'linetrace': with_coverage
-        },
-        annotate=with_annotate,
-        gdb_debug=with_debug,
-    ),
+    ext_modules=cythonized_extensions,
+    cmdclass={"build_ext": build_ext},
     include_package_data=True,
 )
