@@ -95,6 +95,24 @@ static int has_sse2(void)
 }
 #endif
 
+const char* get_apply_mask_fast_impl_name(void)
+{
+#if defined(ARCH_X86) && (defined(_MSC_VER) || defined(__GNUC__) || defined(__clang__))
+    if (has_avx512f())
+        return "avx512";
+    else if (has_avx2())
+        return "avx2";
+    else if (has_sse2())
+        return "sse2";
+    else
+        return "generic";
+#elif defined(__ARM_NEON) && !defined(__WINDOWS__)
+    return "neon"
+#else
+    return "generic";
+#endif
+}
+
 apply_mask_fn get_apply_mask_fast_fn(void)
 {
 #if defined(ARCH_X86) && (defined(_MSC_VER) || defined(__GNUC__) || defined(__clang__))
@@ -130,3 +148,4 @@ size_t get_apply_mask_fast_alignment(void)
     return 8;
 #endif
 }
+
