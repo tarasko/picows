@@ -89,17 +89,17 @@ cdef uint8_t* _mask_payload(uint8_t* input, size_t input_len, uint32_t mask, uin
 
 
 cdef _unpack_buffer(object buffer, char** ptr_out, Py_ssize_t* size_out):
-    if buffer is None:
+    cdef Py_buffer pybuf
+
+    if buffer is not None:
+        PyObject_GetBuffer(buffer, &pybuf, PyBUF_SIMPLE)
+        ptr_out[0] = <char *> pybuf.buf
+        size_out[0] = pybuf.len
+        # We can already release because we still keep the reference to the message
+        PyBuffer_Release(&pybuf)
+    else:
         ptr_out[0] = NULL
         size_out[0] = 0
-        return
-
-    cdef Py_buffer pybuf
-    PyObject_GetBuffer(buffer, &pybuf, PyBUF_SIMPLE)
-    ptr_out[0] = <char*>pybuf.buf
-    size_out[0] = pybuf.len
-    # We can already release because we still keep the reference to the message
-    PyBuffer_Release(&pybuf)
 
 
 cdef _is_aiofn_transport(transport):
