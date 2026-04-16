@@ -4,45 +4,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#ifndef EWOULDBLOCK
-    #define EWOULDBLOCK EAGAIN
-#endif
-
-#ifndef ESHUTDOWN
-    #define ESHUTDOWN EPIPE
-#endif
-
-#if (defined(_WIN16) || defined(_WIN32) || defined(_WIN64)) && !defined(__WINDOWS__)
-    #define __WINDOWS__
-    #define PLATFORM_IS_WINDOWS 1
-#else
-    #define PLATFORM_IS_WINDOWS 0
-#endif
-
-#ifdef __APPLE__
-    #define PLATFORM_IS_APPLE 1
-#else
-    #define PLATFORM_IS_APPLE 0
-#endif
-
-#ifdef __linux__
-    #define PLATFORM_IS_LINUX 1
-#else
-    #define PLATFORM_IS_LINUX 0
-#endif
-
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
   #define ARCH_X86
 #endif
 
-#if defined(__aarch64__) || defined(__arm__) || defined(_M_ARM) || defined(_M_ARM64)
+#if defined(__aarch64__) || defined(__arm__) || defined(_M_ARM) || defined(_M_ARM64) || defined(__ARM_NEON)
   #define ARCH_ARM
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
   #define MAYBE_UNUSED __attribute__((unused))
-#elif defined(_MSC_VER)
-  #define MAYBE_UNUSED
 #else
   #define MAYBE_UNUSED
 #endif
@@ -78,7 +49,6 @@
 #define PICOWS_MIN(a, b) ((a) < (b) ? (a) : (b))
 
 #ifdef __WINDOWS__
-
     #include <winsock2.h>
     #define PICOWS_SOCKET_ERROR SOCKET_ERROR
 
