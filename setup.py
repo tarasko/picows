@@ -50,15 +50,19 @@ else:
 
 
 def _mask_compile_units():
-    if os.name == 'nt':
-        return []
-
     machine = platform.machine().lower()
-    if machine in {"x86_64", "amd64", "i386", "i686", "x86"}:
+    if machine in {"x86_64", "amd64", "x64"}:
         return [
-            ("picows/mask_sse2.c", {"unix": ["-msse2"]}),
-            ("picows/mask_avx2.c", {"unix": ["-mavx2"]}),
-            ("picows/mask_avx512.c", {"unix": ["-mavx512f"]}),
+            ("picows/mask_sse2.c", {"unix": ["-msse2"], "mingw32": ["-msse2"], "msvc": []}),
+            ("picows/mask_avx2.c", {"unix": ["-mavx2"], "mingw32": ["-mavx2"], "msvc": ["/arch:AVX2"]}),
+            ("picows/mask_avx512.c", {"unix": ["-mavx512f"], "mingw32": ["-mavx512f"], "msvc": ["/arch:AVX512"]}),
+        ]
+
+    if machine in {"i386", "i686", "x86"}:
+        return [
+            ("picows/mask_sse2.c", {"unix": ["-msse2"], "mingw32": ["-msse2"], "msvc": ["/arch:SSE2"]}),
+            ("picows/mask_avx2.c", {"unix": ["-mavx2"], "mingw32": ["-mavx2"], "msvc": ["/arch:AVX2"]}),
+            ("picows/mask_avx512.c", {"unix": ["-mavx512f"], "mingw32": ["-mavx512f"], "msvc": ["/arch:AVX512"]}),
         ]
 
     if machine in {"aarch64", "arm64", "armv7l", "armv8l"}:

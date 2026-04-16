@@ -1,6 +1,6 @@
 #include "compat.h"
 
-#if defined(ARCH_X86) && !defined(__WINDOWS__)
+#if defined(ARCH_X86)
 #include <immintrin.h>
 
 size_t apply_mask_avx512(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
