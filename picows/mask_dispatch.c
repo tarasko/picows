@@ -107,7 +107,7 @@ const char* get_apply_mask_fast_impl_name(void)
     else
         return "generic";
 #elif defined(__ARM_NEON) && !defined(__WINDOWS__)
-    return "neon"
+    return "neon";
 #else
     return "generic";
 #endif
