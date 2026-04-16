@@ -12,7 +12,7 @@ static int has_avx512f(void) { return __builtin_cpu_supports("avx512f"); }
 static int has_avx2(void) { return __builtin_cpu_supports("avx2"); }
 static int has_sse2(void) { return __builtin_cpu_supports("sse2"); }
 
-#else if defined(_MSC_VER)
+#elif defined(_MSC_VER)
 // msvc is pain, use __cpuidex to get raw information about cpu capabilities
 
 #include <intrin.h>
@@ -107,9 +107,8 @@ const char* get_apply_mask_fast_impl_name(void)
         return "sse2";
 #elif defined(ARCH_NEON)
     return "neon";
-#else
-    return "generic";
 #endif
+    return "generic";
 }
 
 apply_mask_fn get_apply_mask_fast_fn(void)
@@ -123,9 +122,8 @@ apply_mask_fn get_apply_mask_fast_fn(void)
         return &apply_mask_sse2;
 #elif defined(ARCH_NEON)
     return &apply_mask_neon;
-#else
-    return &apply_mask_8;
 #endif
+    return &apply_mask_8;
 }
 
 size_t get_apply_mask_fast_alignment(void)
@@ -139,8 +137,7 @@ size_t get_apply_mask_fast_alignment(void)
         return 64;
 #elif defined(ARCH_NEON)
     return 16;
-#else
-    return 8;
 #endif
+    return 8;
 }
 
