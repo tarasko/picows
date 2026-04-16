@@ -57,7 +57,7 @@
 
 #define PICOWS_MIN(a, b) ((a) < (b) ? (a) : (b))
 
-#ifdef __WINDOWS__
+#ifdef _WIN32
     #include <winsock2.h>
     #define PICOWS_SOCKET_ERROR SOCKET_ERROR
 
