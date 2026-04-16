@@ -4,12 +4,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// __x86_64__ defined by GCC/Clang when compiling for 64-bit x86, also called x86-64 or AMD64.
+// _M_X64     defined by MSVC when compiling for 64-bit x86.
+// __i386__   defined by GCC/Clang when compiling for 32-bit x86.
+// _M_IX86    defined by MSVC when compiling for 32-bit x86.
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
   #define ARCH_X86
 #endif
 
-#if defined(__aarch64__) || defined(__arm__) || defined(_M_ARM) || defined(_M_ARM64) || defined(__ARM_NEON)
-  #define ARCH_ARM
+// __aarch64__  compiling for 64-bit ARM, NEON/AdvSIMD normally baseline
+// __ARM_NEON   NEON intrinsics enabled (gcc, clang)
+// __ARM_NEON__ NEON intrinsics enabled, alternate spelling (some other compilers)
+// _M_ARM64 Defined by MSVC when compiling for Windows ARM64.
+// Windows ARM64 has AdvSIMD/NEON as part of the baseline architecture, so this is generally enough to assume NEON is available on that target.
+#if defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(__aarch64__) || defined(_M_ARM64)
+  #define ARCH_NEON
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
