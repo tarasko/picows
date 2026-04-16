@@ -11,32 +11,30 @@ from hashlib import sha1
 from multidict import CIMultiDict
 
 cimport cython
-from cpython.bytes cimport PyBytes_GET_SIZE, PyBytes_AS_STRING, PyBytes_FromStringAndSize, PyBytes_CheckExact
-from cpython.bytearray cimport PyByteArray_AS_STRING, PyByteArray_GET_SIZE, PyByteArray_CheckExact
+from cpython.bytes cimport PyBytes_AS_STRING, PyBytes_FromStringAndSize
+from cpython.bytearray cimport PyByteArray_AS_STRING, PyByteArray_GET_SIZE
 from cpython.memoryview cimport PyMemoryView_FromMemory
 from cpython.mem cimport PyMem_Malloc, PyMem_Realloc, PyMem_Free
 from cpython.buffer cimport PyBUF_WRITE, PyBUF_READ, PyBUF_SIMPLE, PyObject_GetBuffer, PyBuffer_Release
 from cpython.unicode cimport PyUnicode_FromStringAndSize, PyUnicode_DecodeASCII
 from cpython.pythread cimport PyThread_get_thread_ident
 
-from libc cimport errno
 from libc.string cimport memmove, memcpy
 from libc.stdlib cimport rand
-
 
 from .types import (PICOWS_DEBUG_LL, WSUpgradeRequest, WSUpgradeResponse,
                     WSUpgradeResponseWithListener,
                     WSHandshakeError, WSProtocolError, add_extra_headers)
 
-# When picows would like to disconnect peer (due to protocol violation or other failures), CLOSE frame is sent first.
-# Then disconnect is scheduled with a small delay. Otherwise, some old asyncio versions do not transmit CLOSE frame,
-# despite promising to do so.
-DISCONNECT_AFTER_ERROR_DELAY = 0.01
-
 
 cdef:
+    # When picows would like to disconnect peer (due to protocol violation or other failures), CLOSE frame is sent first.
+    # Then disconnect is scheduled with a small delay. Otherwise, some old asyncio versions do not transmit CLOSE frame,
+    # despite promising to do so.
+    object _DISCONNECT_AFTER_ERROR_DELAY = 0.01
     set _ALLOWED_CLOSE_CODES = {int(i) for i in WSCloseCode}
     bytes _WS_KEY = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+    object _DEBUG_LL = PICOWS_DEBUG_LL
 
 
 cdef extern from "compat.h" nogil:
@@ -344,7 +342,7 @@ cdef class WSTransport:
         self._thread_id = PyThread_get_thread_ident()
         self._socket = underlying_transport.get_extra_info('socket').fileno()
         self._is_aiofn_transport = _is_aiofn_transport(underlying_transport)
-        self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
+        self._log_debug_enabled = self._logger.isEnabledFor(_DEBUG_LL)
 
     cdef _check_thread(self, meth):
         cdef unsigned long curr_thread_id = PyThread_get_thread_ident()
@@ -699,11 +697,11 @@ cdef class WSTransport:
             self.pong_received_at_future = None
 
             if self._log_debug_enabled:
-                self._logger.log(PICOWS_DEBUG_LL,
+                self._logger.log(_DEBUG_LL,
                                  "notify_user_specific_pong_received() for PONG(measure_roundtrip_time), reset expect_pong")
         else:
             if self._log_debug_enabled:
-                self._logger.log(PICOWS_DEBUG_LL,
+                self._logger.log(_DEBUG_LL,
                                  "notify_user_specific_pong_received() for PONG(idle timeout), reset expect_pong")
 
     cdef _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, object extra_headers):
@@ -728,7 +726,7 @@ cdef class WSTransport:
                              b"\r\n" % (request.method, request.path, request.version, headers))
 
         if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "Send upgrade request: %s", initial_handshake)
+            self._logger.log(_DEBUG_LL, "Send upgrade request: %s", initial_handshake)
         self.request = request
         self.underlying_transport.write(initial_handshake)
 
@@ -739,7 +737,7 @@ cdef class WSTransport:
         cdef bytearray response_bytes = response.to_bytes()
 
         if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "Send upgrade response: %s", response_bytes)
+            self._logger.log(_DEBUG_LL, "Send upgrade response: %s", response_bytes)
         self.response = response
         self.underlying_transport.write(response_bytes)
 
@@ -828,8 +826,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
         bint _enable_auto_pong
         bint _enable_auto_ping
-        double _auto_ping_idle_timeout
-        double _auto_ping_reply_timeout
+        object _auto_ping_idle_timeout
+        object _auto_ping_reply_timeout
         WSAutoPingStrategy _auto_ping_strategy
         object _auto_ping_loop_task
         double _last_data_time
@@ -873,7 +871,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         self._host_port = host_port.encode() if host_port is not None else None
         self._ws_path = ws_path.encode() if ws_path else b"/"
         self._logger = logger
-        self._log_debug_enabled = self._logger.isEnabledFor(PICOWS_DEBUG_LL)
+        self._log_debug_enabled = self._logger.isEnabledFor(_DEBUG_LL)
         self.is_client_side = is_client_side
         self._disconnect_on_exception = disconnect_on_exception
         self._disconnect_exception = None
@@ -994,7 +992,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
     def eof_received(self) -> bool:
         if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "EOF marker received")
+            self._logger.log(_DEBUG_LL, "EOF marker received")
         # Returning False here means that the transport should close itself
         return False
 
@@ -1035,7 +1033,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         # after reading data when buffer utilization hits a thresholds.
 
         if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
+            self._logger.log(_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
                              size_hint,
                              self._read_buffer.size - self._f_new_data_start_pos,
                              self._read_buffer.size,
@@ -1048,7 +1046,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
     def buffer_updated(self, Py_ssize_t nbytes):
         if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
+            self._logger.log(_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
                              self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)
 
         self._f_new_data_start_pos += nbytes
@@ -1175,13 +1173,13 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         cdef object sleep = asyncio.sleep
         try:
             if self._log_debug_enabled:
-                self._logger.log(PICOWS_DEBUG_LL, "Auto-ping loop started with idle_timeout=%s, reply_timeout=%s",
+                self._logger.log(_DEBUG_LL, "Auto-ping loop started with idle_timeout=%s, reply_timeout=%s",
                                  self._auto_ping_idle_timeout, self._auto_ping_reply_timeout)
 
             while True:
                 if self._auto_ping_strategy == WSAutoPingStrategy.PING_WHEN_IDLE:
                     now = picows_get_monotonic_time()
-                    idle_delay = self._last_data_time + self._auto_ping_idle_timeout - now
+                    idle_delay = self._last_data_time + <double>self._auto_ping_idle_timeout - now
                     prev_last_data_time = self._last_data_time
                     await sleep(idle_delay)
 
@@ -1189,19 +1187,19 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                         continue
 
                     if self._log_debug_enabled:
-                        self._logger.log(PICOWS_DEBUG_LL, "Send PING because no new data over the last %s seconds", self._auto_ping_idle_timeout)
+                        self._logger.log(_DEBUG_LL, "Send PING because no new data over the last %s seconds", self._auto_ping_idle_timeout)
                 else:
                     await sleep(self._auto_ping_idle_timeout)
 
                     if self._log_debug_enabled:
-                        self._logger.log(PICOWS_DEBUG_LL, "Send periodic PING")
+                        self._logger.log(_DEBUG_LL, "Send periodic PING")
 
                 if self.transport.pong_received_at_future is not None:
                     # measure_roundtrip_time is currently doing it's own ping-pongs
                     # set _last_data_time to now and sleep
                     self._last_data_time = picows_get_monotonic_time()
                     if self._log_debug_enabled:
-                        self._logger.log(PICOWS_DEBUG_LL, "Hold back PING sending, because measure_roundtrip_time is in progress")
+                        self._logger.log(_DEBUG_LL, "Hold back PING sending, because measure_roundtrip_time is in progress")
 
                     continue
 
@@ -1220,15 +1218,15 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                     # But don't wait for any tcp confirmation, use abort()
                     # because normal disconnect may hang until OS TCP/IP timeout
                     # for ACK is fired.
-                    self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.underlying_transport.abort)
+                    self._loop.call_later(_DISCONNECT_AFTER_ERROR_DELAY, self.transport.underlying_transport.abort)
                     break
         except asyncio.CancelledError:
             if self._log_debug_enabled:
-                self._logger.log(PICOWS_DEBUG_LL, "Auto-ping loop cancelled")
+                self._logger.log(_DEBUG_LL, "Auto-ping loop cancelled")
         except:
             self._logger.exception("Auto-ping loop failed, disconnect websocket")
             self.transport.send_close(WSCloseCode.INTERNAL_ERROR, b"an exception occurred in auto-ping loop")
-            self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
+            self._loop.call_later(_DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 
     cdef inline tuple _try_read_upgrade_request(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._read_buffer.data, self._f_new_data_start_pos)
@@ -1247,7 +1245,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             return None, None
 
         if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "New data: %s", data)
+            self._logger.log(_DEBUG_LL, "New data: %s", data)
 
         cdef list lines = <list>raw_headers.split(b"\r\n")
         cdef bytes response_status_line = <bytes>lines[0]
@@ -1357,7 +1355,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         self._f_new_data_start_pos = len(tail)
         self._state = WSParserState.READ_HEADER
         if self._log_debug_enabled:
-            self._logger.log(PICOWS_DEBUG_LL, "WS handshake done, switch to upgraded state")
+            self._logger.log(_DEBUG_LL, "WS handshake done, switch to upgraded state")
 
         return response
 
@@ -1369,12 +1367,12 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             self._logger.error("WS parser error: %s, initiate disconnect", ex.args)
             self._disconnect_exception = ex
             self.transport.send_close(ex.args[0], ex.args[1].encode())
-            self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
+            self._loop.call_later(_DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
         except BaseException as ex:
             self._logger.exception("WS parser failure, initiate disconnect")
             self._disconnect_exception = ex
             self.transport.send_close(WSCloseCode.PROTOCOL_ERROR)
-            self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
+            self._loop.call_later(_DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 
     cdef inline WSFrame _get_next_frame_impl(self): #  -> Optional[WSFrame]
         """Return the next frame from the socket."""
@@ -1514,7 +1512,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             else:
                 self._logger.error("Initiate disconnect because of exception from WSListener.on_ws_connected: %s", str(exc))
             self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
-            self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
+            self._loop.call_later(_DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 
     cdef inline _invoke_on_ws_frame(self, WSFrame frame):
         try:
@@ -1522,7 +1520,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 payload = frame.get_payload_as_bytes()
                 self.transport.send_pong(payload)
                 if self._log_debug_enabled:
-                    self._logger.log(PICOWS_DEBUG_LL, "PING(%s) frame received, replied with PONG", payload)
+                    self._logger.log(_DEBUG_LL, "PING(%s) frame received, replied with PONG", payload)
                 return
 
             if self._enable_auto_ping and self.transport.auto_ping_expect_pong or self.transport.pong_received_at_future is not None:
@@ -1532,10 +1530,10 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                         self.transport.pong_received_at_future.set_result(picows_get_monotonic_time())
                         self.transport.pong_received_at_future = None
                         if self._log_debug_enabled:
-                            self._logger.log(PICOWS_DEBUG_LL, "Received PONG for the previously sent PING(measure_roundtrip_time), reset expect_pong flag")
+                            self._logger.log(_DEBUG_LL, "Received PONG for the previously sent PING(measure_roundtrip_time), reset expect_pong flag")
                     else:
                         if self._log_debug_enabled:
-                            self._logger.log(PICOWS_DEBUG_LL, "Received PONG for the previously sent PING(idle timeout), reset expect_pong flag")
+                            self._logger.log(_DEBUG_LL, "Received PONG for the previously sent PING(idle timeout), reset expect_pong flag")
 
                     return
 
@@ -1552,7 +1550,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                     self._logger.exception("Initiate disconnect because of exception from WSListener.on_ws_frame")
 
                 self.transport.send_close(WSCloseCode.INTERNAL_ERROR)
-                self._loop.call_later(DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
+                self._loop.call_later(_DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
             else:
                 self._logger.exception("Unhandled exception from user's WSListener.on_ws_frame")
 
