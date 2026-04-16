@@ -5,6 +5,10 @@ picows Release History
    :depth: 1
    :local:
 
+1.19.0 ()
+
+* Enable sse2, avx2, avx512 speedups for windows builds
+
 1.18.0 (2026-04-03)
 ------------------
 

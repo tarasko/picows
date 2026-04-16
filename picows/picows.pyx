@@ -39,7 +39,7 @@ cdef:
     bytes _WS_KEY = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
-cdef extern from "picows_compat.h" nogil:
+cdef extern from "compat.h" nogil:
     cdef int PLATFORM_IS_APPLE
     cdef int PLATFORM_IS_LINUX
     cdef int PLATFORM_IS_WINDOWS
@@ -62,6 +62,7 @@ cdef extern from "picows_compat.h" nogil:
     size_t mask_misaligned_bytes_at_front(uint8_t* input, size_t input_len, uint32_t mask, size_t alignment, uint8_t** output)
     size_t apply_mask_4(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
     size_t apply_mask_1(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output)
+    const char* get_apply_mask_fast_impl_name()
     apply_mask_fn get_apply_mask_fast_fn()
     size_t get_apply_mask_fast_alignment()
 
@@ -939,20 +940,23 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
         quickack = sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK) if hasattr(socket, "TCP_QUICKACK") else False
 
+        mask_impl_name = get_apply_mask_fast_impl_name().decode('ascii')
         if self.is_client_side:
-            self._logger.info("WS connection established: %s -> %s, recvbuf=%d, sendbuf=%d, quickack=%d, nodelay=%d",
+            self._logger.info("WS connection established: %s -> %s, recvbuf=%d, sendbuf=%d, quickack=%d, nodelay=%d, mask_impl=%s",
                               sockname, peername,
                               sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF),
                               sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF),
                               quickack,
-                              sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
+                              sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY),
+                              mask_impl_name)
         else:
-            self._logger.info("New connection accepted: %s <- %s, recvbuf=%d, sendbuf=%d, quickack=%d, nodelay=%d",
+            self._logger.info("New connection accepted: %s <- %s, recvbuf=%d, sendbuf=%d, quickack=%d, nodelay=%d, mask_impl=%s",
                               sockname, peername,
                               sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF),
                               sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF),
                               quickack,
-                              sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
+                              sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY),
+                              mask_impl_name)
 
 
         self.transport = WSTransport(self.is_client_side, transport, self._logger, self._loop)

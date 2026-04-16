@@ -47,5 +47,5 @@ __all__ = [
     'ws_create_server',
 ]
 
-__version__ = "1.18.0"
+__version__ = "1.19.0"
 __author__ = "Taras Kozlov"

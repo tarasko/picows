@@ -3,6 +3,7 @@ picows.egg-info
 *.so
 *.pyd
 *.c
+!picows/mask_*.c
 __pycache__
 *.html
 dist
@@ -15,3 +16,4 @@ playground.py
 cython_debug
 coverage.xml
 picows.etl*
+.codex
