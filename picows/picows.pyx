@@ -40,10 +40,6 @@ cdef:
 
 
 cdef extern from "compat.h" nogil:
-    cdef int PLATFORM_IS_APPLE
-    cdef int PLATFORM_IS_LINUX
-    cdef int PLATFORM_IS_WINDOWS
-
     uint32_t ntohl(uint32_t)
     uint32_t htonl(uint32_t)
     uint16_t ntohs(uint16_t)

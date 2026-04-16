@@ -4,45 +4,24 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#ifndef EWOULDBLOCK
-    #define EWOULDBLOCK EAGAIN
-#endif
-
-#ifndef ESHUTDOWN
-    #define ESHUTDOWN EPIPE
-#endif
-
-#if (defined(_WIN16) || defined(_WIN32) || defined(_WIN64)) && !defined(__WINDOWS__)
-    #define __WINDOWS__
-    #define PLATFORM_IS_WINDOWS 1
-#else
-    #define PLATFORM_IS_WINDOWS 0
-#endif
-
-#ifdef __APPLE__
-    #define PLATFORM_IS_APPLE 1
-#else
-    #define PLATFORM_IS_APPLE 0
-#endif
-
-#ifdef __linux__
-    #define PLATFORM_IS_LINUX 1
-#else
-    #define PLATFORM_IS_LINUX 0
-#endif
-
-#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+// __x86_64__ defined by GCC/Clang when compiling for 64-bit x86, also called x86-64 or AMD64.
+// __i386__   defined by GCC/Clang when compiling for 32-bit x86.
+// _M_X64     defined by MSVC when compiling for 64-bit x86.
+// _M_IX86    defined by MSVC when compiling for 32-bit x86.
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
   #define ARCH_X86
 #endif
 
-#if defined(__aarch64__) || defined(__arm__) || defined(_M_ARM) || defined(_M_ARM64)
-  #define ARCH_ARM
+// __ARM_NEON   NEON intrinsics enabled (gcc, clang)
+// __ARM_NEON__ NEON intrinsics enabled, alternate spelling (some other compilers)
+// __aarch64__  defined by GCC/Clang compiling for 64-bit ARM, NEON/AdvSIMD normally baseline
+// _M_ARM64     defined by MSVC when compiling for Windows ARM64, NEON is a baseline architecture
+#if defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(__aarch64__) || defined(_M_ARM64)
+  #define ARCH_NEON
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
   #define MAYBE_UNUSED __attribute__((unused))
-#elif defined(_MSC_VER)
-  #define MAYBE_UNUSED
 #else
   #define MAYBE_UNUSED
 #endif
@@ -62,7 +41,7 @@
     #include <arpa/inet.h>
     #include <sys/endian.h>
     #define be64toh(x) betoh64(x)
-#elif defined(__WINDOWS__)
+#elif defined(_WIN32)
     #include <winsock2.h>
     #if BYTE_ORDER == LITTLE_ENDIAN
         #define be64toh(x) ntohll(x)
@@ -77,8 +56,7 @@
 
 #define PICOWS_MIN(a, b) ((a) < (b) ? (a) : (b))
 
-#ifdef __WINDOWS__
-
+#ifdef _WIN32
     #include <winsock2.h>
     #define PICOWS_SOCKET_ERROR SOCKET_ERROR
 

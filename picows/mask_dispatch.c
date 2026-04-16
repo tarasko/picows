@@ -6,7 +6,7 @@ size_t apply_mask_avx2(uint8_t* input, size_t input_len, size_t start_pos, uint3
 size_t apply_mask_avx512(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output);
 #endif
 
-#if defined(__ARM_NEON) && !defined(__WINDOWS__)
+#if defined(ARCH_NEON)
 size_t apply_mask_neon(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output);
 #endif
 
@@ -106,7 +106,7 @@ const char* get_apply_mask_fast_impl_name(void)
         return "sse2";
     else
         return "generic";
-#elif defined(__ARM_NEON) && !defined(__WINDOWS__)
+#elif defined(ARCH_NEON)
     return "neon";
 #else
     return "generic";
@@ -124,7 +124,7 @@ apply_mask_fn get_apply_mask_fast_fn(void)
         return &apply_mask_sse2;
     else
         return &apply_mask_8;
-#elif defined(__ARM_NEON) && !defined(__WINDOWS__)
+#elif defined(ARCH_NEON)
     return &apply_mask_neon;
 #else
     return &apply_mask_8;
@@ -142,7 +142,7 @@ size_t get_apply_mask_fast_alignment(void)
         return 64;
     else
         return 8;
-#elif defined(__ARM_NEON) && !defined(__WINDOWS__)
+#elif defined(ARCH_NEON)
     return 16;
 #else
     return 8;
