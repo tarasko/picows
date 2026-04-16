@@ -84,9 +84,9 @@
 
 typedef size_t (*apply_mask_fn)(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output);
 
-const char* get_apply_mask_fast_impl_name(void);
-apply_mask_fn get_apply_mask_fast_fn(void);
-size_t get_apply_mask_fast_alignment(void);
+const char*     get_apply_mask_fast_impl_name(void);
+apply_mask_fn   get_apply_mask_fast_fn(void);
+size_t          get_apply_mask_fast_alignment(void);
 
 static inline size_t rotate_right(uint32_t value, size_t num_bytes)
 {

@@ -4,13 +4,17 @@
 size_t apply_mask_sse2(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output);
 size_t apply_mask_avx2(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output);
 size_t apply_mask_avx512(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output);
-#endif
 
-#if defined(ARCH_NEON)
-size_t apply_mask_neon(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output);
-#endif
+#if defined(__GNUC__) || defined(__clang__)
+// gcc/clang provide convenient __builtin_cpu_supports
 
-#if defined(ARCH_X86) && defined(_MSC_VER)
+static int has_avx512f(void) { return __builtin_cpu_supports("avx512f"); }
+static int has_avx2(void) { return __builtin_cpu_supports("avx2"); }
+static int has_sse2(void) { return __builtin_cpu_supports("sse2"); }
+
+#else if defined(_MSC_VER)
+// msvc is pain, use __cpuidex to get raw information about cpu capabilities
+
 #include <intrin.h>
 
 static void get_cpuid(int leaf, int subleaf, int regs[4])
@@ -78,34 +82,29 @@ static int has_sse2(void)
     get_cpuid(1, 0, regs);
     return (regs[3] & (1 << 26)) != 0;
 }
-#elif defined(ARCH_X86) && (defined(__GNUC__) || defined(__clang__))
-static int has_avx512f(void)
-{
-    return __builtin_cpu_supports("avx512f");
-}
 
-static int has_avx2(void)
-{
-    return __builtin_cpu_supports("avx2");
-}
+#else
 
-static int has_sse2(void)
-{
-    return __builtin_cpu_supports("sse2");
-}
+static int has_avx512f(void) { return 0; }
+static int has_avx2(void) { return 0; }
+static int has_sse2(void) { return 0; }
+
+#endif
+#endif // defined(ARCH_X86)
+
+#if defined(ARCH_NEON)
+size_t apply_mask_neon(uint8_t* input, size_t input_len, size_t start_pos, uint32_t mask, uint8_t* output);
 #endif
 
 const char* get_apply_mask_fast_impl_name(void)
 {
-#if defined(ARCH_X86) && (defined(_MSC_VER) || defined(__GNUC__) || defined(__clang__))
+#if defined(ARCH_X86)
     if (has_avx512f())
         return "avx512";
     else if (has_avx2())
         return "avx2";
     else if (has_sse2())
         return "sse2";
-    else
-        return "generic";
 #elif defined(ARCH_NEON)
     return "neon";
 #else
@@ -115,15 +114,13 @@ const char* get_apply_mask_fast_impl_name(void)
 
 apply_mask_fn get_apply_mask_fast_fn(void)
 {
-#if defined(ARCH_X86) && (defined(_MSC_VER) || defined(__GNUC__) || defined(__clang__))
+#if defined(ARCH_X86)
     if (has_avx512f())
         return &apply_mask_avx512;
     else if (has_avx2())
         return &apply_mask_avx2;
     else if (has_sse2())
         return &apply_mask_sse2;
-    else
-        return &apply_mask_8;
 #elif defined(ARCH_NEON)
     return &apply_mask_neon;
 #else
@@ -133,15 +130,13 @@ apply_mask_fn get_apply_mask_fast_fn(void)
 
 size_t get_apply_mask_fast_alignment(void)
 {
-#if defined(ARCH_X86) && (defined(_MSC_VER) || defined(__GNUC__) || defined(__clang__))
+#if defined(ARCH_X86)
     if (has_avx512f())
         return 64;
     else if (has_avx2())
         return 64;
     else if (has_sse2())
         return 64;
-    else
-        return 8;
 #elif defined(ARCH_NEON)
     return 16;
 #else
