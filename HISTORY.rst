@@ -8,6 +8,8 @@ picows Release History
 1.19.0 ()
 
 * Enable sse2, avx2, avx512 speedups for windows builds
+* Disconnect if unknown frame opcode is received (RFC 6455 requirement)
+* Disconnect if client doesn't mask frame or server mask (RFC 6455 requirement)
 
 1.18.0 (2026-04-03)
 ------------------

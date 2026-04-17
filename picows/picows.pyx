@@ -1394,6 +1394,21 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             rsv2 = (first_byte >> 5) & 1
             rsv3 = (first_byte >> 4) & 1
             self._f_msg_type = <WSMsgType>(first_byte & 0xF)
+            if self._f_msg_type not in (
+                    WSMsgType.TEXT,
+                    WSMsgType.BINARY,
+                    WSMsgType.PING,
+                    WSMsgType.PONG,
+                    WSMsgType.CLOSE,
+                    WSMsgType.CONTINUATION):
+                mem_dump = PyBytes_FromStringAndSize(
+                    self._read_buffer.data + self._f_curr_state_start_pos,
+                    max(self._f_new_data_start_pos - self._f_curr_state_start_pos, 64)
+                )
+                raise WSProtocolError(
+                    WSCloseCode.PROTOCOL_ERROR,
+                    f"Received frame with invalid opcode, opcode={self._f_msg_type}: {mem_dump}",
+                )
 
             # frame-fin = %x0 ; more frames of this message follow
             #           / %x1 ; final frame of this message
@@ -1416,6 +1431,17 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 )
 
             self._f_has_mask = (second_byte >> 7) & 1
+            if self.is_client_side and self._f_has_mask:
+                raise WSProtocolError(
+                    WSCloseCode.PROTOCOL_ERROR,
+                    "Received masked frame from server, RFC 6455 section 5.1 forbids this",
+                )
+            elif not self.is_client_side and not self._f_has_mask:
+                raise WSProtocolError(
+                    WSCloseCode.PROTOCOL_ERROR,
+                    "Received un-masked frame from client, RFC 6455 section 5.1 forbids this",
+                )
+
             self._f_payload_length_flag = second_byte & 0x7F
 
             if self._f_msg_type > 0x7 and self._f_payload_length_flag > 125:
