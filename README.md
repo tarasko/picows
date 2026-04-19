@@ -29,9 +29,6 @@ Originally a part of algorithmic trading project, it has a very efficient C impl
 
 With picows you get unmatch, best in its class, latency and throughput!
 
-The library was designed and hand-made by the industry professionals. The code is well-tested and easily readable, not AI slop.
-
-
 [![Benchmark chart](https://raw.githubusercontent.com/tarasko/websocket-benchmark/master/results/benchmark-Linux-256.png)](https://github.com/tarasko/websocket-benchmark/blob/master)
 
 The above chart shows the performance of various echo clients communicating with the same high-peformance C++ server through a loopback interface.
