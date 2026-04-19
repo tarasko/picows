@@ -24,10 +24,10 @@
 
 
 ## :zap: Introduction
-**picows** is an ultra-fast and lightweight Python WebSockets client and server library for asyncio.
-Originally a part of algorithmic trading project, it has a very efficient C implementation, zero-copy interface and all possible speedups for the common modern CPU architectures.
+**picows** is an ultra-fast, lightweight Python WebSockets client and server library for asyncio.
+Originally developed as part of an algorithmic trading project, it feature a very efficient C implementation, a zero-copy interface and all possible speedups for the common modern CPU architectures.
 
-With picows you get unmatch, best in its class, latency and throughput!
+With picows, you get unmatched, best-in-class latency and throughput!
 
 [![Benchmark chart](https://raw.githubusercontent.com/tarasko/websocket-benchmark/master/results/benchmark-Linux-256.png)](https://github.com/tarasko/websocket-benchmark/blob/master)
 
