@@ -1,5 +1,7 @@
 import asyncio
 import os
+import struct
+from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 
 import async_timeout
@@ -34,7 +36,7 @@ async def test_max_frame_size_violation_huge_frame_from_client(use_aiofastnet, s
 
 async def test_max_frame_size_violation_huge_frame_from_server(use_aiofastnet, ssl_context):
     async with WSServer(ssl=ssl_context.server, use_aiofastnet=use_aiofastnet) as server:
-        with pytest.raises(picows.WSError, match="violates max allowed size"):
+        with pytest.raises(picows.WSError, match="Received frame with payload size exceeding max allowed size"):
             async with WSClient(server, ssl_context=ssl_context.client, use_aiofastnet=use_aiofastnet, max_frame_size=64*1024) as client:
                 client.transport.send(picows.WSMsgType.TEXT, b"random_100000")
                 async with async_timeout.timeout(1.0):
@@ -124,3 +126,66 @@ async def test_custom_response_error():
         with pytest.raises(picows.WSError, match="status 101", check=exc_check):
             async with WSClient(server) as client:
                 pass
+
+
+async def test_invalid_frame_opcode():
+    async with WSServer() as server:
+        async with WSClient(server) as client:
+            client.transport.send(0x4, None)
+            frame = await client.get_message()
+            assert frame.msg_type == picows.WSMsgType.CLOSE
+            assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
+            assert b"Received frame with invalid opcode" in frame.close_message
+            await client.transport.wait_disconnected()
+
+
+async def test_unmasked_frame_from_client():
+    async with WSServer() as server:
+        async with WSClient(server) as client:
+            client.transport.send(picows.WSMsgType.BINARY, b"1234")
+            empty_unmasked_bin_frame = struct.pack("!BB", 0x82, 0x00)
+            client.transport.underlying_transport.write(empty_unmasked_bin_frame)
+            frame = await client.get_message()
+            assert frame.msg_type == picows.WSMsgType.CLOSE
+            assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
+            assert b"Received un-masked frame from client" in frame.close_message
+            await client.transport.wait_disconnected()
+
+
+async def test_masked_frame_from_server():
+    async with WSServer() as server:
+        async with WSClient(server) as client:
+            empty_masked_bin_frame = struct.pack("!BBI", 0x82, 0x80, 0x12345678)
+            # client.transport.underlying_transport.write(empty_unmasked_bin_frame)
+            # frame = await client.get_message()
+            # assert frame.msg_type == picows.WSMsgType.CLOSE
+            # assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
+            # assert b"Received un-masked frame from client" in frame.close_message
+            # await client.transport.wait_disconnected()
+
+
+async def test_wrong_thread_assert():
+    loop = asyncio.get_running_loop()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        async with WSServer() as server:
+            async with WSClient(server) as client:
+                msg = b"ABCDEFGHIKLMNOPQ"
+                msg_ba = bytearray(b"asasdfbasdfbaskjdfasd")
+
+                with pytest.raises(RuntimeError, match="WSTransport.send called from a wrong thread"):
+                    await loop.run_in_executor(executor, client.transport.send, picows.WSMsgType.BINARY, msg)
+
+                with pytest.raises(RuntimeError, match="WSTransport.send_ping called from a wrong thread"):
+                    await loop.run_in_executor(executor, client.transport.send_ping)
+
+                with pytest.raises(RuntimeError, match="WSTransport.send_pong called from a wrong thread"):
+                    await loop.run_in_executor(executor, client.transport.send_pong)
+
+                with pytest.raises(RuntimeError, match="WSTransport.send_close called from a wrong thread"):
+                    await loop.run_in_executor(executor, client.transport.send_close)
+
+                with pytest.raises(RuntimeError, match="WSTransport.send_reuse_external_bytearray called from a wrong thread"):
+                    await loop.run_in_executor(executor, client.transport.send_reuse_external_bytearray, picows.WSMsgType.BINARY, msg_ba, 14)
+
+                with pytest.raises(RuntimeError, match="WSTransport.disconnect called from a wrong thread"):
+                    await loop.run_in_executor(executor, client.transport.disconnect)

@@ -1411,13 +1411,9 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                     WSMsgType.PONG,
                     WSMsgType.CLOSE,
                     WSMsgType.CONTINUATION):
-                mem_dump = PyBytes_FromStringAndSize(
-                    self._read_buffer.data + self._f_curr_state_start_pos,
-                    max(self._f_new_data_start_pos - self._f_curr_state_start_pos, 64)
-                )
                 raise WSProtocolError(
                     WSCloseCode.PROTOCOL_ERROR,
-                    f"Received frame with invalid opcode, opcode={self._f_msg_type}: {mem_dump}",
+                    f"Received frame with invalid opcode={self._f_msg_type:#x}",
                 )
 
             # frame-fin = %x0 ; more frames of this message follow
@@ -1425,13 +1421,9 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             # rsv1 is used by some extensions to indicate compressed frame
             # rsv2, rsv3 are not used, check and throw if they are set
             if rsv2 or rsv3:
-                mem_dump = PyBytes_FromStringAndSize(
-                    self._read_buffer.data + self._f_curr_state_start_pos,
-                    max(self._f_new_data_start_pos - self._f_curr_state_start_pos, 64)
-                )
                 raise WSProtocolError(
                     WSCloseCode.PROTOCOL_ERROR,
-                    f"Received frame with non-zero reserved bits, rsv2={rsv2}, rsv3={rsv3}, msg_type={self._f_msg_type}: {mem_dump}",
+                    f"Received frame with non-zero reserved bits, rsv2={rsv2}, rsv3={rsv3}, opcode={self._f_msg_type:#x}",
                 )
 
             if self._f_msg_type > 0x7 and not self._f_fin:
@@ -1454,10 +1446,11 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
             self._f_payload_length_flag = second_byte & 0x7F
 
-            if self._f_msg_type > 0x7 and self._f_payload_length_flag > 125:
+            if (self._f_msg_type in (WSMsgType.PING, WSMsgType.PONG, WSMsgType.CLOSE)
+                    and self._f_payload_length_flag > 125):
                 raise WSProtocolError(
                     WSCloseCode.PROTOCOL_ERROR,
-                    "Control frame payload cannot be larger than 125 bytes",
+                    f"Received control frame with payload size > 125 bytes, opcode={self._f_msg_type:#x}",
                 )
 
             self._f_curr_state_start_pos += 2
@@ -1487,7 +1480,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             if self._f_payload_length > self._max_frame_size:
                 raise WSProtocolError(
                     WSCloseCode.MESSAGE_TOO_BIG,
-                    f"Frame payload size violates max allowed size "
+                    f"Received frame with payload size exceeding max allowed size, "
                     f"{self._f_payload_length} > {self._max_frame_size}")
 
         # read payload mask
@@ -1528,11 +1521,11 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             if frame.msg_type == WSMsgType.CLOSE:
                 if frame.get_close_code() < 3000 and frame.get_close_code() not in _ALLOWED_CLOSE_CODES:
                     raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
-                                         f"Invalid close code: {frame.get_close_code()}")
+                                         f"Received CLOSE with invalid close code: {frame.get_close_code()}")
 
-                if frame.payload_size > 0 and frame.payload_size < 2:
+                if frame.payload_size == 1:
                     raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
-                                         f"Invalid close frame: {frame.fin} {frame.msg_type} {frame.get_payload_as_bytes()}")
+                                         f"Received CLOSE with invalid close code size: {frame.fin} {frame.msg_type} {frame.get_payload_as_bytes()}")
 
             return frame
 
