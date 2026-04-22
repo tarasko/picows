@@ -37,6 +37,14 @@ cdef:
     object _DEBUG_LL = PICOWS_DEBUG_LL
 
 
+class _NotImplemented(Exception):
+    """Internal exception used by picows to indicate that the default
+    implementation of some WSListener methods.
+    Not really an error, picows will handle it internaly and continue as usual.
+    """
+    pass
+
+
 cdef extern from "compat.h" nogil:
     uint32_t ntohl(uint32_t)
     uint32_t htonl(uint32_t)
@@ -315,13 +323,13 @@ cdef class WSListener:
         This is a purely informative callback. You can ignore it and just keep writing.
         The data will be queued and eventually send anyway.
         """
-        pass
+        raise _NotImplemented()
 
     cpdef resume_writing(self):
         """
         Called when the underlying transport’s buffer drains below the low watermark.
         """
-        pass
+        raise _NotImplemented()
 
 
 cdef class WSTransport:
@@ -997,16 +1005,18 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         return False
 
     def pause_writing(self):
-        if self._log_debug_enabled:
-            self._logger.debug("Protocol writing pause requested, crossed writing buffer high-watermark")
         if self.listener is not None:
-            self.listener.pause_writing()
+            try:
+                self.listener.pause_writing()
+            except _NotImplemented:
+                self._logger.warning("Protocol writing pause requested, crossed writing buffer high-watermark")
 
     def resume_writing(self):
-        if self._log_debug_enabled:
-            self._logger.debug("Protocol writing resume requested, crossed writing buffer low-watermark,")
         if self.listener is not None:
-            self.listener.resume_writing()
+            try:
+                self.listener.resume_writing()
+            except _NotImplemented:
+                self._logger.warning("Protocol writing resume requested, crossed writing buffer low-watermark")
 
     def is_buffered_protocol(self):
         return True
