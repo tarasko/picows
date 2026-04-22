@@ -1083,6 +1083,12 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         if frame is None:
             return
 
+        # Parsing next frame may cause WSProtocolError.
+        # In such case we do not deliver current frame to user.
+        # Instead, the logic will send CLOSE and close connection.
+        # I don't know if it is a bug or a feature.
+        # Will re-visit this when somebody complain.
+
         cdef WSFrame next_frame = self._get_next_frame()
         if next_frame is None:
             frame.last_in_buffer = 1

@@ -152,15 +152,15 @@ async def test_unmasked_frame_from_client():
 
 
 async def test_masked_frame_from_server():
-    async with WSServer() as server:
-        async with WSClient(server) as client:
+    class ServerClientListener(picows.WSListener):
+        def on_ws_connected(self, transport: picows.WSTransport):
             empty_masked_bin_frame = struct.pack("!BBI", 0x82, 0x80, 0x12345678)
-            # client.transport.underlying_transport.write(empty_unmasked_bin_frame)
-            # frame = await client.get_message()
-            # assert frame.msg_type == picows.WSMsgType.CLOSE
-            # assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
-            # assert b"Received un-masked frame from client" in frame.close_message
-            # await client.transport.wait_disconnected()
+            transport.underlying_transport.write(empty_masked_bin_frame)
+
+    async with WSServer(lambda _: ServerClientListener()) as server:
+        async with WSClient(server) as client:
+            with pytest.raises(picows.WSProtocolError, match="Received masked frame from server"):
+                await client.transport.wait_disconnected()
 
 
 async def test_wrong_thread_assert():
