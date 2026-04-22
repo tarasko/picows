@@ -38,9 +38,9 @@ cdef:
 
 
 class _NotImplemented(Exception):
-    """Internal exception used by picows to indicate that the default
-    implementation of some WSListener methods.
-    Not really an error, picows will handle it internaly and continue as usual.
+    """Internal exception used by picows to indicate the default implementation
+    of some WSListener methods. Not really an error, picows will handle it
+    internally and continue as usual.
     """
     pass
 
