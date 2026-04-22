@@ -170,6 +170,6 @@ async def WSClient(server, listener_factory=None, **kwargs):
         transport.disconnect(False)
         try:
             await transport.wait_disconnected()
-        except TestException:
+        except (TestException, picows.WSError):
             pass
 
