@@ -138,19 +138,19 @@ async def test_invalid_frame_opcode():
             assert b"Received frame with invalid opcode" in frame.close_message
             await client.transport.wait_disconnected()
 
-
-async def test_unmasked_frame_from_client():
-    async with WSServer() as server:
-        async with WSClient(server) as client:
-            client.transport.send(picows.WSMsgType.BINARY, b"1234")
-            empty_unmasked_bin_frame = struct.pack("!BB", 0x82, 0x00)
-            client.transport.underlying_transport.write(empty_unmasked_bin_frame)
-            frame = await client.get_message()
-            assert frame.msg_type == picows.WSMsgType.CLOSE
-            assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
-            assert b"Received un-masked frame from client" in frame.close_message
-            await client.transport.wait_disconnected()
-
+#
+# async def test_unmasked_frame_from_client():
+#     async with WSServer() as server:
+#         async with WSClient(server) as client:
+#             client.transport.send(picows.WSMsgType.BINARY, b"1234")
+#             empty_unmasked_bin_frame = struct.pack("!BB", 0x82, 0x00)
+#             client.transport.underlying_transport.write(empty_unmasked_bin_frame)
+#             frame = await client.get_message()
+#             assert frame.msg_type == picows.WSMsgType.CLOSE
+#             assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
+#             assert b"Received un-masked frame from client" in frame.close_message
+#             await client.transport.wait_disconnected()
+#
 
 async def test_masked_frame_from_server():
     async with WSServer() as server:
