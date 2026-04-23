@@ -283,20 +283,25 @@ Check out `okx_roundtrip_time.py <https://raw.githubusercontent.com/tarasko/pico
 example of how to measure RTT to a popular OKX crypto-currency exchange and initiate
 reconnect if it does not satisfy a predefined threshold.
 
-Dealing with slow clients
--------------------------
+Dealing with slow peers
+-----------------------
 
-When a server pushes messages faster than a client can consume them, the write side of
-the connection eventually hits transport high watermark limits.
-On the server side, per-client listeners can react to this by overriding
-:any:`WSListener.pause_writing` and :any:`WSListener.resume_writing`.
+When one endpoint sends messages faster than the remote peer can consume them,
+the write side of the connection eventually hits transport high watermark limits.
+This can happen in either direction: a server can be slowed down by a client, and
+a client can be slowed down by a server.
+
+Each connection has its own listener, and that listener can react to write-side
+backpressure by overriding :any:`WSListener.pause_writing` and
+:any:`WSListener.resume_writing`.
 
 This allows implementing backpressure-aware producers: pause message generation
 while writing is paused and resume only when the transport drains.
 
 `slow_client_backpressure.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/slow_client_backpressure.py>`_
-demonstrates how ``pause_writing``/``resume_writing`` are triggered and how to stop
-the producer while the client is slow.
+demonstrates the common server-push case: ``pause_writing``/``resume_writing`` are
+triggered on the server-side listener when the client is slow, and the producer
+stops sending until the transport drains.
 
 Using Cython interface
 ----------------------
