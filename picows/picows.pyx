@@ -200,6 +200,8 @@ cdef class WSFrame:
     def __str__(self):
         return (f"WSFrame({WSMsgType(self.msg_type).name}, fin={True if self.fin else False}, "
                 f"rsv1={True if self.rsv1 else False}, "
+                f"rsv2={True if self.rsv2 else False}, "
+                f"rsv3={True if self.rsv3 else False}, "
                 f"last_in_buffer={True if self.last_in_buffer else False}, "
                 f"payload_sz={self.payload_size}, tail_sz={self.tail_size})")
 
@@ -855,6 +857,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         uint32_t _f_mask
         uint8_t _f_fin
         uint8_t _f_rsv1
+        uint8_t _f_rsv2
+        uint8_t _f_rsv3
         uint8_t _f_has_mask
         uint8_t _f_payload_length_flag
 
@@ -920,6 +924,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         self._f_mask = 0
         self._f_fin = 0
         self._f_rsv1 = 0
+        self._f_rsv2 = 0
+        self._f_rsv3 = 0
         self._f_has_mask = 0
         self._f_payload_length_flag = 0
 
@@ -1395,7 +1401,6 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         cdef:
             uint8_t first_byte
             uint8_t second_byte
-            uint8_t rsv2, rsv3
             WSFrame frame
 
         if self._state == WSParserState.READ_HEADER:
@@ -1407,8 +1412,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
             self._f_fin = (first_byte >> 7) & 1
             self._f_rsv1 = (first_byte >> 6) & 1
-            rsv2 = (first_byte >> 5) & 1
-            rsv3 = (first_byte >> 4) & 1
+            self._f_rsv2 = (first_byte >> 5) & 1
+            self._f_rsv3 = (first_byte >> 4) & 1
             self._f_msg_type = <WSMsgType>(first_byte & 0xF)
             if self._f_msg_type not in (
                     WSMsgType.TEXT,
@@ -1420,16 +1425,6 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 raise WSProtocolError(
                     WSCloseCode.PROTOCOL_ERROR,
                     f"Received frame with invalid opcode={self._f_msg_type:#x}",
-                )
-
-            # frame-fin = %x0 ; more frames of this message follow
-            #           / %x1 ; final frame of this message
-            # rsv1 is used by some extensions to indicate compressed frame
-            # rsv2, rsv3 are not used, check and throw if they are set
-            if rsv2 or rsv3:
-                raise WSProtocolError(
-                    WSCloseCode.PROTOCOL_ERROR,
-                    f"Received frame with non-zero reserved bits, rsv2={rsv2}, rsv3={rsv3}, opcode={self._f_msg_type:#x}",
                 )
 
             if self._f_msg_type > 0x7 and not self._f_fin:
@@ -1518,6 +1513,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             frame.msg_type = self._f_msg_type
             frame.fin = self._f_fin
             frame.rsv1 = self._f_rsv1
+            frame.rsv2 = self._f_rsv2
+            frame.rsv3 = self._f_rsv3
             frame.last_in_buffer = 0
 
             self._f_curr_state_start_pos += self._f_payload_length

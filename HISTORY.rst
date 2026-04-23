@@ -11,6 +11,7 @@ picows Release History
 * Disconnect if unknown frame opcode is received (RFC 6455 requirement)
 * Disconnect if client doesn't mask frame or server mask (RFC 6455 requirement)
 * Do not log "Protocol writing pause/resume requested" if user overrides WSListener pause_writing/resume_writing
+* Allow rsv2 and rsv3 bits in frames
 
 1.18.0 (2026-04-03)
 ------------------

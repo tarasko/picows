@@ -97,10 +97,17 @@ Classes
         is compressed.
         For example in `permessage_deflate extension <https://www.rfc-editor.org/rfc/rfc7692#section-7>`_
 
-        .. note::
-            Currently, picows forbids any protocol extensions during upgrade phase.
-            You may still check that it is set to False to verify behaviour of the
-            remote side.
+    .. py:attribute:: rsv2
+        :type: bool
+
+        Indicates whether rsv2 flag is set in the frame.
+        Protocol extensions can use this flag.
+
+    .. py:attribute:: rsv3
+        :type: bool
+
+        Indicates whether rsv3 flag is set in the frame.
+        Protocol extensions can use this flag.
 
     .. py:attribute:: last_in_buffer
         :type: bool

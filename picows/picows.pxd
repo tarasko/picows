@@ -59,6 +59,8 @@ cdef class WSFrame:
         readonly WSMsgType msg_type
         readonly uint8_t fin
         readonly uint8_t rsv1
+        readonly uint8_t rsv2
+        readonly uint8_t rsv3
         readonly uint8_t last_in_buffer
 
     cpdef bytes get_payload_as_bytes(self)
