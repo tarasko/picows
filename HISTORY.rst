@@ -5,14 +5,14 @@ picows Release History
    :depth: 1
    :local:
 
-1.19.0 ()
+1.19.0 (2026-04-24)
 
-* Enable sse2, avx2, avx512 speedups for windows builds
+* Enable sse2, avx2, avx512, neon speedups for windows builds
 * Disconnect if unknown frame opcode is received (RFC 6455 requirement)
 * Disconnect if client doesn't mask frame or server mask (RFC 6455 requirement)
 * Do not log "Protocol writing pause/resume requested" if user overrides WSListener pause_writing/resume_writing
 * Allow rsv2 and rsv3 bits in frames
-* Use Transport.write_nocheck from aiofastnet for performance
+* Use Transport.write_nocheck from aiofastnet 0.5.0 for performance
 
 1.18.0 (2026-04-03)
 ------------------
