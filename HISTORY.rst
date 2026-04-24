@@ -12,6 +12,7 @@ picows Release History
 * Disconnect if client doesn't mask frame or server mask (RFC 6455 requirement)
 * Do not log "Protocol writing pause/resume requested" if user overrides WSListener pause_writing/resume_writing
 * Allow rsv2 and rsv3 bits in frames
+* Use Transport.write_nocheck from aiofastnet for performance
 
 1.18.0 (2026-04-03)
 ------------------

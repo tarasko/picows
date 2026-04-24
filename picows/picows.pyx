@@ -375,10 +375,10 @@ cdef class WSTransport:
 
         return sz
 
-    cdef uint32_t _write_header(self, uint8_t* header_ptr,
-                                WSMsgType msg_type,
-                                Py_ssize_t msg_size,
-                                bint fin, bint rsv1) noexcept:
+    cdef uint32_t _prepare_header(self, uint8_t* header_ptr,
+                                  WSMsgType msg_type,
+                                  Py_ssize_t msg_size,
+                                  bint fin, bint rsv1) noexcept:
         # Return mask or 0 for server side
 
         cdef:
@@ -422,7 +422,7 @@ cdef class WSTransport:
         cdef:
             Py_ssize_t header_size = self._get_header_size(msg_size)
             char* header_ptr = msg_ptr - header_size
-            uint32_t mask = self._write_header(<uint8_t*>header_ptr, msg_type, msg_size, fin, rsv1)
+            uint32_t mask = self._prepare_header(<uint8_t*>header_ptr, msg_type, msg_size, fin, rsv1)
 
         if mask != 0:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask, <uint8_t*>msg_ptr)
@@ -450,7 +450,7 @@ cdef class WSTransport:
             uint8_t* masked_msg_ptr
 
         self._write_buffer.resize(header_size)
-        mask = self._write_header(<uint8_t *>self._write_buffer.data, msg_type,
+        mask = self._prepare_header(<uint8_t *>self._write_buffer.data, msg_type,
                                   msg_size, fin, rsv1)
 
         if msg_size == 0:
@@ -466,13 +466,16 @@ cdef class WSTransport:
                 self._fast_write(self._write_buffer.data, header_size + msg_size)
             else:
                 self._write_buffer.resize(header_size)
-                self._write_header(<uint8_t *> self._write_buffer.data,
-                                   msg_type,
-                                   msg_size, fin, rsv1)
+                self._prepare_header(<uint8_t *> self._write_buffer.data,
+                                     msg_type,
+                                     msg_size, fin, rsv1)
                 header = PyMemoryView_FromMemory(
                     self._write_buffer.data, header_size, PyBUF_READ
                 )
-                self.underlying_transport.writelines([header, message])
+                if self._is_aiofn_transport:
+                    self.underlying_transport.writelines_nocheck([header, message])
+                else:
+                    self.underlying_transport.writelines([header, message])
         else:
             # For client side always mask and copy
             self._write_buffer.resize(header_size + msg_size + 64)
@@ -756,7 +759,8 @@ cdef class WSTransport:
             # aiofastnet guarantees that the data will be copied if it can't be
             # sent immediately, we can safely use non-owning memory view to our
             # buffer
-            self.underlying_transport.write(PyMemoryView_FromMemory(ptr, sz, PyBUF_READ))
+            self.underlying_transport.write_nocheck(
+                PyMemoryView_FromMemory(ptr, sz, PyBUF_READ))
             return
 
         if self.is_secure:
