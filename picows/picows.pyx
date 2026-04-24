@@ -200,6 +200,8 @@ cdef class WSFrame:
     def __str__(self):
         return (f"WSFrame({WSMsgType(self.msg_type).name}, fin={True if self.fin else False}, "
                 f"rsv1={True if self.rsv1 else False}, "
+                f"rsv2={True if self.rsv2 else False}, "
+                f"rsv3={True if self.rsv3 else False}, "
                 f"last_in_buffer={True if self.last_in_buffer else False}, "
                 f"payload_sz={self.payload_size}, tail_sz={self.tail_size})")
 
@@ -373,10 +375,10 @@ cdef class WSTransport:
 
         return sz
 
-    cdef uint32_t _write_header(self, uint8_t* header_ptr,
-                                WSMsgType msg_type,
-                                Py_ssize_t msg_size,
-                                bint fin, bint rsv1) noexcept:
+    cdef uint32_t _prepare_header(self, uint8_t* header_ptr,
+                                  WSMsgType msg_type,
+                                  Py_ssize_t msg_size,
+                                  bint fin, bint rsv1) noexcept:
         # Return mask or 0 for server side
 
         cdef:
@@ -420,7 +422,7 @@ cdef class WSTransport:
         cdef:
             Py_ssize_t header_size = self._get_header_size(msg_size)
             char* header_ptr = msg_ptr - header_size
-            uint32_t mask = self._write_header(<uint8_t*>header_ptr, msg_type, msg_size, fin, rsv1)
+            uint32_t mask = self._prepare_header(<uint8_t*>header_ptr, msg_type, msg_size, fin, rsv1)
 
         if mask != 0:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask, <uint8_t*>msg_ptr)
@@ -448,7 +450,7 @@ cdef class WSTransport:
             uint8_t* masked_msg_ptr
 
         self._write_buffer.resize(header_size)
-        mask = self._write_header(<uint8_t *>self._write_buffer.data, msg_type,
+        mask = self._prepare_header(<uint8_t *>self._write_buffer.data, msg_type,
                                   msg_size, fin, rsv1)
 
         if msg_size == 0:
@@ -464,13 +466,16 @@ cdef class WSTransport:
                 self._fast_write(self._write_buffer.data, header_size + msg_size)
             else:
                 self._write_buffer.resize(header_size)
-                self._write_header(<uint8_t *> self._write_buffer.data,
-                                   msg_type,
-                                   msg_size, fin, rsv1)
+                self._prepare_header(<uint8_t *> self._write_buffer.data,
+                                     msg_type,
+                                     msg_size, fin, rsv1)
                 header = PyMemoryView_FromMemory(
                     self._write_buffer.data, header_size, PyBUF_READ
                 )
-                self.underlying_transport.writelines([header, message])
+                if self._is_aiofn_transport:
+                    self.underlying_transport.writelines_nocheck([header, message])
+                else:
+                    self.underlying_transport.writelines([header, message])
         else:
             # For client side always mask and copy
             self._write_buffer.resize(header_size + msg_size + 64)
@@ -754,7 +759,8 @@ cdef class WSTransport:
             # aiofastnet guarantees that the data will be copied if it can't be
             # sent immediately, we can safely use non-owning memory view to our
             # buffer
-            self.underlying_transport.write(PyMemoryView_FromMemory(ptr, sz, PyBUF_READ))
+            self.underlying_transport.write_nocheck(
+                PyMemoryView_FromMemory(ptr, sz, PyBUF_READ))
             return
 
         if self.is_secure:
@@ -855,6 +861,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         uint32_t _f_mask
         uint8_t _f_fin
         uint8_t _f_rsv1
+        uint8_t _f_rsv2
+        uint8_t _f_rsv3
         uint8_t _f_has_mask
         uint8_t _f_payload_length_flag
 
@@ -920,6 +928,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         self._f_mask = 0
         self._f_fin = 0
         self._f_rsv1 = 0
+        self._f_rsv2 = 0
+        self._f_rsv3 = 0
         self._f_has_mask = 0
         self._f_payload_length_flag = 0
 
@@ -1395,7 +1405,6 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         cdef:
             uint8_t first_byte
             uint8_t second_byte
-            uint8_t rsv2, rsv3
             WSFrame frame
 
         if self._state == WSParserState.READ_HEADER:
@@ -1407,8 +1416,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
             self._f_fin = (first_byte >> 7) & 1
             self._f_rsv1 = (first_byte >> 6) & 1
-            rsv2 = (first_byte >> 5) & 1
-            rsv3 = (first_byte >> 4) & 1
+            self._f_rsv2 = (first_byte >> 5) & 1
+            self._f_rsv3 = (first_byte >> 4) & 1
             self._f_msg_type = <WSMsgType>(first_byte & 0xF)
             if self._f_msg_type not in (
                     WSMsgType.TEXT,
@@ -1420,16 +1429,6 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 raise WSProtocolError(
                     WSCloseCode.PROTOCOL_ERROR,
                     f"Received frame with invalid opcode={self._f_msg_type:#x}",
-                )
-
-            # frame-fin = %x0 ; more frames of this message follow
-            #           / %x1 ; final frame of this message
-            # rsv1 is used by some extensions to indicate compressed frame
-            # rsv2, rsv3 are not used, check and throw if they are set
-            if rsv2 or rsv3:
-                raise WSProtocolError(
-                    WSCloseCode.PROTOCOL_ERROR,
-                    f"Received frame with non-zero reserved bits, rsv2={rsv2}, rsv3={rsv3}, opcode={self._f_msg_type:#x}",
                 )
 
             if self._f_msg_type > 0x7 and not self._f_fin:
@@ -1518,6 +1517,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             frame.msg_type = self._f_msg_type
             frame.fin = self._f_fin
             frame.rsv1 = self._f_rsv1
+            frame.rsv2 = self._f_rsv2
+            frame.rsv3 = self._f_rsv3
             frame.last_in_buffer = 0
 
             self._f_curr_state_start_pos += self._f_payload_length
