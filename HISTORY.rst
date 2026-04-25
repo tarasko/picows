@@ -6,6 +6,7 @@ picows Release History
    :local:
 
 1.19.0 (2026-04-24)
+------------------
 
 * Enable sse2, avx2, avx512, neon speedups for windows builds
 * Disconnect if unknown frame opcode is received (RFC 6455 requirement)
