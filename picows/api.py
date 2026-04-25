@@ -186,7 +186,7 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                      *,
                      ssl_context: Optional[SSLContext] = None,
                      disconnect_on_exception: bool = True,
-                     websocket_handshake_timeout: float = 5,
+                     websocket_handshake_timeout: Optional[float] = 5,
                      logger_name: WSLoggerLike = None,
                      enable_auto_ping: bool = False,
                      auto_ping_idle_timeout: float = 10,
@@ -220,6 +220,7 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
     :param websocket_handshake_timeout:
         is the time in seconds to wait for the websocket client to receive
         websocket handshake response before aborting the connection.
+        Set to ``None`` to disable the timeout.
     :param logger_name:
         Logger name suffix or logger-like object used for logging.
         If a string is provided, picows will use `picows.<logger_name>`.
@@ -358,7 +359,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
                            port=None,
                            *,
                            disconnect_on_exception: bool = True,
-                           websocket_handshake_timeout=5,
+                           websocket_handshake_timeout: Optional[float] = 5,
                            logger_name: WSLoggerLike = None,
                            enable_auto_ping: bool = False,
                            auto_ping_idle_timeout: float = 20,
@@ -405,6 +406,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
         thrown by WSListener.on_ws_frame callback
     :param websocket_handshake_timeout:
         is the time in seconds to wait for the websocket server to receive websocket handshake request before aborting the connection.
+        Set to ``None`` to disable the timeout.
     :param logger_name:
         Logger name suffix or logger-like object used for logging.
         If a string is provided, picows will use `picows.<logger_name>`.

@@ -1,9 +1,11 @@
 import asyncio
+import base64
 import logging
 import os
 import struct
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from hashlib import sha1
 from http import HTTPStatus
 
 import async_timeout
@@ -20,6 +22,39 @@ async def raw_handshake_server(response: bytes):
     async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         await reader.readuntil(b"\r\n\r\n")
         writer.write(response)
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    server = await asyncio.start_server(handle_client, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    try:
+        yield f"ws://127.0.0.1:{port}/"
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+@asynccontextmanager
+async def delayed_handshake_server(delay: float):
+    async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        request = await reader.readuntil(b"\r\n\r\n")
+        websocket_key = next(
+            line.split(b":", 1)[1].strip()
+            for line in request.split(b"\r\n")
+            if line.lower().startswith(b"sec-websocket-key:")
+        )
+        accept = base64.b64encode(
+            sha1(websocket_key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest()
+        )
+        await asyncio.sleep(delay)
+        writer.write(
+            b"HTTP/1.1 101 Switching Protocols\r\n"
+            b"Upgrade: websocket\r\n"
+            b"Connection: Upgrade\r\n"
+            b"Sec-WebSocket-Accept: " + accept + b"\r\n"
+            b"\r\n"
+        )
         await writer.drain()
         writer.close()
         await writer.wait_closed()
@@ -245,6 +280,47 @@ async def test_handshake_invalid_message_error():
     async with raw_handshake_server(response) as url:
         with pytest.raises(picows.WSInvalidMessageError):
             await picows.ws_connect(AsyncClient, url)
+
+
+async def test_client_handshake_timeout_none():
+    async with delayed_handshake_server(0.2) as url:
+        transport, _ = await picows.ws_connect(
+            AsyncClient,
+            url,
+            websocket_handshake_timeout=None,
+        )
+        transport.disconnect(False)
+        await transport.wait_disconnected()
+
+
+async def test_server_handshake_timeout_none():
+    server = await picows.ws_create_server(
+        lambda _: picows.WSListener(),
+        "127.0.0.1",
+        0,
+        websocket_handshake_timeout=None,
+    )
+    port = server.sockets[0].getsockname()[1]
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        await asyncio.sleep(0.2)
+        assert not reader.at_eof()
+        writer.write(
+            b"GET / HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Upgrade: websocket\r\n"
+            b"Connection: Upgrade\r\n"
+            b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+            b"Sec-WebSocket-Version: 13\r\n"
+            b"\r\n"
+        )
+        response = await reader.readuntil(b"\r\n\r\n")
+        assert b"101 Switching Protocols" in response
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        server.close()
+        await server.wait_closed()
 
 
 def test_resolve_logger():

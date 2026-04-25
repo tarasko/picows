@@ -977,11 +977,13 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
         if self.is_client_side:
             self.transport._send_http_handshake(self._ws_path, self._host_port, self._websocket_key_b64, self._extra_headers)
-            self._handshake_timeout_handle = self._loop.call_later(
-                self._handshake_timeout, self._handshake_timeout_callback)
+            if self._handshake_timeout is not None:
+                self._handshake_timeout_handle = self._loop.call_later(
+                    self._handshake_timeout, self._handshake_timeout_callback)
         else:
-            self._handshake_timeout_handle = self._loop.call_later(
-                self._handshake_timeout, self._handshake_timeout_callback)
+            if self._handshake_timeout is not None:
+                self._handshake_timeout_handle = self._loop.call_later(
+                    self._handshake_timeout, self._handshake_timeout_callback)
 
     def connection_lost(self, exc):
         self._logger.info("Disconnected")
@@ -1185,8 +1187,9 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             else:
                 self.transport._send_http_handshake_response(response, accept_val)
 
-        self._handshake_timeout_handle.cancel()
-        self._handshake_timeout_handle = None
+        if self._handshake_timeout_handle is not None:
+            self._handshake_timeout_handle.cancel()
+            self._handshake_timeout_handle = None
         self._handshake_complete_future.set_result(None)
         self._invoke_on_ws_connected()
         self._last_data_time = picows_get_monotonic_time()
