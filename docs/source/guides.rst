@@ -91,10 +91,23 @@ Additionally, websocket-specific failures are represented by :any:`WSError`
 and its subclasses:
 
 * :any:`WSHandshakeError` for HTTP upgrade negotiation failures (raised by :any:`ws_connect`).
+  More specific subclasses may be raised:
+
+  * :any:`WSInvalidMessageError` for malformed HTTP upgrade responses.
+  * :any:`WSInvalidStatusError` when the HTTP response status isn't ``101 Switching Protocols``.
+  * :any:`WSInvalidHeaderError` for invalid handshake headers such as
+    ``Content-Length`` or ``Sec-WebSocket-Accept``.
+  * :any:`WSInvalidUpgradeError` for invalid ``Upgrade`` / ``Connection`` headers.
+
+  Redirect-following failures in :any:`ws_connect` currently still raise the
+  base :any:`WSHandshakeError`.
 * :any:`WSProtocolError` for websocket parser/protocol violations (can be re-raised by :any:`WSTransport.wait_disconnected` on client side).
 * :any:`WSInvalidURL` for invalid websocket/proxy URL inputs.
 
 In general, :any:`WSError` is reserved for websocket-specific failures only.
+
+Handshake timeouts are separate and currently raise `asyncio.TimeoutError`,
+not :any:`WSError`.
 
 There is also a special exception, `asyncio.CancelledError`, which any coroutine
 can raise when it is externally cancelled. Sometimes you need to handle this

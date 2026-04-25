@@ -3,6 +3,7 @@ import logging
 import os
 import struct
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from http import HTTPStatus
 
 import async_timeout
@@ -10,8 +11,26 @@ import pytest
 
 import picows
 from picows.api import _resolve_logger
-from tests.utils import WSServer, WSClient, TIMEOUT
+from tests.utils import WSServer, WSClient, AsyncClient, TIMEOUT
 from tests.fixtures import use_aiofastnet, ssl_context
+
+
+@asynccontextmanager
+async def raw_handshake_server(response: bytes):
+    async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        await reader.readuntil(b"\r\n\r\n")
+        writer.write(response)
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    server = await asyncio.start_server(handle_client, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    try:
+        yield f"ws://127.0.0.1:{port}/"
+    finally:
+        server.close()
+        await server.wait_closed()
 
 
 async def test_send_external_bytearray_asserts():
@@ -192,6 +211,42 @@ async def test_wrong_thread_assert():
                     await loop.run_in_executor(executor, client.transport.disconnect)
 
 
+async def test_handshake_invalid_status_error():
+    response = (
+        b"HTTP/1.1 404 Not Found\r\n"
+        b"Connection: close\r\n"
+        b"Content-Length: 0\r\n"
+        b"\r\n"
+    )
+    async with raw_handshake_server(response) as url:
+        with pytest.raises(picows.WSInvalidStatusError):
+            await picows.ws_connect(AsyncClient, url)
+
+
+async def test_handshake_invalid_upgrade_error():
+    response = (
+        b"HTTP/1.1 101 Switching Protocols\r\n"
+        b"Upgrade: not-websocket\r\n"
+        b"Connection: Upgrade\r\n"
+        b"Sec-WebSocket-Accept: invalid\r\n"
+        b"\r\n"
+    )
+    async with raw_handshake_server(response) as url:
+        with pytest.raises(picows.WSInvalidUpgradeError, match="invalid upgrade header"):
+            await picows.ws_connect(AsyncClient, url)
+
+
+async def test_handshake_invalid_message_error():
+    response = (
+        b"NOT-HTTP\r\n"
+        b"Header: value\r\n"
+        b"\r\n"
+    )
+    async with raw_handshake_server(response) as url:
+        with pytest.raises(picows.WSInvalidMessageError):
+            await picows.ws_connect(AsyncClient, url)
+
+
 def test_resolve_logger():
     logger = logging.getLogger("tests.picows.custom")
 
@@ -199,5 +254,3 @@ def test_resolve_logger():
     assert _resolve_logger(None, "server") is logging.getLogger("picows.server")
     assert _resolve_logger("custom", "client") is logging.getLogger("picows.custom")
     assert _resolve_logger(logger, "client") is logger
-
-

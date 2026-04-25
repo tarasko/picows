@@ -20,6 +20,18 @@ Classes
 .. autoexception:: WSHandshakeError
     :show-inheritance:
 
+.. autoexception:: WSInvalidMessageError
+    :show-inheritance:
+
+.. autoexception:: WSInvalidStatusError
+    :show-inheritance:
+
+.. autoexception:: WSInvalidHeaderError
+    :show-inheritance:
+
+.. autoexception:: WSInvalidUpgradeError
+    :show-inheritance:
+
 .. autoexception:: WSProtocolError
     :show-inheritance:
 

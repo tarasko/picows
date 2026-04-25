@@ -9,6 +9,7 @@ picows Release History
 ------------------
 
 * ws_connect/ws_create_server logger_name parameter can now accept a logger-like object
+* Introduce new exceptions: WSInvalidMessageError, WSInvalidStatusError, WSInvalidHeaderError, WSInvalidUpgradeError
 
 
 1.19.0 (2026-04-24)
