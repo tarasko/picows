@@ -6,7 +6,7 @@ from functools import partial
 from inspect import isawaitable
 from logging import Logger, LoggerAdapter, getLogger
 from ssl import SSLContext
-from typing import Callable, Optional, Union, Dict, Any, Awaitable, cast
+from typing import Callable, Optional, Union, Dict, Any, Awaitable, cast, TYPE_CHECKING
 
 from python_socks.async_.asyncio import Proxy
 
@@ -20,7 +20,13 @@ from .url import parse_url, WSInvalidURL, WSParsedURL
 WSListenerFactory = Callable[[], WSListener]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
 WSSocketFactory = Callable[[WSParsedURL], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
-WSLoggerLike = Union[str, Logger, LoggerAdapter[Any], None]
+
+if TYPE_CHECKING:
+    _WSLoggerAdapter = LoggerAdapter[Any]
+else:
+    _WSLoggerAdapter = LoggerAdapter
+
+WSLoggerLike = Union[str, Logger, _WSLoggerAdapter, None]
 
 _HAS_AIOFASTNET = False
 try:
@@ -67,7 +73,7 @@ def _resolve_logger(
         logger_name: WSLoggerLike,
         default_suffix: str,
         prefix: str = "picows."
-) -> Union[Logger, LoggerAdapter[Any]]:
+) -> Union[Logger, _WSLoggerAdapter]:
     if logger_name is None:
         return getLogger(f"{prefix}{default_suffix}")
 
