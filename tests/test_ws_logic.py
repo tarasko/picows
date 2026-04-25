@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import struct
 from concurrent.futures import ThreadPoolExecutor
@@ -8,6 +9,7 @@ import async_timeout
 import pytest
 
 import picows
+from picows.api import _resolve_logger
 from tests.utils import WSServer, WSClient, TIMEOUT
 from tests.fixtures import use_aiofastnet, ssl_context
 
@@ -188,3 +190,14 @@ async def test_wrong_thread_assert():
 
                 with pytest.raises(RuntimeError, match="WSTransport.disconnect called from a wrong thread"):
                     await loop.run_in_executor(executor, client.transport.disconnect)
+
+
+def test_resolve_logger():
+    logger = logging.getLogger("tests.picows.custom")
+
+    assert _resolve_logger(None, "client") is logging.getLogger("picows.client")
+    assert _resolve_logger(None, "server") is logging.getLogger("picows.server")
+    assert _resolve_logger("custom", "client") is logging.getLogger("picows.custom")
+    assert _resolve_logger(logger, "client") is logger
+
+
