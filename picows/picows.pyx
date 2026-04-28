@@ -118,6 +118,14 @@ cdef _is_aiofn_transport(transport):
         return False
 
 
+cdef class WSCloseInfo:
+    pass
+
+
+cdef class WSCloseHandshake:
+    pass
+
+
 @cython.no_gc
 @cython.freelist(64)
 cdef class WSFrame:
