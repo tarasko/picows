@@ -199,6 +199,21 @@ cdef class WSFrame:
         else:
             return PyBytes_FromStringAndSize(self.payload_ptr + 2, <Py_ssize_t>self.payload_size - 2)
 
+    cpdef str get_close_reason(self):
+        """
+        :return: a new str object with a close reason. If there is no close reason then returns None. 
+
+        This method is only valid for WSMsgType.CLOSE frames.
+        """
+
+        assert self.msg_type == WSMsgType.CLOSE, "get_close_message can be called only for CLOSE frames"
+
+        if self.payload_size <= 2:
+            return None
+        else:
+            return PyUnicode_FromStringAndSize(self.payload_ptr + 2,
+                                               <Py_ssize_t> self.payload_size - 2)
+
     def __str__(self):
         return (f"WSFrame({WSMsgType(self.msg_type).name}, fin={True if self.fin else False}, "
                 f"rsv1={True if self.rsv1 else False}, "
@@ -341,6 +356,7 @@ cdef class WSTransport:
         self.underlying_transport = underlying_transport
         self.request = None
         self.response = None
+        self.close_handshake = None
         self.is_client_side = is_client_side
         self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
         self.is_close_frame_sent = False
@@ -495,6 +511,14 @@ cdef class WSTransport:
 
         if msg_type == WSMsgType.CLOSE:
             self.is_close_frame_sent = True
+
+            if self.close_handshake is None:
+                self.close_handshake = <WSCloseHandshake>WSCloseHandshake.__new__(WSCloseHandshake)
+                self.close_handshake.recv_then_sent = False
+
+            self.close_handshake.sent = <WSCloseInfo>WSCloseInfo.__new__(WSCloseInfo)
+            self.close_handshake.sent.code = <WSCloseCode>ntohs((<uint16_t *>msg_ptr)[0])
+            self.close_handshake.sent.reason = PyUnicode_FromStringAndSize(msg_ptr + 2, msg_size - 2)
 
     cdef send_reuse_external_buffer(self, WSMsgType msg_type,
                                     char* msg_ptr, Py_ssize_t msg_size,
@@ -1479,7 +1503,6 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         return response
 
     cdef inline WSFrame _get_next_frame(self):
-        cdef WSFrame frame
         try:
             return self._get_next_frame_impl()
         except WSProtocolError as ex:
@@ -1499,6 +1522,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             uint8_t first_byte
             uint8_t second_byte
             WSFrame frame
+            WSCloseInfo recv
 
         if self._state == WSParserState.READ_HEADER:
             if self._f_new_data_start_pos - self._f_curr_state_start_pos < 2:
@@ -1619,13 +1643,33 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             self._state = WSParserState.READ_HEADER
 
             if frame.msg_type == WSMsgType.CLOSE:
-                if frame.get_close_code() < 3000 and frame.get_close_code() not in _ALLOWED_CLOSE_CODES:
+                close_code = frame.get_close_code()
+                if close_code < 3000 and close_code not in _ALLOWED_CLOSE_CODES:
                     raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
                                          f"Received CLOSE with invalid close code: {frame.get_close_code()}")
 
                 if frame.payload_size == 1:
                     raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
                                          f"Received CLOSE with invalid close code size: {frame.fin} {frame.msg_type} {frame.get_payload_as_bytes()}")
+
+                recv = <WSCloseInfo>WSCloseInfo.__new__(WSCloseInfo)
+                recv.code = close_code
+                try:
+                    recv.reason = frame.get_close_reason()
+                except UnicodeDecodeError:
+                    raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
+                                          f"Received CLOSE with invalid UTF-8 reason")
+
+                if self.transport.close_handshake is None:
+                    self.transport.close_handshake = <WSCloseHandshake>WSCloseHandshake.__new__(WSCloseHandshake)
+                    self.transport.close_handshake.recv = recv
+                    self.transport.close_handshake.sent = None
+                    self.transport.close_handshake.recv_then_sent = True
+                elif self.transport.close_handshake.recv is None:
+                    self.transport.close_handshake.recv = recv
+                else:
+                    raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
+                                          f"Received CLOSE for the second time: {frame.get_close_code()}")
 
             return frame
 

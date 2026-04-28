@@ -36,6 +36,17 @@ class WSAutoPingStrategy(Enum):
     PING_PERIODICALLY = 2
 
 
+class WSCloseInfo:
+    code: WSCloseCode
+    reason: str
+
+
+class WSCloseHandshake:
+    recv: Optional[WSCloseInfo]
+    sent: Optional[WSCloseInfo]
+    recv_then_sent: bool
+
+
 class WSFrame:
     @property
     def tail_size(self) -> int: ...
@@ -64,12 +75,22 @@ class WSFrame:
     def get_payload_as_memoryview(self) -> memoryview: ...
     def get_close_code(self) -> WSCloseCode: ...
     def get_close_message(self) -> bytes: ...
+    def get_close_reason(self) -> str: ...
     def __str__(self) -> str: ...
 
 
 class WSTransport:
     @property
     def underlying_transport(self) -> asyncio.Transport: ...
+
+    @property
+    def request(self) -> WSUpgradeRequest: ...
+
+    @property
+    def response(self) -> WSUpgradeResponse: ...
+
+    @property
+    def close_handshake(self) -> WSCloseHandshake: ...
 
     @property
     def is_client_side(self) -> bool: ...
@@ -79,12 +100,6 @@ class WSTransport:
 
     @property
     def is_close_frame_sent(self) -> bool: ...
-
-    @property
-    def request(self) -> WSUpgradeRequest: ...
-
-    @property
-    def response(self) -> WSUpgradeResponse: ...
 
     def send(
         self,

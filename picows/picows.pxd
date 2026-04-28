@@ -41,6 +41,19 @@ cpdef enum WSAutoPingStrategy:
     PING_PERIODICALLY = 2
 
 
+cdef class WSCloseInfo:
+    cdef:
+        readonly WSCloseCode code
+        readonly str reason
+
+
+cdef class WSCloseHandshake:
+    cdef:
+        readonly WSCloseInfo recv
+        readonly WSCloseInfo sent
+        readonly bint recv_then_sent
+
+
 cdef class MemoryBuffer:
     cdef:
         Py_ssize_t size
@@ -70,15 +83,17 @@ cdef class WSFrame:
 
     cpdef WSCloseCode get_close_code(self)
     cpdef bytes get_close_message(self)
+    cpdef str get_close_reason(self)
 
 
 cdef class WSTransport:
     cdef:
         object __weakref__
 
-        readonly object underlying_transport    #: asyncio.Transport
-        readonly object request                 #: WSUpgradeRequest
-        readonly object response                #: WSUpgradeResponse
+        readonly object underlying_transport        #: asyncio.Transport
+        readonly object request                     #: WSUpgradeRequest
+        readonly object response                    #: WSUpgradeResponse
+        readonly WSCloseHandshake close_handshake   #: Optional[WSCloseHandshake]
         readonly bint is_client_side
         readonly bint is_secure
         readonly bint is_close_frame_sent
@@ -87,6 +102,7 @@ cdef class WSTransport:
         object pong_received_at_future
         object listener_proxy
         object disconnected_future             #: asyncio.Future
+
 
         object _loop
         object _logger                         #: Logger
