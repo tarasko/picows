@@ -233,12 +233,12 @@ async def test_close_frame_invalid_utf8_reason_from_client():
             client.transport.underlying_transport.write(invalid_close_frame)
             frame = await client.get_message()
             assert frame.msg_type == picows.WSMsgType.CLOSE
-            assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
+            assert frame.close_code == picows.WSCloseCode.INVALID_TEXT
             assert b"Received CLOSE with invalid UTF-8 reason" in frame.close_message
             await client.transport.wait_disconnected()
 
             assert client.transport.close_handshake.sent is None
-            assert client.transport.close_handshake.recv.code == picows.WSCloseCode.PROTOCOL_ERROR
+            assert client.transport.close_handshake.recv.code == picows.WSCloseCode.INVALID_TEXT
             assert client.transport.close_handshake.recv.reason == "Received CLOSE with invalid UTF-8 reason"
             assert client.transport.close_handshake.recv_then_sent is True
 
