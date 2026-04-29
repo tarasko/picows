@@ -1657,7 +1657,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                                          f"Received CLOSE with invalid close code: {frame.get_close_code()}")
 
                 if frame.payload_size == 1:
-                    raise WSProtocolError(WSCloseCode.INVALID_TEXT,
+                    raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
                                          f"Received CLOSE with invalid close code size: {frame.fin} {frame.msg_type} {frame.get_payload_as_bytes()}")
 
                 recv = <WSCloseInfo>WSCloseInfo.__new__(WSCloseInfo)
@@ -1665,7 +1665,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 try:
                     recv.reason = frame.get_close_reason()
                 except UnicodeDecodeError:
-                    raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
+                    raise WSProtocolError(WSCloseCode.INVALID_TEXT,
                                           f"Received CLOSE with invalid UTF-8 reason")
 
                 if self.transport.close_handshake is None:
