@@ -257,28 +257,21 @@ async def test_close_handshake_client_initiates_close():
                 transport.disconnect()
 
     async with WSServer(lambda _: ServerListener()) as server:
-        transport, _ = await picows.ws_connect(AsyncClient, server.url)
-        try:
-            transport.send_close(picows.WSCloseCode.OK, b"client says bye")
-            await transport.wait_disconnected()
-        finally:
-            try:
-                transport.disconnect(False)
-                await transport.wait_disconnected()
-            except Exception:
-                pass
+        async with WSClient(server) as client:
+            client.transport.send_close(picows.WSCloseCode.OK, b"client says bye")
+            await client.transport.wait_disconnected()
 
-        assert transport.close_handshake.sent.code == picows.WSCloseCode.OK
-        assert transport.close_handshake.sent.reason == "client says bye"
-        assert transport.close_handshake.recv.code == picows.WSCloseCode.OK
-        assert transport.close_handshake.recv.reason == "client says bye"
-        assert transport.close_handshake.recv_then_sent is False
+            assert client.transport.close_handshake.sent.code == picows.WSCloseCode.OK
+            assert client.transport.close_handshake.sent.reason == "client says bye"
+            assert client.transport.close_handshake.recv.code == picows.WSCloseCode.OK
+            assert client.transport.close_handshake.recv.reason == "client says bye"
+            assert client.transport.close_handshake.recv_then_sent is False
 
-        assert server_transport.close_handshake.sent.code == picows.WSCloseCode.OK
-        assert server_transport.close_handshake.sent.reason == "client says bye"
-        assert server_transport.close_handshake.recv.code == picows.WSCloseCode.OK
-        assert server_transport.close_handshake.recv.reason == "client says bye"
-        assert server_transport.close_handshake.recv_then_sent is True
+            assert server_transport.close_handshake.sent.code == picows.WSCloseCode.OK
+            assert server_transport.close_handshake.sent.reason == "client says bye"
+            assert server_transport.close_handshake.recv.code == picows.WSCloseCode.OK
+            assert server_transport.close_handshake.recv.reason == "client says bye"
+            assert server_transport.close_handshake.recv_then_sent is True
 
 
 async def test_close_handshake_server_initiates_close():
@@ -293,32 +286,25 @@ async def test_close_handshake_server_initiates_close():
 
     class ClientListener(AsyncClient):
         def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-            super().on_ws_frame(transport, frame)
             if frame.msg_type == picows.WSMsgType.CLOSE:
                 transport.send_close(frame.get_close_code(), frame.get_close_message())
+            else:
+                super().on_ws_frame(transport, frame)
 
     async with WSServer(lambda _: ServerListener()) as server:
-        transport, _ = await picows.ws_connect(ClientListener, server.url)
-        try:
-            await transport.wait_disconnected()
-        finally:
-            try:
-                transport.disconnect(False)
-                await transport.wait_disconnected()
-            except Exception:
-                pass
+        async with WSClient(server, ClientListener) as client:
+            await client.transport.wait_disconnected()
+            assert client.transport.close_handshake.recv.code == picows.WSCloseCode.GOING_AWAY
+            assert client.transport.close_handshake.recv.reason == "server shutdown"
+            assert client.transport.close_handshake.sent.code == picows.WSCloseCode.GOING_AWAY
+            assert client.transport.close_handshake.sent.reason == "server shutdown"
+            assert client.transport.close_handshake.recv_then_sent is True
 
-        assert transport.close_handshake.recv.code == picows.WSCloseCode.GOING_AWAY
-        assert transport.close_handshake.recv.reason == "server shutdown"
-        assert transport.close_handshake.sent.code == picows.WSCloseCode.GOING_AWAY
-        assert transport.close_handshake.sent.reason == "server shutdown"
-        assert transport.close_handshake.recv_then_sent is True
-
-        assert server_transport.close_handshake.recv.code == picows.WSCloseCode.GOING_AWAY
-        assert server_transport.close_handshake.recv.reason == "server shutdown"
-        assert server_transport.close_handshake.sent.code == picows.WSCloseCode.GOING_AWAY
-        assert server_transport.close_handshake.sent.reason == "server shutdown"
-        assert server_transport.close_handshake.recv_then_sent is False
+            assert server_transport.close_handshake.recv.code == picows.WSCloseCode.GOING_AWAY
+            assert server_transport.close_handshake.recv.reason == "server shutdown"
+            assert server_transport.close_handshake.sent.code == picows.WSCloseCode.GOING_AWAY
+            assert server_transport.close_handshake.sent.reason == "server shutdown"
+            assert server_transport.close_handshake.recv_then_sent is False
 
 
 async def test_close_handshake_client_initiates_close_server_disconnects_without_reply():
@@ -334,26 +320,19 @@ async def test_close_handshake_client_initiates_close_server_disconnects_without
                 transport.disconnect(False)
 
     async with WSServer(lambda _: ServerListener()) as server:
-        transport, _ = await picows.ws_connect(AsyncClient, server.url)
-        try:
-            transport.send_close(picows.WSCloseCode.OK, b"client says bye")
-            await transport.wait_disconnected()
-        finally:
-            try:
-                transport.disconnect(False)
-                await transport.wait_disconnected()
-            except Exception:
-                pass
+        async with WSClient(server) as client:
+            client.transport.send_close(picows.WSCloseCode.OK, b"client says bye")
+            await client.transport.wait_disconnected()
 
-        assert transport.close_handshake.recv is None
-        assert transport.close_handshake.sent.code == picows.WSCloseCode.OK
-        assert transport.close_handshake.sent.reason == "client says bye"
-        assert transport.close_handshake.recv_then_sent is False
+            assert client.transport.close_handshake.recv is None
+            assert client.transport.close_handshake.sent.code == picows.WSCloseCode.OK
+            assert client.transport.close_handshake.sent.reason == "client says bye"
+            assert client.transport.close_handshake.recv_then_sent is False
 
-        assert server_transport.close_handshake.recv.code == picows.WSCloseCode.OK
-        assert server_transport.close_handshake.recv.reason == "client says bye"
-        assert server_transport.close_handshake.sent is None
-        assert server_transport.close_handshake.recv_then_sent is True
+            assert server_transport.close_handshake.recv.code == picows.WSCloseCode.OK
+            assert server_transport.close_handshake.recv.reason == "client says bye"
+            assert server_transport.close_handshake.sent is None
+            assert server_transport.close_handshake.recv_then_sent is True
 
 
 async def test_close_handshake_server_initiates_close_client_disconnects_without_reply():
@@ -373,25 +352,18 @@ async def test_close_handshake_server_initiates_close_client_disconnects_without
                 transport.disconnect(False)
 
     async with WSServer(lambda _: ServerListener()) as server:
-        transport, _ = await picows.ws_connect(ClientListener, server.url)
-        try:
-            await transport.wait_disconnected()
-        finally:
-            try:
-                transport.disconnect(False)
-                await transport.wait_disconnected()
-            except Exception:
-                pass
+        async with WSClient(server, ClientListener) as client:
+            await client.transport.wait_disconnected()
 
-        assert transport.close_handshake.recv.code == picows.WSCloseCode.GOING_AWAY
-        assert transport.close_handshake.recv.reason == "server shutdown"
-        assert transport.close_handshake.sent is None
-        assert transport.close_handshake.recv_then_sent is True
+            assert client.transport.close_handshake.recv.code == picows.WSCloseCode.GOING_AWAY
+            assert client.transport.close_handshake.recv.reason == "server shutdown"
+            assert client.transport.close_handshake.sent is None
+            assert client.transport.close_handshake.recv_then_sent is True
 
-        assert server_transport.close_handshake.recv is None
-        assert server_transport.close_handshake.sent.code == picows.WSCloseCode.GOING_AWAY
-        assert server_transport.close_handshake.sent.reason == "server shutdown"
-        assert server_transport.close_handshake.recv_then_sent is False
+            assert server_transport.close_handshake.recv is None
+            assert server_transport.close_handshake.sent.code == picows.WSCloseCode.GOING_AWAY
+            assert server_transport.close_handshake.sent.reason == "server shutdown"
+            assert server_transport.close_handshake.recv_then_sent is False
 
 
 async def test_wrong_thread_assert():
