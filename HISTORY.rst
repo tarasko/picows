@@ -11,6 +11,8 @@ picows Release History
 * ws_connect/ws_create_server logger_name parameter can now accept a logger-like object
 * ws_connect/ws_create_server websocket_handshake_timeout param can now accept None to disable handshake timeouts
 * Introduce new exceptions: WSInvalidMessageError, WSInvalidStatusError, WSInvalidHeaderError, WSInvalidUpgradeError
+* Allow sending close frames only using send_close to simplify logic
+* Raise ValueError instead of assert on some invalid user input
 
 1.19.0 (2026-04-24)
 ------------------

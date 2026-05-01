@@ -71,11 +71,11 @@ async def delayed_handshake_server(delay: float):
 async def test_send_external_bytearray_asserts():
     async with WSServer() as server:
         async with WSClient(server) as client:
-            with pytest.raises(AssertionError):
+            with pytest.raises(ValueError):
                 # Check assertion for msg_len >= 0
                 client.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, bytearray(b"HELLO"), 16)
 
-            with pytest.raises(AssertionError):
+            with pytest.raises(ValueError):
                 # Check assertion for offset to be at least 14
                 client.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, bytearray(b"1234567890123HELLO"), 13)
 

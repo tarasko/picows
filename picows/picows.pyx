@@ -445,6 +445,10 @@ cdef class WSTransport:
     cdef _send_buffer(self, WSMsgType msg_type,
                       char* msg_ptr, Py_ssize_t msg_size,
                       bint fin, bint rsv1):
+        if self.is_close_frame_sent:
+            self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
+            return
+
         cdef:
             Py_ssize_t header_size = self._get_header_size(msg_size)
             char* header_ptr = msg_ptr - header_size
@@ -454,9 +458,6 @@ cdef class WSTransport:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask, <uint8_t*>msg_ptr)
 
         self._fast_write(<char*>header_ptr, header_size + msg_size)
-
-        if msg_type == WSMsgType.CLOSE:
-            self.is_close_frame_sent = True
 
     cdef _send(self, WSMsgType msg_type, message, bint fin, bint rsv1):
         if self.is_close_frame_sent:
@@ -517,25 +518,13 @@ cdef class WSTransport:
                 <char*>(masked_msg_ptr - header_size), header_size + msg_size
             )
 
-        if msg_type == WSMsgType.CLOSE:
-            self.is_close_frame_sent = True
-
-            if self.close_handshake is None:
-                self.close_handshake = <WSCloseHandshake>WSCloseHandshake.__new__(WSCloseHandshake)
-                self.close_handshake.recv_then_sent = False
-
-            self.close_handshake.sent = <WSCloseInfo>WSCloseInfo.__new__(WSCloseInfo)
-            self.close_handshake.sent.code = <WSCloseCode>ntohs((<uint16_t *>msg_ptr)[0])
-            self.close_handshake.sent.reason = PyUnicode_FromStringAndSize(msg_ptr + 2, msg_size - 2)
-
     cdef send_reuse_external_buffer(self, WSMsgType msg_type,
                                     char* msg_ptr, Py_ssize_t msg_size,
                                     bint fin=True, bint rsv1=False):
         self._check_thread("send_reuse_external_buffer")
 
-        if self.is_close_frame_sent:
-            self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
-            return
+        if msg_type == WSMsgType.CLOSE:
+            raise ValueError("attempt to send CLOSE frame using send_reuse_external_buffer, use send_close instead")
 
         self._send_buffer(msg_type, msg_ptr, msg_size, fin, rsv1)
 
@@ -548,7 +537,7 @@ cdef class WSTransport:
         This function does not copy message to prepare websocket frames. 
         It reuses bytearray's memory to write websocket frame header at the front.
         
-        :param msg_type: :any:`WSMsgType` enum value\n 
+        :param msg_type: :any:`WSMsgType` enum value, except CLOSE. Use send_close to send close frames. 
         :param msg_offset: specifies where message begins in the bytearray. 
             Must be at least 14 to let picows to write websocket frame header in front of the message.
         :param buffer: bytearray that contains message and some extra space (at least 14 bytes) in the beginning.
@@ -558,20 +547,23 @@ cdef class WSTransport:
         :param rsv1: first reserved bit in websocket frame. 
             Some protocol extensions use it to indicate that payload is compressed.        
         """
-        assert buffer is not None, "buffer is None"
-        assert msg_offset >= 14, "buffer must have at least 14 bytes available before message starts, check msg_offset parameter"
+        if buffer is None:
+            raise ValueError("None is passed instead of buffer to send_reuse_external_bytearray")
+
+        if msg_offset < 14:
+            raise ValueError("buffer must have at least 14 bytes available before message starts, check msg_offset parameter")
+
+        if msg_type == WSMsgType.CLOSE:
+            raise ValueError("attempt to send CLOSE frame using send_reuse_external_bytearray, use send_close instead")
 
         self._check_thread("send_reuse_external_bytearray")
-
-        if self.is_close_frame_sent:
-            self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
-            return
 
         cdef:
             char* buffer_ptr = PyByteArray_AS_STRING(buffer)
             Py_ssize_t buffer_size = PyByteArray_GET_SIZE(buffer)
 
-        assert buffer_size >= msg_offset, "msg_offset points beyond buffer end, msg_offset > len(buffer)"
+        if buffer_size < msg_offset:
+            raise ValueError("msg_offset points beyond buffer end, msg_offset > len(buffer)")
 
         cdef:
             char* msg_ptr = buffer_ptr + msg_offset
@@ -638,11 +630,23 @@ cdef class WSTransport:
         cdef:
             bytes msg = PyBytes_FromStringAndSize(NULL, close_msg_length + 2)
             char* msg_ptr = PyBytes_AS_STRING(msg)
+            str reason = PyUnicode_FromStringAndSize(close_msg_ptr, close_msg_length)
 
         (<uint16_t*>msg_ptr)[0] = htons(<uint16_t>close_code)
         memcpy(msg_ptr + 2, close_msg_ptr, close_msg_length)
 
         self._send(WSMsgType.CLOSE, msg, True, False)
+
+        if not self.is_close_frame_sent:
+            self.is_close_frame_sent = True
+
+            if self.close_handshake is None:
+                self.close_handshake = <WSCloseHandshake>WSCloseHandshake.__new__(WSCloseHandshake)
+                self.close_handshake.recv_then_sent = False
+
+            self.close_handshake.sent = <WSCloseInfo>WSCloseInfo.__new__(WSCloseInfo)
+            self.close_handshake.sent.code = close_code
+            self.close_handshake.sent.reason = reason
 
     cpdef disconnect(self, bint graceful=True):
         """
