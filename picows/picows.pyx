@@ -995,10 +995,11 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         # self._logger.getLogger adds child logger to the global loggers dict.
         # These child loggers never get deleted after connections are lost
         # Therefore do not use getLogger, create and setup child loggers manually
-        child_logger = logging.Logger(f"{self._logger.name}.{sock.fileno()}", logging.NOTSET)
-        child_logger.parent = self._logger
-        child_logger.propagate = True
-        self._logger = child_logger
+        if isinstance(self._logger, logging.Logger, logging.LoggerAdapter):
+            child_logger = logging.Logger(f"{self._logger.name}.{sock.fileno()}", logging.NOTSET)
+            child_logger.parent = self._logger
+            child_logger.propagate = True
+            self._logger = child_logger
 
         quickack = sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK) if hasattr(socket, "TCP_QUICKACK") else False
 
