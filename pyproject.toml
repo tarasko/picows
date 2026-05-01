@@ -36,8 +36,8 @@ Repository = "https://github.com/tarasko/picows"
 Issues = "https://github.com/tarasko/picows/issues"
 Documentation = "https://picows.readthedocs.io/en/latest"
 
-[tool.setuptools]
-packages = ["picows"]
+[tool.setuptools.packages.find]
+include = ["picows*"]
 
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}

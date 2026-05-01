@@ -2,18 +2,23 @@
 
 Read README.md for the basic understanding of what this project is.
 
-picows - this is the main package
+picows - this is the main package.
+picows.websockets - reimplements popular websockets library interface on top of picows
+tests - Contains tests for picows
+examples - Various examples for users on how to use picows + perf_test that could be used to build call-graph with perf 
 
-aiofastnet - Contains optimized versions of asyncio create_connection, create_server
-I plan to make a separate python project for it, but I'm not there yet. It should be treated
-as a separate python project. It will have its own tests, eventually its own description and docs.
-The project contains very efficient repimplementation of SelectSocketTransport and SSLProtocol 
-using Cython and sometimes a pure C code. create_connection, create_server are defined in aiofastnet/api.py
-sslproto.pyx - hack python SSLContext to get raw SSL_CTX*, it works with openssl api directly after that.
-sslproto_stdlib.pyx - is just for reference, I will delete it soon, but now it's good for comparison between
-stdlib ssl and whatever is in sslproto.pyx.
-
-tests - Contains tests for both picows and aiofastnet. Tests for aiofastnet will become a part of a separate project.
+## Code style notes
+- Do not write `del transport` or similar `del <parameter>` statements inside callbacks just to mark arguments as unused.
+  Leave unused callback parameters as-is or rename them with a leading underscore if that is clearer.
+  Using `del` in this situation is confusing and suggests reference-counting or lifetime management concerns.
+- Prefer direct composition only when there is a real behavioral boundary.
+  Do not introduce adapter / holder / deferred-event plumbing just to preserve a conceptual separation.
+  If extra machinery exists only to work around the separation you introduced, the separation is probably wrong.
+- Do not model impossible or non-normal internal states in the mainline code path without a concrete reason.
+  If an invariant is guaranteed by control flow, write the code around that invariant instead of adding repeated defensive checks.
+  Every extra "just in case" branch teaches the reader that the state is part of normal behavior.
+  Add such checks only for real risks like external misuse, concurrency races, partial failure, or invariants that are genuinely hard to guarantee.
+  If the only reason for the check is uncertainty in the design, fix the design first.
 
 ## Testing instructions
 - Run lint after updating code with:
