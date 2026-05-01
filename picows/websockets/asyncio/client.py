@@ -103,8 +103,8 @@ def process_exception(exc: Exception) -> Optional[Exception]:
     if isinstance(exc, (EOFError, OSError, asyncio.TimeoutError)):
         return None
     if isinstance(exc, InvalidStatus):
-        status = getattr(getattr(exc, "response", None), "status", None)
-        if status is not None and int(status) in {500, 502, 503, 504}:
+        status = exc.response.status
+        if int(status) in {500, 502, 503, 504}:
             return None
     return exc
 
@@ -134,11 +134,9 @@ class ClientConnection(picows.WSListener):
         self._closed_event = asyncio.Event()
         self._frames: asyncio.Queue[Optional[_BufferedFrame]] = asyncio.Queue()
         self._close_exc: Optional[ConnectionClosed] = None
-        self._disconnect_waiter: Optional[asyncio.Task[None]] = None
         self._loop = asyncio.get_running_loop()
         self._recv_lock = asyncio.Lock()
         self._send_lock = asyncio.Lock()
-        self._read_closed = False
         self._write_ready: Optional[asyncio.Future[None]] = None
         self._recv_streaming_in_progress = False
         self._recv_streaming_broken = False
@@ -188,7 +186,6 @@ class ClientConnection(picows.WSListener):
         self._subprotocol = _resolve_subprotocol(self._subprotocols, self.response)
         self._state = State.OPEN
         self._set_write_limits(self._write_limit)
-        self._disconnect_waiter = asyncio.create_task(self._watch_disconnect())
         if self._ping_interval is not None and self._keepalive_task is None:
             self._keepalive_task = asyncio.create_task(self._keepalive_loop())
 
@@ -229,48 +226,39 @@ class ClientConnection(picows.WSListener):
 
     def _set_close_exception(self) -> None:
         handshake = self.transport.close_handshake
-        rcvd = getattr(handshake, "recv", None) if handshake is not None else None
-        sent = getattr(handshake, "sent", None) if handshake is not None else None
-        rcvd_then_sent = getattr(handshake, "recv_then_sent", None) if handshake is not None else None
-        rcvd_code = _coerce_close_code(getattr(rcvd, "code", None))
-        sent_code = _coerce_close_code(getattr(sent, "code", None))
+        if handshake is None:
+            self._close_exc = ConnectionClosedError(None, None, None)
+            return
+        rcvd = handshake.recv
+        sent = handshake.sent
+        rcvd_then_sent = handshake.recv_then_sent
+        rcvd_code = _coerce_close_code(rcvd.code) if rcvd is not None else None
+        sent_code = _coerce_close_code(sent.code) if sent is not None else None
         ok = (
             (rcvd_code in OK_CLOSE_CODES or rcvd_code is None)
             and (sent_code in OK_CLOSE_CODES or sent_code is None)
-            and handshake is not None
         )
         exc_type = ConnectionClosedOK if ok else ConnectionClosedError
         self._close_exc = exc_type(rcvd, sent, rcvd_then_sent)
 
-    async def _watch_disconnect(self) -> None:
-        try:
-            await self.transport.wait_disconnected()
-        except Exception:
-            self._state = State.CLOSED
-            self._set_close_exception()
-            self._frames.put_nowait(None)
-            self._closed_event.set()
-        else:
-            self._state = State.CLOSED
-            self._set_close_exception()
-            self._frames.put_nowait(None)
-            self._closed_event.set()
-        finally:
-            if self._keepalive_task is not None:
-                self._keepalive_task.cancel()
-            if self._write_ready is not None:
-                if not self._write_ready.done():
-                    self._write_ready.set_exception(
-                        self._close_exc or ConnectionClosedError(None, None, None)
-                    )
-                self._write_ready = None
-            for waiter, _ in self._pending_pings.values():
-                if not waiter.done():
-                    waiter.set_exception(self._close_exc or ConnectionClosedError(None, None, None))
-            self._pending_pings.clear()
-
     def on_ws_disconnected(self, transport: picows.WSTransport) -> None:
         self._state = State.CLOSED
+        self._set_close_exception()
+        self._frames.put_nowait(None)
+        self._closed_event.set()
+        if self._keepalive_task is not None:
+            self._keepalive_task.cancel()
+            self._keepalive_task = None
+        if self._write_ready is not None:
+            if not self._write_ready.done():
+                self._write_ready.set_exception(
+                    self._close_exc or ConnectionClosedError(None, None, None)
+                )
+            self._write_ready = None
+        for waiter, _ in self._pending_pings.values():
+            if not waiter.done():
+                waiter.set_exception(self._close_exc or ConnectionClosedError(None, None, None))
+        self._pending_pings.clear()
 
     def _fail_message_too_big(self, message: str) -> None:
         if self._state is State.CLOSED:
@@ -279,15 +267,12 @@ class ClientConnection(picows.WSListener):
         self.transport.disconnect(False)
 
     def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame) -> None:
-        self._on_frame_buffered(_BufferedFrame(frame.msg_type, frame.get_payload_as_bytes(), frame.fin))
-
-    def _on_frame_buffered(self, frame: _BufferedFrame) -> None:
+        payload = frame.get_payload_as_bytes()
         if frame.msg_type == picows.WSMsgType.PING:
-            self.transport.send_pong(frame.payload)
+            self.transport.send_pong(payload)
             return
 
         if frame.msg_type == picows.WSMsgType.PONG:
-            payload = frame.payload
             ping = self._pending_pings.pop(payload, None)
             if ping is not None:
                 waiter, sent_at = ping
@@ -299,21 +284,20 @@ class ClientConnection(picows.WSListener):
         if frame.msg_type == picows.WSMsgType.CLOSE:
             close_code: CloseCodeT = picows.WSCloseCode.NO_INFO
             close_message = b""
-            if len(frame.payload) >= 2:
-                close_code = int.from_bytes(frame.payload[:2], "big")
-                close_message = frame.payload[2:]
+            if len(payload) >= 2:
+                close_code = int.from_bytes(payload[:2], "big")
+                close_message = payload[2:]
             if not self.transport.is_close_frame_sent:
                 self.transport.send_close(cast(picows.WSCloseCode, close_code), close_message)
             self._state = State.CLOSING
             self.transport.disconnect()
             return
 
-        payload = frame.payload
         if self._max_fragment_size is not None and len(payload) > self._max_fragment_size:
             self._fail_message_too_big("fragment too big")
             return
 
-        self._frames.put_nowait(frame)
+        self._frames.put_nowait(_BufferedFrame(frame.msg_type, payload, frame.fin))
         self._pause_reading_if_needed()
 
     async def _next_frame(self) -> _BufferedFrame:
@@ -606,7 +590,6 @@ class ClientConnection(picows.WSListener):
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
-        del exc_type, exc, tb
         await self.close()
 
     def __aiter__(self) -> AsyncIterator[Union[str, bytes]]:
@@ -716,7 +699,6 @@ class _Connect:
         return self._connection
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
-        del exc_type, exc, tb
         if self._connection is not None:
             await self._connection.close()
             self._connection = None

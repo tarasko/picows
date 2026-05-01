@@ -654,6 +654,8 @@ cdef class WSTransport:
 
             if self.close_handshake is None:
                 self.close_handshake = <WSCloseHandshake>WSCloseHandshake.__new__(WSCloseHandshake)
+                self.close_handshake.recv = None
+                self.close_handshake.sent = None
                 self.close_handshake.recv_then_sent = False
 
             self.close_handshake.sent = <WSCloseInfo>WSCloseInfo.__new__(WSCloseInfo)
