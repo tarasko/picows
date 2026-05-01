@@ -995,7 +995,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         # self._logger.getLogger adds child logger to the global loggers dict.
         # These child loggers never get deleted after connections are lost
         # Therefore do not use getLogger, create and setup child loggers manually
-        if isinstance(self._logger, logging.Logger, logging.LoggerAdapter):
+        if isinstance(self._logger, logging.Logger):
             child_logger = logging.Logger(f"{self._logger.name}.{sock.fileno()}", logging.NOTSET)
             child_logger.parent = self._logger
             child_logger.propagate = True
