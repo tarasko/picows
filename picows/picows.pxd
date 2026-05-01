@@ -113,9 +113,9 @@ cdef class WSTransport:
         bint _is_aiofn_transport
         bint _log_debug_enabled
 
-    cdef inline send_reuse_external_buffer(self, WSMsgType msg_type, char* msg_ptr, Py_ssize_t msg_size, bint fin=*, bint rsv1=*)
-    cpdef send(self, WSMsgType msg_type, message, bint fin=*, bint rsv1=*)
-    cpdef send_reuse_external_bytearray(self, WSMsgType msg_type, bytearray buffer, Py_ssize_t msg_offset, bint fin=*, bint rsv1=*)
+    cdef inline send_reuse_external_buffer(self, WSMsgType msg_type, char* msg_ptr, Py_ssize_t msg_size, bint fin=*, bint rsv1=*, bint rsv2=*, bint rsv3=*)
+    cpdef send(self, WSMsgType msg_type, message, bint fin=*, bint rsv1=*, bint rsv2=*, bint rsv3=*)
+    cpdef send_reuse_external_bytearray(self, WSMsgType msg_type, bytearray buffer, Py_ssize_t msg_offset, bint fin=*, bint rsv1=*, bint rsv2=*, bint rsv3=*)
     cpdef send_ping(self, message=*)
     cpdef send_pong(self, message=*)
     cpdef send_close(self, WSCloseCode close_code=*, close_message=*)
@@ -126,9 +126,9 @@ cdef class WSTransport:
     cdef inline Py_ssize_t _get_header_size(self, Py_ssize_t msg_size) noexcept
     cdef inline _send_buffer(self, WSMsgType msg_type,
                              char* msg_ptr, Py_ssize_t msg_size,
-                             bint fin, bint rsv1)
-    cdef inline _send(self, WSMsgType msg_type, message, bint fin, bint rsv1)
-    cdef inline uint32_t _prepare_header(self, uint8_t* header_ptr, WSMsgType msg_type, Py_ssize_t msg_size, bint fin, bint rsv1) noexcept
+                             bint fin, bint rsv1, bint rsv2, bint rsv3)
+    cdef inline _send(self, WSMsgType msg_type, message, bint fin, bint rsv1, bint rsv2, bint rsv3)
+    cdef inline uint32_t _prepare_header(self, uint8_t* header_ptr, WSMsgType msg_type, Py_ssize_t msg_size, bint fin, bint rsv1, bint rsv2, bint rsv3) noexcept
     cdef inline _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, object extra_headers)
     cdef inline _send_http_handshake_response(self, response, bytes accept_val)
     cdef inline _fast_write(self, char* ptr, Py_ssize_t sz)
@@ -146,4 +146,3 @@ cdef class WSListener:
 
     cpdef pause_writing(self)
     cpdef resume_writing(self)
-

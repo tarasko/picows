@@ -404,7 +404,7 @@ cdef class WSTransport:
     cdef uint32_t _prepare_header(self, uint8_t* header_ptr,
                                   WSMsgType msg_type,
                                   Py_ssize_t msg_size,
-                                  bint fin, bint rsv1) noexcept:
+                                  bint fin, bint rsv1, bint rsv2, bint rsv3) noexcept:
         # Return mask or 0 for server side
 
         cdef:
@@ -416,6 +416,10 @@ cdef class WSTransport:
             first_byte |= 0x80
         if rsv1:
             first_byte |= 0x40
+        if rsv2:
+            first_byte |= 0x20
+        if rsv3:
+            first_byte |= 0x10
 
         header_ptr[0] = first_byte
 
@@ -444,7 +448,7 @@ cdef class WSTransport:
 
     cdef _send_buffer(self, WSMsgType msg_type,
                       char* msg_ptr, Py_ssize_t msg_size,
-                      bint fin, bint rsv1):
+                      bint fin, bint rsv1, bint rsv2, bint rsv3):
         if self.is_close_frame_sent:
             self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
             return
@@ -452,14 +456,14 @@ cdef class WSTransport:
         cdef:
             Py_ssize_t header_size = self._get_header_size(msg_size)
             char* header_ptr = msg_ptr - header_size
-            uint32_t mask = self._prepare_header(<uint8_t*>header_ptr, msg_type, msg_size, fin, rsv1)
+            uint32_t mask = self._prepare_header(<uint8_t*>header_ptr, msg_type, msg_size, fin, rsv1, rsv2, rsv3)
 
         if mask != 0:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask, <uint8_t*>msg_ptr)
 
         self._fast_write(<char*>header_ptr, header_size + msg_size)
 
-    cdef _send(self, WSMsgType msg_type, message, bint fin, bint rsv1):
+    cdef _send(self, WSMsgType msg_type, message, bint fin, bint rsv1, bint rsv2, bint rsv3):
         if self.is_close_frame_sent:
             self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
             return
@@ -478,7 +482,7 @@ cdef class WSTransport:
 
         self._write_buffer.resize(header_size)
         mask = self._prepare_header(<uint8_t *>self._write_buffer.data, msg_type,
-                                  msg_size, fin, rsv1)
+                                  msg_size, fin, rsv1, rsv2, rsv3)
 
         if msg_size == 0:
             self._fast_write(self._write_buffer.data, header_size)
@@ -495,7 +499,7 @@ cdef class WSTransport:
                 self._write_buffer.resize(header_size)
                 self._prepare_header(<uint8_t *> self._write_buffer.data,
                                      msg_type,
-                                     msg_size, fin, rsv1)
+                                     msg_size, fin, rsv1, rsv2, rsv3)
                 header = PyMemoryView_FromMemory(
                     self._write_buffer.data, header_size, PyBUF_READ
                 )
@@ -520,18 +524,18 @@ cdef class WSTransport:
 
     cdef send_reuse_external_buffer(self, WSMsgType msg_type,
                                     char* msg_ptr, Py_ssize_t msg_size,
-                                    bint fin=True, bint rsv1=False):
+                                    bint fin=True, bint rsv1=False, bint rsv2=False, bint rsv3=False):
         self._check_thread("send_reuse_external_buffer")
 
         if msg_type == WSMsgType.CLOSE:
             raise ValueError("attempt to send CLOSE frame using send_reuse_external_buffer, use send_close instead")
 
-        self._send_buffer(msg_type, msg_ptr, msg_size, fin, rsv1)
+        self._send_buffer(msg_type, msg_ptr, msg_size, fin, rsv1, rsv2, rsv3)
 
     cpdef send_reuse_external_bytearray(self, WSMsgType msg_type,
                                         bytearray buffer,
                                         Py_ssize_t msg_offset,
-                                        bint fin=True, bint rsv1=False):
+                                        bint fin=True, bint rsv1=False, bint rsv2=False, bint rsv3=False):
         """
         Send a frame over websocket with a message as its payload. 
         This function does not copy message to prepare websocket frames. 
@@ -545,7 +549,11 @@ cdef class WSTransport:
         :param fin: fin bit in websocket frame.
             Indicate that the frame is the last one in the message.
         :param rsv1: first reserved bit in websocket frame. 
-            Some protocol extensions use it to indicate that payload is compressed.        
+            Some protocol extensions use it to indicate that payload is compressed.
+        :param rsv2: second reserved bit in websocket frame.
+            Protocol extensions can use this flag.
+        :param rsv3: third reserved bit in websocket frame.
+            Protocol extensions can use this flag.
         """
         if buffer is None:
             raise ValueError("None is passed instead of buffer to send_reuse_external_bytearray")
@@ -569,9 +577,9 @@ cdef class WSTransport:
             char* msg_ptr = buffer_ptr + msg_offset
             Py_ssize_t msg_size = buffer_size - msg_offset
 
-        self._send_buffer(msg_type, msg_ptr, msg_size, fin, rsv1)
+        self._send_buffer(msg_type, msg_ptr, msg_size, fin, rsv1, rsv2, rsv3)
 
-    cpdef send(self, WSMsgType msg_type, message, bint fin=True, bint rsv1=False):
+    cpdef send(self, WSMsgType msg_type, message, bint fin=True, bint rsv1=False, bint rsv2=False, bint rsv3=False):
         """
         Send a frame over websocket with a message as its payload.
 
@@ -588,9 +596,13 @@ cdef class WSTransport:
         :param rsv1: first reserved bit in websocket frame.
             Some protocol extensions use it to indicate that payload
             is compressed.
+        :param rsv2: second reserved bit in websocket frame.
+            Protocol extensions can use this flag.
+        :param rsv3: third reserved bit in websocket frame.
+            Protocol extensions can use this flag.
         """
         self._check_thread("send")
-        self._send(msg_type, message, fin, rsv1)
+        self._send(msg_type, message, fin, rsv1, rsv2, rsv3)
 
     cpdef send_ping(self, message=None):
         """
@@ -599,7 +611,7 @@ cdef class WSTransport:
         :param message: an optional bytes-like object
         """
         self._check_thread("send_ping")
-        self._send(WSMsgType.PING, message, True, False)
+        self._send(WSMsgType.PING, message, True, False, False, False)
 
     cpdef send_pong(self, message=None):
         """
@@ -608,7 +620,7 @@ cdef class WSTransport:
         :param message: an optional bytes-like object
         """
         self._check_thread("send_pong")
-        self._send(WSMsgType.PONG, message, True, False)
+        self._send(WSMsgType.PONG, message, True, False, False, False)
 
     cpdef send_close(self, WSCloseCode close_code=WSCloseCode.NO_INFO, close_message=None):
         """
@@ -635,7 +647,7 @@ cdef class WSTransport:
         (<uint16_t*>msg_ptr)[0] = htons(<uint16_t>close_code)
         memcpy(msg_ptr + 2, close_msg_ptr, close_msg_length)
 
-        self._send(WSMsgType.CLOSE, msg, True, False)
+        self._send(WSMsgType.CLOSE, msg, True, False, False, False)
 
         if not self.is_close_frame_sent:
             self.is_close_frame_sent = True

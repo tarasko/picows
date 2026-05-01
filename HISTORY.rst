@@ -13,6 +13,7 @@ picows Release History
 * Introduce new exceptions: WSInvalidMessageError, WSInvalidStatusError, WSInvalidHeaderError, WSInvalidUpgradeError
 * Allow sending close frames only using send_close to simplify logic
 * Raise ValueError instead of assert on some invalid user input
+* Added rsv2 and rsv3 to WSTransport send methods
 
 1.19.0 (2026-04-24)
 ------------------

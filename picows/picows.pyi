@@ -107,6 +107,8 @@ class WSTransport:
         message: Optional[WSBuffer],
         fin: bool = True,
         rsv1: bool = False,
+        rsv2: bool = False,
+        rsv3: bool = False,
     ) -> None: ...
     def send_reuse_external_bytearray(
         self,
@@ -114,7 +116,9 @@ class WSTransport:
         buffer: bytearray,
         msg_offset: int,
         fin: bool = True,
-        rsv1: bool = False
+        rsv1: bool = False,
+        rsv2: bool = False,
+        rsv3: bool = False,
     ) -> None: ...
     def send_ping(self, message: Optional[WSBuffer]=None) -> None: ...
     def send_pong(self, message: Optional[WSBuffer]=None) -> None: ...

@@ -243,7 +243,7 @@ Classes
 
         Opening handshake response.
 
-    .. py:method:: send_reuse_external_buffer(WSMsgType msg_type, char* msg_ptr, size_t msg_size, bint fin=True, bint rsv1=False)
+    .. py:method:: send_reuse_external_buffer(WSMsgType msg_type, char* msg_ptr, size_t msg_size, bint fin=True, bint rsv1=False, bint rsv2=False, bint rsv3=False)
 
         **Available only from Cython.**
 
@@ -263,6 +263,10 @@ Classes
         :param rsv1: first reserved bit in websocket frame.
             Some protocol extensions use it to indicate that payload
             is compressed.
+        :param rsv2: second reserved bit in websocket frame.
+            Protocol extensions can use this flag.
+        :param rsv3: third reserved bit in websocket frame.
+            Protocol extensions can use this flag.
 
 Enums
 -----

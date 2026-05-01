@@ -24,6 +24,8 @@ class BinaryFrame:
         self.payload_as_bytes_from_mv = bytes(frame.get_payload_as_memoryview())
         self.fin = frame.fin
         self.rsv1 = frame.rsv1
+        self.rsv2 = frame.rsv2
+        self.rsv3 = frame.rsv3
 
 
 class TextFrame:
@@ -34,6 +36,8 @@ class TextFrame:
         self.payload_as_utf8_text = frame.get_payload_as_utf8_text()
         self.fin = frame.fin
         self.rsv1 = frame.rsv1
+        self.rsv2 = frame.rsv2
+        self.rsv3 = frame.rsv3
 
 
 class CloseFrame:
@@ -44,6 +48,8 @@ class CloseFrame:
         self.close_message = frame.get_close_message()
         self.fin = frame.fin
         self.rsv1 = frame.rsv1
+        self.rsv2 = frame.rsv2
+        self.rsv3 = frame.rsv3
 
 
 def materialize_frame(frame: picows.WSFrame) -> Union[TextFrame, CloseFrame, BinaryFrame]:
@@ -116,7 +122,7 @@ class ServerEchoListener(picows.WSListener):
                 self._transport.send(picows.WSMsgType.BINARY, msg)
                 return
 
-        self._transport.send(frame.msg_type, frame.get_payload_as_bytes(), frame.fin, frame.rsv1)
+        self._transport.send(frame.msg_type, frame.get_payload_as_bytes(), frame.fin, frame.rsv1, frame.rsv2, frame.rsv3)
 
 
 @dataclass
@@ -172,4 +178,3 @@ async def WSClient(server, listener_factory=None, **kwargs):
             await transport.wait_disconnected()
         except (TestException, picows.WSError):
             pass
-
