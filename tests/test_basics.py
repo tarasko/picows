@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import logging
 import os
 
 import picows
@@ -18,38 +19,47 @@ async def test_echo(use_aiofastnet, ssl_context, msg_size):
         async with WSClient(server, ssl_context=ssl_context.client, use_aiofastnet=use_aiofastnet) as client:
             msg = (b"ABCDEFGHIKLMNOPQ" * (int(msg_size / 16) + 1))[:msg_size]
 
-            client.transport.send(picows.WSMsgType.BINARY, msg, False, False)
+            client.transport.send(picows.WSMsgType.BINARY, msg, False, False, True, False)
             frame = await client.get_message()
-            assert frame.frame_str.startswith("WSFrame(BINARY, fin=False, rsv1=False")
+            assert frame.frame_str.startswith("WSFrame(BINARY, fin=False, rsv1=False, rsv2=True, rsv3=False")
             assert frame.msg_type == picows.WSMsgType.BINARY
             assert frame.payload_as_bytes == msg
             assert frame.payload_as_bytes_from_mv == msg
             assert not frame.fin
             assert not frame.rsv1
+            assert frame.rsv2
+            assert not frame.rsv3
 
             ba = bytearray(b"1234567890123456")
             ba += msg
-            client.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, ba, 16)
+            client.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, ba, 16, True, False, False, True)
             frame = await client.get_message()
-            assert frame.frame_str.startswith("WSFrame(BINARY, fin=True, rsv1=False")
+            assert frame.frame_str.startswith("WSFrame(BINARY, fin=True, rsv1=False, rsv2=False, rsv3=True")
             assert frame.msg_type == picows.WSMsgType.BINARY
             assert frame.payload_as_bytes == msg
+            assert not frame.rsv1
+            assert not frame.rsv2
+            assert frame.rsv3
 
             msg = base64.b64encode(msg)
-            client.transport.send(picows.WSMsgType.TEXT, msg, True, True)
+            client.transport.send(picows.WSMsgType.TEXT, msg, True, True, True, True)
             frame = await client.get_message()
-            assert frame.frame_str.startswith("WSFrame(TEXT, fin=True, rsv1=True")
+            assert frame.frame_str.startswith("WSFrame(TEXT, fin=True, rsv1=True, rsv2=True, rsv3=True")
             assert frame.msg_type == picows.WSMsgType.TEXT
             assert frame.payload_as_ascii_text == msg.decode("ascii")
             assert frame.payload_as_utf8_text == msg.decode("utf8")
             assert frame.fin
             assert frame.rsv1
+            assert frame.rsv2
+            assert frame.rsv3
 
             # Check send defaults
             client.transport.send(picows.WSMsgType.BINARY, msg)
             frame = await client.get_message()
             assert frame.fin
             assert not frame.rsv1
+            assert not frame.rsv2
+            assert not frame.rsv3
 
             # Test non-bytes like send
             with pytest.raises(TypeError):

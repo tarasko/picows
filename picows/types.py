@@ -165,6 +165,45 @@ class WSHandshakeError(WSError):
         self.response = response
 
 
+class WSInvalidMessageError(WSHandshakeError):
+    """
+    Raised when the HTTP handshake request or response is malformed.
+    """
+    pass
+
+
+class WSInvalidStatusError(WSHandshakeError):
+    """
+    Raised when the HTTP handshake response status rejects the WebSocket upgrade.
+    """
+    pass
+
+
+class WSInvalidHeaderError(WSHandshakeError):
+    """
+    Raised when a HTTP header in the WebSocket handshake is invalid.
+    """
+    name: str
+    value: Optional[str]
+
+    def __init__(self, description: str,
+                 name: str,
+                 value: Optional[str] = None,
+                 raw_header: Optional[bytes] = None,
+                 raw_body: Optional[bytes] = None,
+                 response: Optional[WSUpgradeResponse] = None):
+        super().__init__(description, raw_header, raw_body, response)
+        self.name = name
+        self.value = value
+
+
+class WSInvalidUpgradeError(WSInvalidHeaderError):
+    """
+    Raised when Upgrade / Connection headers are invalid in the WebSocket handshake.
+    """
+    pass
+
+
 class WSProtocolError(WSError):
     """
     Raised when receiving or sending frames that break the protocol or

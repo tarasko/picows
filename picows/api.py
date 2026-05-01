@@ -4,9 +4,9 @@ import urllib.parse
 from dataclasses import dataclass
 from functools import partial
 from inspect import isawaitable
-from logging import getLogger
+from logging import Logger, LoggerAdapter, getLogger
 from ssl import SSLContext
-from typing import Callable, Optional, Union, Dict, Any, Awaitable, cast
+from typing import Callable, Optional, Union, Dict, Any, Awaitable, cast, TYPE_CHECKING
 
 from python_socks.async_.asyncio import Proxy
 
@@ -20,6 +20,13 @@ from .url import parse_url, WSInvalidURL, WSParsedURL
 WSListenerFactory = Callable[[], WSListener]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
 WSSocketFactory = Callable[[WSParsedURL], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
+
+if TYPE_CHECKING:
+    _WSLoggerAdapter = LoggerAdapter[Any]
+else:
+    _WSLoggerAdapter = LoggerAdapter
+
+WSLoggerLike = Union[str, Logger, _WSLoggerAdapter, None]
 
 _HAS_AIOFASTNET = False
 try:
@@ -60,6 +67,20 @@ def _is_connected(sock: socket.socket) -> bool:
         return True
     except OSError:
         return False
+
+
+def _resolve_logger(
+        logger_name: WSLoggerLike,
+        default_suffix: str,
+        prefix: str = "picows."
+) -> Union[Logger, _WSLoggerAdapter]:
+    if logger_name is None:
+        return getLogger(f"{prefix}{default_suffix}")
+
+    if isinstance(logger_name, str):
+        return getLogger(f"{prefix}{logger_name}")
+
+    return logger_name
 
 @dataclass
 class _ConnectedSocket:
@@ -171,8 +192,8 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                      *,
                      ssl_context: Optional[SSLContext] = None,
                      disconnect_on_exception: bool = True,
-                     websocket_handshake_timeout: float = 5,
-                     logger_name: str = "client",
+                     websocket_handshake_timeout: Optional[float] = 5,
+                     logger_name: WSLoggerLike = None,
                      enable_auto_ping: bool = False,
                      auto_ping_idle_timeout: float = 10,
                      auto_ping_reply_timeout: float = 10,
@@ -205,8 +226,11 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
     :param websocket_handshake_timeout:
         is the time in seconds to wait for the websocket client to receive
         websocket handshake response before aborting the connection.
+        Set to ``None`` to disable the timeout.
     :param logger_name:
-        picows will use `picows.<logger_name>` logger to do all the logging.
+        Logger name suffix or logger-like object used for logging.
+        If a string is provided, picows will use `picows.<logger_name>`.
+        If ``None`` is provided, picows will use ``picows.client``.
     :param enable_auto_ping:
         Enable detection of a stale connection by periodically pinging remote peer.
 
@@ -273,7 +297,7 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
     # May sure people who are passing old argument are not going to get an exception
     kwargs.pop('zero_copy_unsafe_ssl_write', None)
 
-    logger = getLogger(f"picows.{logger_name}")
+    logger = _resolve_logger(logger_name, "client")
     parsed_url = parse_url(url)
     parsed_proxy_url = parse_url(proxy, False) if proxy is not None else None
     loop = asyncio.get_running_loop()
@@ -341,8 +365,8 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
                            port=None,
                            *,
                            disconnect_on_exception: bool = True,
-                           websocket_handshake_timeout=5,
-                           logger_name: str = "server",
+                           websocket_handshake_timeout: Optional[float] = 5,
+                           logger_name: WSLoggerLike = None,
                            enable_auto_ping: bool = False,
                            auto_ping_idle_timeout: float = 20,
                            auto_ping_reply_timeout: float = 20,
@@ -388,8 +412,11 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
         thrown by WSListener.on_ws_frame callback
     :param websocket_handshake_timeout:
         is the time in seconds to wait for the websocket server to receive websocket handshake request before aborting the connection.
+        Set to ``None`` to disable the timeout.
     :param logger_name:
-        picows will use `picows.<logger_name>` logger to do all the logging.
+        Logger name suffix or logger-like object used for logging.
+        If a string is provided, picows will use `picows.<logger_name>`.
+        If ``None`` is provided, picows will use ``picows.server``.
     :param enable_auto_ping:
         Enable detection of a stale connection by periodically pinging remote peer.
 
@@ -444,7 +471,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
             None,           # ws_path
             False,          # is_client_side
             ws_listener_factory,
-            getLogger(f"picows.{logger_name}"),
+            _resolve_logger(logger_name, "server"),
             disconnect_on_exception,
             websocket_handshake_timeout,
             enable_auto_ping, auto_ping_idle_timeout, auto_ping_reply_timeout,

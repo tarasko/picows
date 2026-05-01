@@ -24,7 +24,9 @@ from libc.stdlib cimport rand
 
 from .types import (PICOWS_DEBUG_LL, WSUpgradeRequest, WSUpgradeResponse,
                     WSUpgradeResponseWithListener,
-                    WSHandshakeError, WSProtocolError, add_extra_headers)
+                    WSHandshakeError, WSInvalidMessageError, WSInvalidStatusError,
+                    WSInvalidHeaderError, WSInvalidUpgradeError,
+                    WSProtocolError, add_extra_headers)
 
 
 cdef:
@@ -116,6 +118,14 @@ cdef _is_aiofn_transport(transport):
         return False
 
 
+cdef class WSCloseInfo:
+    pass
+
+
+cdef class WSCloseHandshake:
+    pass
+
+
 @cython.no_gc
 @cython.freelist(64)
 cdef class WSFrame:
@@ -196,6 +206,21 @@ cdef class WSFrame:
             return None
         else:
             return PyBytes_FromStringAndSize(self.payload_ptr + 2, <Py_ssize_t>self.payload_size - 2)
+
+    cpdef str get_close_reason(self):
+        """
+        :return: a new str object with a close reason. If there is no close reason then returns None. 
+
+        This method is only valid for WSMsgType.CLOSE frames.
+        """
+
+        assert self.msg_type == WSMsgType.CLOSE, "get_close_message can be called only for CLOSE frames"
+
+        if self.payload_size <= 2:
+            return None
+        else:
+            return PyUnicode_FromStringAndSize(self.payload_ptr + 2,
+                                               <Py_ssize_t> self.payload_size - 2)
 
     def __str__(self):
         return (f"WSFrame({WSMsgType(self.msg_type).name}, fin={True if self.fin else False}, "
@@ -339,6 +364,7 @@ cdef class WSTransport:
         self.underlying_transport = underlying_transport
         self.request = None
         self.response = None
+        self.close_handshake = None
         self.is_client_side = is_client_side
         self.is_secure = underlying_transport.get_extra_info('ssl_object') is not None
         self.is_close_frame_sent = False
@@ -378,7 +404,7 @@ cdef class WSTransport:
     cdef uint32_t _prepare_header(self, uint8_t* header_ptr,
                                   WSMsgType msg_type,
                                   Py_ssize_t msg_size,
-                                  bint fin, bint rsv1) noexcept:
+                                  bint fin, bint rsv1, bint rsv2, bint rsv3) noexcept:
         # Return mask or 0 for server side
 
         cdef:
@@ -390,6 +416,10 @@ cdef class WSTransport:
             first_byte |= 0x80
         if rsv1:
             first_byte |= 0x40
+        if rsv2:
+            first_byte |= 0x20
+        if rsv3:
+            first_byte |= 0x10
 
         header_ptr[0] = first_byte
 
@@ -418,21 +448,22 @@ cdef class WSTransport:
 
     cdef _send_buffer(self, WSMsgType msg_type,
                       char* msg_ptr, Py_ssize_t msg_size,
-                      bint fin, bint rsv1):
+                      bint fin, bint rsv1, bint rsv2, bint rsv3):
+        if self.is_close_frame_sent:
+            self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
+            return
+
         cdef:
             Py_ssize_t header_size = self._get_header_size(msg_size)
             char* header_ptr = msg_ptr - header_size
-            uint32_t mask = self._prepare_header(<uint8_t*>header_ptr, msg_type, msg_size, fin, rsv1)
+            uint32_t mask = self._prepare_header(<uint8_t*>header_ptr, msg_type, msg_size, fin, rsv1, rsv2, rsv3)
 
         if mask != 0:
             _mask_payload(<uint8_t*>msg_ptr, msg_size, mask, <uint8_t*>msg_ptr)
 
         self._fast_write(<char*>header_ptr, header_size + msg_size)
 
-        if msg_type == WSMsgType.CLOSE:
-            self.is_close_frame_sent = True
-
-    cdef _send(self, WSMsgType msg_type, message, bint fin, bint rsv1):
+    cdef _send(self, WSMsgType msg_type, message, bint fin, bint rsv1, bint rsv2, bint rsv3):
         if self.is_close_frame_sent:
             self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
             return
@@ -451,7 +482,7 @@ cdef class WSTransport:
 
         self._write_buffer.resize(header_size)
         mask = self._prepare_header(<uint8_t *>self._write_buffer.data, msg_type,
-                                  msg_size, fin, rsv1)
+                                  msg_size, fin, rsv1, rsv2, rsv3)
 
         if msg_size == 0:
             self._fast_write(self._write_buffer.data, header_size)
@@ -468,7 +499,7 @@ cdef class WSTransport:
                 self._write_buffer.resize(header_size)
                 self._prepare_header(<uint8_t *> self._write_buffer.data,
                                      msg_type,
-                                     msg_size, fin, rsv1)
+                                     msg_size, fin, rsv1, rsv2, rsv3)
                 header = PyMemoryView_FromMemory(
                     self._write_buffer.data, header_size, PyBUF_READ
                 )
@@ -491,30 +522,26 @@ cdef class WSTransport:
                 <char*>(masked_msg_ptr - header_size), header_size + msg_size
             )
 
-        if msg_type == WSMsgType.CLOSE:
-            self.is_close_frame_sent = True
-
     cdef send_reuse_external_buffer(self, WSMsgType msg_type,
                                     char* msg_ptr, Py_ssize_t msg_size,
-                                    bint fin=True, bint rsv1=False):
+                                    bint fin=True, bint rsv1=False, bint rsv2=False, bint rsv3=False):
         self._check_thread("send_reuse_external_buffer")
 
-        if self.is_close_frame_sent:
-            self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
-            return
+        if msg_type == WSMsgType.CLOSE:
+            raise ValueError("attempt to send CLOSE frame using send_reuse_external_buffer, use send_close instead")
 
-        self._send_buffer(msg_type, msg_ptr, msg_size, fin, rsv1)
+        self._send_buffer(msg_type, msg_ptr, msg_size, fin, rsv1, rsv2, rsv3)
 
     cpdef send_reuse_external_bytearray(self, WSMsgType msg_type,
                                         bytearray buffer,
                                         Py_ssize_t msg_offset,
-                                        bint fin=True, bint rsv1=False):
+                                        bint fin=True, bint rsv1=False, bint rsv2=False, bint rsv3=False):
         """
         Send a frame over websocket with a message as its payload. 
         This function does not copy message to prepare websocket frames. 
         It reuses bytearray's memory to write websocket frame header at the front.
         
-        :param msg_type: :any:`WSMsgType` enum value\n 
+        :param msg_type: :any:`WSMsgType` enum value, except CLOSE. Use send_close to send close frames. 
         :param msg_offset: specifies where message begins in the bytearray. 
             Must be at least 14 to let picows to write websocket frame header in front of the message.
         :param buffer: bytearray that contains message and some extra space (at least 14 bytes) in the beginning.
@@ -522,30 +549,37 @@ cdef class WSTransport:
         :param fin: fin bit in websocket frame.
             Indicate that the frame is the last one in the message.
         :param rsv1: first reserved bit in websocket frame. 
-            Some protocol extensions use it to indicate that payload is compressed.        
+            Some protocol extensions use it to indicate that payload is compressed.
+        :param rsv2: second reserved bit in websocket frame.
+            Protocol extensions can use this flag.
+        :param rsv3: third reserved bit in websocket frame.
+            Protocol extensions can use this flag.
         """
-        assert buffer is not None, "buffer is None"
-        assert msg_offset >= 14, "buffer must have at least 14 bytes available before message starts, check msg_offset parameter"
+        if buffer is None:
+            raise ValueError("None is passed instead of buffer to send_reuse_external_bytearray")
+
+        if msg_offset < 14:
+            raise ValueError("buffer must have at least 14 bytes available before message starts, check msg_offset parameter")
+
+        if msg_type == WSMsgType.CLOSE:
+            raise ValueError("attempt to send CLOSE frame using send_reuse_external_bytearray, use send_close instead")
 
         self._check_thread("send_reuse_external_bytearray")
-
-        if self.is_close_frame_sent:
-            self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
-            return
 
         cdef:
             char* buffer_ptr = PyByteArray_AS_STRING(buffer)
             Py_ssize_t buffer_size = PyByteArray_GET_SIZE(buffer)
 
-        assert buffer_size >= msg_offset, "msg_offset points beyond buffer end, msg_offset > len(buffer)"
+        if buffer_size < msg_offset:
+            raise ValueError("msg_offset points beyond buffer end, msg_offset > len(buffer)")
 
         cdef:
             char* msg_ptr = buffer_ptr + msg_offset
             Py_ssize_t msg_size = buffer_size - msg_offset
 
-        self._send_buffer(msg_type, msg_ptr, msg_size, fin, rsv1)
+        self._send_buffer(msg_type, msg_ptr, msg_size, fin, rsv1, rsv2, rsv3)
 
-    cpdef send(self, WSMsgType msg_type, message, bint fin=True, bint rsv1=False):
+    cpdef send(self, WSMsgType msg_type, message, bint fin=True, bint rsv1=False, bint rsv2=False, bint rsv3=False):
         """
         Send a frame over websocket with a message as its payload.
 
@@ -562,9 +596,13 @@ cdef class WSTransport:
         :param rsv1: first reserved bit in websocket frame.
             Some protocol extensions use it to indicate that payload
             is compressed.
+        :param rsv2: second reserved bit in websocket frame.
+            Protocol extensions can use this flag.
+        :param rsv3: third reserved bit in websocket frame.
+            Protocol extensions can use this flag.
         """
         self._check_thread("send")
-        self._send(msg_type, message, fin, rsv1)
+        self._send(msg_type, message, fin, rsv1, rsv2, rsv3)
 
     cpdef send_ping(self, message=None):
         """
@@ -573,7 +611,7 @@ cdef class WSTransport:
         :param message: an optional bytes-like object
         """
         self._check_thread("send_ping")
-        self._send(WSMsgType.PING, message, True, False)
+        self._send(WSMsgType.PING, message, True, False, False, False)
 
     cpdef send_pong(self, message=None):
         """
@@ -582,7 +620,7 @@ cdef class WSTransport:
         :param message: an optional bytes-like object
         """
         self._check_thread("send_pong")
-        self._send(WSMsgType.PONG, message, True, False)
+        self._send(WSMsgType.PONG, message, True, False, False, False)
 
     cpdef send_close(self, WSCloseCode close_code=WSCloseCode.NO_INFO, close_message=None):
         """
@@ -604,11 +642,23 @@ cdef class WSTransport:
         cdef:
             bytes msg = PyBytes_FromStringAndSize(NULL, close_msg_length + 2)
             char* msg_ptr = PyBytes_AS_STRING(msg)
+            str reason = PyUnicode_FromStringAndSize(close_msg_ptr, close_msg_length)
 
         (<uint16_t*>msg_ptr)[0] = htons(<uint16_t>close_code)
         memcpy(msg_ptr + 2, close_msg_ptr, close_msg_length)
 
-        self._send(WSMsgType.CLOSE, msg, True, False)
+        self._send(WSMsgType.CLOSE, msg, True, False, False, False)
+
+        if not self.is_close_frame_sent:
+            self.is_close_frame_sent = True
+
+            if self.close_handshake is None:
+                self.close_handshake = <WSCloseHandshake>WSCloseHandshake.__new__(WSCloseHandshake)
+                self.close_handshake.recv_then_sent = False
+
+            self.close_handshake.sent = <WSCloseInfo>WSCloseInfo.__new__(WSCloseInfo)
+            self.close_handshake.sent.code = close_code
+            self.close_handshake.sent.reason = reason
 
     cpdef disconnect(self, bint graceful=True):
         """
@@ -945,10 +995,11 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         # self._logger.getLogger adds child logger to the global loggers dict.
         # These child loggers never get deleted after connections are lost
         # Therefore do not use getLogger, create and setup child loggers manually
-        child_logger = logging.Logger(f"{self._logger.name}.{sock.fileno()}", logging.NOTSET)
-        child_logger.parent = self._logger
-        child_logger.propagate = True
-        self._logger = child_logger
+        if isinstance(self._logger, logging.Logger):
+            child_logger = logging.Logger(f"{self._logger.name}.{sock.fileno()}", logging.NOTSET)
+            child_logger.parent = self._logger
+            child_logger.propagate = True
+            self._logger = child_logger
 
         quickack = sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK) if hasattr(socket, "TCP_QUICKACK") else False
 
@@ -975,11 +1026,13 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
         if self.is_client_side:
             self.transport._send_http_handshake(self._ws_path, self._host_port, self._websocket_key_b64, self._extra_headers)
-            self._handshake_timeout_handle = self._loop.call_later(
-                self._handshake_timeout, self._handshake_timeout_callback)
+            if self._handshake_timeout is not None:
+                self._handshake_timeout_handle = self._loop.call_later(
+                    self._handshake_timeout, self._handshake_timeout_callback)
         else:
-            self._handshake_timeout_handle = self._loop.call_later(
-                self._handshake_timeout, self._handshake_timeout_callback)
+            if self._handshake_timeout is not None:
+                self._handshake_timeout_handle = self._loop.call_later(
+                    self._handshake_timeout, self._handshake_timeout_callback)
 
     def connection_lost(self, exc):
         self._logger.info("Disconnected")
@@ -1183,8 +1236,9 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             else:
                 self.transport._send_http_handshake_response(response, accept_val)
 
-        self._handshake_timeout_handle.cancel()
-        self._handshake_timeout_handle = None
+        if self._handshake_timeout_handle is not None:
+            self._handshake_timeout_handle.cancel()
+            self._handshake_timeout_handle = None
         self._handshake_complete_future.set_result(None)
         self._invoke_on_ws_connected()
         self._last_data_time = picows_get_monotonic_time()
@@ -1337,45 +1391,133 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
         cdef list lines = <list>raw_headers.split(b"\r\n")
         cdef bytes response_status_line = <bytes>lines[0]
+        cdef str response_status_line_str
+        cdef bytes status_code
+        cdef bytes line, name, value
+        cdef str transfer_encoding
+        cdef object connection_value
+        cdef object upgrade_value
+        cdef object r_key
+        cdef Py_ssize_t content_length
 
-        cdef str response_status_line_str = response_status_line.decode().lower()
+        try:
+            response_status_line_str = response_status_line.decode().lower()
+        except UnicodeDecodeError:
+            raise WSInvalidMessageError(
+                "cannot upgrade, invalid HTTP status line in upgrade response",
+                raw_headers,
+                tail,
+            ) from None
 
         # check handshake
         if not response_status_line_str.startswith("http/1.1 " ):
-            raise WSHandshakeError(f"cannot upgrade, unknown protocol (expected HTTP/1.1) in upgrade response: {response_status_line_str}", raw_headers, tail)
+            raise WSInvalidMessageError(
+                f"cannot upgrade, unknown protocol (expected HTTP/1.1) in upgrade response: {response_status_line_str}",
+                raw_headers,
+                tail,
+            )
 
-        cdef bytes status_code
         response = WSUpgradeResponse()
-        response.version, status_code, status_phrase = response_status_line.split(b" ", 2)
-        response.status = HTTPStatus(int(status_code.decode()))
+        try:
+            response.version, status_code, status_phrase = response_status_line.split(b" ", 2)
+            response.status = HTTPStatus(int(status_code.decode()))
+        except (ValueError, UnicodeDecodeError):
+            raise WSInvalidMessageError(
+                f"cannot upgrade, invalid HTTP status line in upgrade response: {response_status_line!r}",
+                raw_headers,
+                tail,
+            ) from None
 
-        cdef bytes line, name, value
         response.headers = CIMultiDict()
         for idx in range(1, len(lines)):
             line = <bytes>lines[idx]
-            name, value = <list>line.split(b":", 1)
-            response.headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
+            try:
+                name, value = <list>line.split(b":", 1)
+                response.headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
+            except (ValueError, UnicodeDecodeError):
+                raise WSInvalidMessageError(
+                    f"cannot upgrade, malformed header in upgrade response: {line!r}",
+                    raw_headers,
+                    tail,
+                    response,
+                ) from None
 
         if response.status != HTTPStatus.SWITCHING_PROTOCOLS:
-            raise WSHandshakeError(f"expected upgrade response with status 101 Switching Protocols, but received {response.status}", raw_headers, tail, response)
+            raise WSInvalidStatusError(
+                f"expected upgrade response with status 101 Switching Protocols, but received {response.status}",
+                raw_headers,
+                tail,
+                response,
+            )
 
-        if response.headers.get("transfer-encoding") == "chunked":
-            raise WSHandshakeError(f"101 response cannot have Transfer-Encoding but it has", raw_headers, tail, response)
+        transfer_encoding = response.headers.get("transfer-encoding")
+        if transfer_encoding == "chunked":
+            raise WSInvalidHeaderError(
+                "101 response cannot have Transfer-Encoding but it has",
+                "Transfer-Encoding",
+                transfer_encoding,
+                raw_headers,
+                tail,
+                response,
+            )
 
-        cdef Py_ssize_t content_length = int(response.headers.get("content-length", "0"))
+        try:
+            content_length = int(response.headers.get("content-length", "0"))
+        except ValueError:
+            raise WSInvalidHeaderError(
+                "101 response has invalid Content-Length header",
+                "Content-Length",
+                response.headers.get("content-length"),
+                raw_headers,
+                tail,
+                response,
+            ) from None
 
         if content_length != 0:
-            raise WSHandshakeError(f"101 response has non-zero Content-Length, but it can't have body", raw_headers, tail, response)
+            raise WSInvalidHeaderError(
+                "101 response has non-zero Content-Length, but it can't have body",
+                "Content-Length",
+                response.headers.get("content-length"),
+                raw_headers,
+                tail,
+                response,
+            )
+
+        upgrade_value = response.headers.get("upgrade")
+        upgrade_value = upgrade_value if upgrade_value is None else upgrade_value.lower()
+        if upgrade_value != "websocket":
+            raise WSInvalidUpgradeError(
+                "cannot upgrade, invalid upgrade header",
+                "Upgrade",
+                response.headers.get("upgrade"),
+                raw_headers,
+                tail,
+                response,
+            )
 
         connection_value = response.headers.get("connection")
         connection_value = connection_value if connection_value is None else connection_value.lower()
         if connection_value != "upgrade":
-            raise WSHandshakeError(f"cannot upgrade, invalid connection header: {response.headers['connection']}", raw_headers, tail, response)
+            raise WSInvalidUpgradeError(
+                "cannot upgrade, invalid connection header",
+                "Connection",
+                response.headers.get("connection"),
+                raw_headers,
+                tail,
+                response,
+            )
 
         r_key = response.headers.get("sec-websocket-accept")
         match = b64encode(sha1(self._websocket_key_b64 + _WS_KEY).digest()).decode()
         if r_key != match:
-            raise WSHandshakeError(f"cannot upgrade, invalid sec-websocket-accept response", raw_headers, tail, response)
+            raise WSInvalidHeaderError(
+                "cannot upgrade, invalid sec-websocket-accept response",
+                "Sec-WebSocket-Accept",
+                response.headers.get("sec-websocket-accept"),
+                raw_headers,
+                tail,
+                response,
+            )
 
         memmove(self._read_buffer.data, self._read_buffer.data + len(raw_headers) + 4, self._read_buffer.size - len(raw_headers) - 4)
         self._f_new_data_start_pos = len(tail)
@@ -1386,7 +1528,6 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         return response
 
     cdef inline WSFrame _get_next_frame(self):
-        cdef WSFrame frame
         try:
             return self._get_next_frame_impl()
         except WSProtocolError as ex:
@@ -1406,6 +1547,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             uint8_t first_byte
             uint8_t second_byte
             WSFrame frame
+            WSCloseInfo recv
 
         if self._state == WSParserState.READ_HEADER:
             if self._f_new_data_start_pos - self._f_curr_state_start_pos < 2:
@@ -1526,13 +1668,33 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             self._state = WSParserState.READ_HEADER
 
             if frame.msg_type == WSMsgType.CLOSE:
-                if frame.get_close_code() < 3000 and frame.get_close_code() not in _ALLOWED_CLOSE_CODES:
+                close_code = frame.get_close_code()
+                if close_code < 3000 and close_code not in _ALLOWED_CLOSE_CODES:
                     raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
                                          f"Received CLOSE with invalid close code: {frame.get_close_code()}")
 
                 if frame.payload_size == 1:
                     raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
                                          f"Received CLOSE with invalid close code size: {frame.fin} {frame.msg_type} {frame.get_payload_as_bytes()}")
+
+                recv = <WSCloseInfo>WSCloseInfo.__new__(WSCloseInfo)
+                recv.code = close_code
+                try:
+                    recv.reason = frame.get_close_reason()
+                except UnicodeDecodeError:
+                    raise WSProtocolError(WSCloseCode.INVALID_TEXT,
+                                          f"Received CLOSE with invalid UTF-8 reason")
+
+                if self.transport.close_handshake is None:
+                    self.transport.close_handshake = <WSCloseHandshake>WSCloseHandshake.__new__(WSCloseHandshake)
+                    self.transport.close_handshake.recv = recv
+                    self.transport.close_handshake.sent = None
+                    self.transport.close_handshake.recv_then_sent = True
+                elif self.transport.close_handshake.recv is None:
+                    self.transport.close_handshake.recv = recv
+                else:
+                    raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
+                                          f"Received CLOSE for the second time: {frame.get_close_code()}")
 
             return frame
 
