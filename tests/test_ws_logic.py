@@ -72,12 +72,20 @@ async def test_send_external_bytearray_asserts():
     async with WSServer() as server:
         async with WSClient(server) as client:
             with pytest.raises(ValueError):
+                # Check assertion for None buffer
+                client.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, None, 16)
+
+            with pytest.raises(ValueError):
                 # Check assertion for msg_len >= 0
                 client.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, bytearray(b"HELLO"), 16)
 
             with pytest.raises(ValueError):
                 # Check assertion for offset to be at least 14
                 client.transport.send_reuse_external_bytearray(picows.WSMsgType.BINARY, bytearray(b"1234567890123HELLO"), 13)
+
+            with pytest.raises(ValueError):
+                # Check CLOSE is not allowed
+                client.transport.send_reuse_external_bytearray(picows.WSMsgType.CLOSE, bytearray(b"1234567890123HELLO"), 16)
 
 
 async def test_max_frame_size_violation_huge_frame_from_client(use_aiofastnet, ssl_context):
