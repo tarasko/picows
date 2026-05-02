@@ -133,6 +133,11 @@ extensions = [
               depends=["picows/compat.h"],
               extra_compile_args=extra_compile_args,
               extra_link_args=extra_link_args),
+    Extension("picows.websockets.asyncio.client", ["picows/websockets/asyncio/client.py"],
+              libraries=libs, define_macros=macros,
+              depends=["picows/compat.h"],
+              extra_compile_args=extra_compile_args,
+              extra_link_args=extra_link_args),
 ]
 
 if with_examples:

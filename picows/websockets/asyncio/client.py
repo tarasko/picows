@@ -8,12 +8,21 @@ import socket
 import uuid
 import warnings
 from collections.abc import AsyncIterable, Generator, Iterable
-from dataclasses import dataclass
 from enum import IntEnum
 from ssl import SSLContext
 from time import monotonic
-from typing import Any, AsyncIterator, Awaitable, Callable, Optional, Sequence, Union, cast
+from typing import Any, AsyncIterator, Awaitable, Callable, Optional, Sequence, \
+    Union, cast, Dict, Tuple
 from urllib.request import getproxies
+
+import cython
+
+if cython.compiled:
+    from cython.cimports.picows.picows import WSListener, WSTransport, WSFrame, \
+        WSMsgType, WSCloseCode
+else:
+    from picows import WSListener, WSTransport, WSFrame, WSMsgType, WSCloseCode
+
 
 import picows
 from picows.types import WSHeadersLike
@@ -37,7 +46,7 @@ from ..exceptions import (
 
 Data = Union[str, bytes, bytearray, memoryview]
 HeadersLike = WSHeadersLike
-CloseCodeT = Union[int, picows.WSCloseCode]
+CloseCodeT = int
 LoggerLike = Union[str, logging.Logger, logging.LoggerAdapter[Any], None]
 
 
@@ -51,25 +60,34 @@ class State(IntEnum):
     CLOSED = 3
 
 
-@dataclass(slots=True)
+@cython.cclass
 class _BufferedFrame:
-    msg_type: picows.WSMsgType
+    msg_type: WSMsgType
     payload: bytes
     fin: bool
 
+    def __init__(self, msg_type: WSMsgType, payload: bytes, fin: bool):
+        self.msg_type = msg_type
+        self.payload = payload
+        self.fin = fin
 
-def _coerce_close_code(code: Optional[picows.WSCloseCode]) -> Optional[int]:
-    return None if code is None else int(code.value)
+
+@cython.cfunc
+def _coerce_close_code(code: WSCloseCode) -> Optional[int]:
+    return None if code is None else int(code)
 
 
+@cython.cfunc
 def _coerce_close_reason(reason: Optional[str]) -> Optional[str]:
     return reason if reason is not None else None
 
 
+@cython.cfunc
 def _header_items(headers: Any) -> list[tuple[str, str]]:
     return [] if headers is None else list(headers.items())
 
 
+@cython.cfunc
 def _resolve_subprotocol(subprotocols: Optional[Sequence[str]], response: Any) -> Optional[str]:
     if response is None:
         return None
@@ -81,10 +99,12 @@ def _resolve_subprotocol(subprotocols: Optional[Sequence[str]], response: Any) -
     return cast(str, value)
 
 
+@cython.cfunc
 def _default_user_agent() -> str:
     return f"Python/{sys.version_info.major}.{sys.version_info.minor} picows-websockets/0"
 
 
+@cython.cfunc
 def _process_proxy(proxy: Union[str, bool, None], secure: bool) -> Optional[str]:
     if proxy is None:
         return None
@@ -99,6 +119,12 @@ def _process_proxy(proxy: Union[str, bool, None], secure: bool) -> Optional[str]
     raise InvalidURI(str(proxy), "proxy must be None, True, or a proxy URL")
 
 
+@cython.cfunc
+def _normalize_size_limit(limit: Optional[int]) -> cython.Py_ssize_t:
+    return 0 if limit is None else limit
+
+
+@cython.ccall
 def process_exception(exc: Exception) -> Optional[Exception]:
     if isinstance(exc, (EOFError, OSError, asyncio.TimeoutError)):
         return None
@@ -109,7 +135,38 @@ def process_exception(exc: Exception) -> Optional[Exception]:
     return exc
 
 
-class ClientConnection(picows.WSListener):
+@cython.cclass
+class ClientConnection(WSListener):
+    id: uuid.UUID
+    logger: Union[logging.Logger, logging.LoggerAdapter[Any]]
+    transport: WSTransport
+    request: picows.WSUpgradeRequest
+    response: picows.WSUpgradeResponse
+    _subprotocols: Optional[Sequence[str]]
+    _subprotocol: Optional[str]
+    _state: State
+    _closed_event: asyncio.Event
+    _frames: asyncio.Queue[Optional[_BufferedFrame]]
+    _close_exc: Optional[ConnectionClosed]
+    _loop: asyncio.AbstractEventLoop
+    _recv_lock: asyncio.Lock
+    _send_lock: asyncio.Lock
+    _write_ready: Optional[asyncio.Future[None]]
+    _recv_streaming_in_progress: cython.bint
+    _recv_streaming_broken: cython.bint
+    _pending_pings: Dict[bytes, Tuple[asyncio.Future[float], float]]
+    _ping_interval: Optional[float]
+    _ping_timeout: Optional[float]
+    _close_timeout: Optional[float]
+    _keepalive_task: Optional[asyncio.Task[None]]
+    _latency: cython.double
+    _max_message_size: cython.Py_ssize_t
+    _max_fragment_size: cython.Py_ssize_t
+    _max_queue_high: cython.Py_ssize_t
+    _max_queue_low: cython.Py_ssize_t
+    _write_limit: Union[int, tuple[int, Optional[int]]]
+    _paused_reading: cython.bint
+
     def __init__(
         self,
         *,
@@ -125,7 +182,7 @@ class ClientConnection(picows.WSListener):
     ):
         self.id = uuid.uuid4()
         self.logger = self._resolve_logger(logger)
-        self.transport = cast(picows.WSTransport, None)
+        self.transport = cython.cast(WSTransport, None)
         self.request = cast(picows.WSUpgradeRequest, None)
         self.response = cast(picows.WSUpgradeResponse, None)
         self._subprotocols = subprotocols
@@ -146,12 +203,13 @@ class ClientConnection(picows.WSListener):
         self._close_timeout = close_timeout
         self._keepalive_task: Optional[asyncio.Task[None]] = None
         self._latency = 0.0
-        self._max_message_size = max_message_size
-        self._max_fragment_size = max_fragment_size
+        self._max_message_size = _normalize_size_limit(max_message_size)
+        self._max_fragment_size = _normalize_size_limit(max_fragment_size)
         self._max_queue_high, self._max_queue_low = self._normalize_watermarks(max_queue)
         self._write_limit = write_limit
         self._paused_reading = False
 
+    @cython.cfunc
     def _resolve_logger(self, logger: LoggerLike) -> Union[logging.Logger, logging.LoggerAdapter[Any]]:
         if logger is None:
             return logging.getLogger("websockets.client")
@@ -159,19 +217,21 @@ class ClientConnection(picows.WSListener):
             return logging.getLogger(logger)
         return logger
 
+    @cython.cfunc
     def _normalize_watermarks(
         self,
         max_queue: Union[int, tuple[Optional[int], Optional[int]], None],
-    ) -> tuple[Optional[int], Optional[int]]:
+    ) -> tuple[cython.Py_ssize_t, cython.Py_ssize_t]:
         if max_queue is None:
-            return None, None
+            return 0, 0
         if isinstance(max_queue, tuple):
             high, low = max_queue
             if high is None:
-                return None, None
+                return 0, 0
             return high, high // 4 if low is None else low
         return max_queue, max_queue // 4
 
+    @cython.cfunc
     def _set_write_limits(self, write_limit: Union[int, tuple[int, Optional[int]]]) -> None:
         if isinstance(write_limit, tuple):
             high, low = write_limit
@@ -179,7 +239,8 @@ class ClientConnection(picows.WSListener):
             high, low = write_limit, None
         self.transport.underlying_transport.set_write_buffer_limits(high=high, low=low)
 
-    def on_ws_connected(self, transport: picows.WSTransport) -> None:
+    @cython.ccall
+    def on_ws_connected(self, transport: WSTransport) -> None:
         self.transport = transport
         self.request = transport.request
         self.response = transport.response
@@ -189,41 +250,33 @@ class ClientConnection(picows.WSListener):
         if self._ping_interval is not None and self._keepalive_task is None:
             self._keepalive_task = asyncio.create_task(self._keepalive_loop())
 
+    @cython.ccall
     def pause_writing(self) -> None:
         if self._write_ready is None:
             self._write_ready = self._loop.create_future()
 
+    @cython.ccall
     def resume_writing(self) -> None:
         if self._write_ready is not None:
             if not self._write_ready.done():
                 self._write_ready.set_result(None)
             self._write_ready = None
 
-    async def _send_and_wait_write_ready(
-        self,
-        msg_type: picows.WSMsgType,
-        payload: bytes,
-        *,
-        fin: bool = True,
-    ) -> None:
-        self.transport.send(msg_type, payload, fin=fin)
-        if self._write_ready is not None:
-            await self._write_ready
-
+    @cython.cfunc
     def _pause_reading_if_needed(self) -> None:
-        if self._max_queue_high is None:
-            return
-        if not self._paused_reading and self._frames.qsize() >= self._max_queue_high:
+        if self._max_queue_high > 0 and not self._paused_reading and self._frames.qsize() >= self._max_queue_high:
             self.transport.underlying_transport.pause_reading()
             self._paused_reading = True
 
+    @cython.cfunc
     def _resume_reading_if_needed(self) -> None:
         if not self._paused_reading:
             return
-        if self._max_queue_low is None or self._frames.qsize() <= self._max_queue_low:
+        if self._max_queue_low == 0 or self._frames.qsize() <= self._max_queue_low:
             self.transport.underlying_transport.resume_reading()
             self._paused_reading = False
 
+    @cython.cfunc
     def _set_close_exception(self) -> None:
         handshake = self.transport.close_handshake
         if handshake is None:
@@ -241,7 +294,8 @@ class ClientConnection(picows.WSListener):
         exc_type = ConnectionClosedOK if ok else ConnectionClosedError
         self._close_exc = exc_type(rcvd, sent, rcvd_then_sent)
 
-    def on_ws_disconnected(self, transport: picows.WSTransport) -> None:
+    @cython.ccall
+    def on_ws_disconnected(self, transport: WSTransport) -> None:
         self._state = State.CLOSED
         self._set_close_exception()
         self._frames.put_nowait(None)
@@ -260,19 +314,19 @@ class ClientConnection(picows.WSListener):
                 waiter.set_exception(self._close_exc or ConnectionClosedError(None, None, None))
         self._pending_pings.clear()
 
+    @cython.cfunc
     def _fail_message_too_big(self, message: str) -> None:
-        if self._state is State.CLOSED:
-            return
-        self.transport.send_close(picows.WSCloseCode.MESSAGE_TOO_BIG, message.encode("utf-8"))
+        self.transport.send_close(WSCloseCode.MESSAGE_TOO_BIG, message.encode("utf-8"))
         self.transport.disconnect(False)
 
-    def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame) -> None:
+    @cython.ccall
+    def on_ws_frame(self, transport: WSTransport, frame: WSFrame) -> None:
         payload = frame.get_payload_as_bytes()
-        if frame.msg_type == picows.WSMsgType.PING:
+        if frame.msg_type == WSMsgType.PING:
             self.transport.send_pong(payload)
             return
 
-        if frame.msg_type == picows.WSMsgType.PONG:
+        if frame.msg_type == WSMsgType.PONG:
             ping = self._pending_pings.pop(payload, None)
             if ping is not None:
                 waiter, sent_at = ping
@@ -281,19 +335,15 @@ class ClientConnection(picows.WSListener):
                     waiter.set_result(self._latency)
             return
 
-        if frame.msg_type == picows.WSMsgType.CLOSE:
-            close_code: CloseCodeT = picows.WSCloseCode.NO_INFO
-            close_message = b""
-            if len(payload) >= 2:
-                close_code = int.from_bytes(payload[:2], "big")
-                close_message = payload[2:]
-            if not self.transport.is_close_frame_sent:
-                self.transport.send_close(cast(picows.WSCloseCode, close_code), close_message)
-            self._state = State.CLOSING
+        if frame.msg_type == WSMsgType.CLOSE:
+            close_code = frame.get_close_code()
+            close_message = frame.get_close_message()
+            self.transport.send_close(close_code, close_message)
             self.transport.disconnect()
+            self._state = State.CLOSING
             return
 
-        if self._max_fragment_size is not None and len(payload) > self._max_fragment_size:
+        if self._max_fragment_size > 0 and len(payload) > self._max_fragment_size:
             self._fail_message_too_big("fragment too big")
             return
 
@@ -301,17 +351,19 @@ class ClientConnection(picows.WSListener):
         self._pause_reading_if_needed()
 
     async def _next_frame(self) -> _BufferedFrame:
-        frame = await self._frames.get()
+        frame: _BufferedFrame = cython.cast(_BufferedFrame, await self._frames.get())
         self._resume_reading_if_needed()
         if frame is None:
             raise self._connection_closed()
         return frame
 
+    @cython.cfunc
     def _connection_closed(self) -> ConnectionClosed:
         if self._close_exc is None:
             self._set_close_exception()
         return self._close_exc or ConnectionClosedError(None, None, None)
 
+    @cython.cfunc
     def _ensure_recv_available(self) -> None:
         if self._recv_streaming_broken:
             raise ConcurrencyError("recv_streaming() wasn't fully consumed")
@@ -323,33 +375,36 @@ class ClientConnection(picows.WSListener):
         if self._recv_lock.locked():
             raise ConcurrencyError("cannot call recv() concurrently")
         async with self._recv_lock:
-            first = await self._next_frame()
-            if first.msg_type not in (picows.WSMsgType.TEXT, picows.WSMsgType.BINARY):
+            first: _BufferedFrame = await self._next_frame()
+            if first.msg_type not in (WSMsgType.TEXT, WSMsgType.BINARY):
                 raise ProtocolError(f"unexpected opcode while receiving message: {first.msg_type}")
             msg_type = first.msg_type
+            if first.fin:
+                return self._decode_payload(first.payload, msg_type, decode)
 
             chunks = [first.payload]
-            total = len(first.payload)
+            total: cython.Py_ssize_t = len(first.payload)
             while not first.fin:
                 first = await self._next_frame()
-                if first.msg_type != picows.WSMsgType.CONTINUATION:
+                if first.msg_type != WSMsgType.CONTINUATION:
                     raise ProtocolError("expected continuation frame")
                 chunks.append(first.payload)
                 total += len(first.payload)
-                if self._max_message_size is not None and total > self._max_message_size:
+                if self._max_message_size > 0 and total > self._max_message_size:
                     self._fail_message_too_big("message too big")
                     raise PayloadTooBig("message too big")
 
             payload = b"".join(chunks)
             return self._decode_payload(payload, msg_type, decode)
 
+    @cython.cfunc
     def _decode_payload(
         self,
         payload: bytes,
-        msg_type: picows.WSMsgType,
+        msg_type: WSMsgType,
         decode: Optional[bool],
     ) -> Union[str, bytes]:
-        if msg_type == picows.WSMsgType.TEXT:
+        if msg_type == WSMsgType.TEXT:
             if decode is False:
                 return payload
             return payload.decode("utf-8")
@@ -369,20 +424,20 @@ class ClientConnection(picows.WSListener):
             nonlocal started, finished
             try:
                 async with self._recv_lock:
-                    first = await self._next_frame()
-                    if first.msg_type not in (picows.WSMsgType.TEXT, picows.WSMsgType.BINARY):
+                    first: _BufferedFrame = await self._next_frame()
+                    if first.msg_type not in (WSMsgType.TEXT, WSMsgType.BINARY):
                         raise ProtocolError(f"unexpected opcode while receiving message: {first.msg_type}")
                     msg_type = first.msg_type
                     started = True
                     yield self._decode_fragment(first.payload, msg_type, decode)
-                    total = len(first.payload)
+                    total: cython.Py_ssize_t = len(first.payload)
                     frame = first
                     while not frame.fin:
-                        frame = await self._next_frame()
-                        if frame.msg_type != picows.WSMsgType.CONTINUATION:
+                        frame: _BufferedFrame = await self._next_frame()
+                        if frame.msg_type != WSMsgType.CONTINUATION:
                             raise ProtocolError("expected continuation frame")
                         total += len(frame.payload)
-                        if self._max_message_size is not None and total > self._max_message_size:
+                        if self._max_message_size > 0 and total > self._max_message_size:
                             self._fail_message_too_big("message too big")
                             raise PayloadTooBig("message too big")
                         yield self._decode_fragment(frame.payload, msg_type, decode)
@@ -396,13 +451,14 @@ class ClientConnection(picows.WSListener):
 
         return iterator()
 
+    @cython.cfunc
     def _decode_fragment(
         self,
         payload: bytes,
-        msg_type: picows.WSMsgType,
+        msg_type: WSMsgType,
         decode: Optional[bool],
     ) -> Union[str, bytes]:
-        if msg_type == picows.WSMsgType.TEXT:
+        if msg_type == WSMsgType.TEXT:
             if decode is False:
                 return payload
             return payload.decode("utf-8")
@@ -420,7 +476,15 @@ class ClientConnection(picows.WSListener):
 
         async with self._send_lock:
             if isinstance(message, (str, bytes, bytearray, memoryview)):
-                await self._send_single_message(message, text)
+                if isinstance(message, str):
+                    self.transport.send(WSMsgType.TEXT, cython.cast(str, message).encode("utf-8"))
+                else:
+                    self.transport.send(
+                        WSMsgType.TEXT if text else WSMsgType.BINARY,
+                        message,
+                    )
+                if self._write_ready is not None:
+                    await self._write_ready
                 return
             if isinstance(message, AsyncIterable):
                 await self._send_async_fragments(message, text)
@@ -429,16 +493,6 @@ class ClientConnection(picows.WSListener):
                 await self._send_sync_fragments(message, text)
                 return
             raise TypeError(f"message has unsupported type {type(message).__name__}")
-
-    async def _send_single_message(self, message: Data, text: Optional[bool]) -> None:
-        if isinstance(message, str):
-            msg_type = picows.WSMsgType.TEXT
-            payload = message.encode("utf-8")
-        else:
-            msg_type = picows.WSMsgType.TEXT if text else picows.WSMsgType.BINARY
-            payload = bytes(message)
-
-        await self._send_and_wait_write_ready(msg_type, payload)
 
     async def _send_sync_fragments(self, message: Iterable[Data], text: Optional[bool]) -> None:
         iterator = iter(message)
@@ -452,23 +506,23 @@ class ClientConnection(picows.WSListener):
         try:
             second = next(iterator)
         except StopIteration:
-            await self._send_and_wait_write_ready(msg_type, encode(first))
+            self.transport.send(msg_type, encode(first))
+            if self._write_ready is not None:
+                await self._write_ready
             return
 
-        await self._send_and_wait_write_ready(msg_type, encode(first), fin=False)
+        self.transport.send(msg_type, encode(first), fin=False)
+        if self._write_ready is not None:
+            await self._write_ready
         previous = second
         for fragment in iterator:
-            await self._send_and_wait_write_ready(
-                picows.WSMsgType.CONTINUATION,
-                encode(previous),
-                fin=False,
-            )
+            self.transport.send(WSMsgType.CONTINUATION, encode(previous), fin=False)
+            if self._write_ready is not None:
+                await self._write_ready
             previous = fragment
-        await self._send_and_wait_write_ready(
-            picows.WSMsgType.CONTINUATION,
-            encode(previous),
-            fin=True,
-        )
+        self.transport.send(WSMsgType.CONTINUATION, encode(previous), fin=True)
+        if self._write_ready is not None:
+            await self._write_ready
 
     async def _send_async_fragments(self, message: AsyncIterable[Data], text: Optional[bool]) -> None:
         iterator = message.__aiter__()
@@ -482,54 +536,54 @@ class ClientConnection(picows.WSListener):
         try:
             second = await anext(iterator)
         except StopAsyncIteration:
-            await self._send_and_wait_write_ready(msg_type, encode(first))
+            self.transport.send(msg_type, encode(first))
+            if self._write_ready is not None:
+                await self._write_ready
             return
 
-        await self._send_and_wait_write_ready(msg_type, encode(first), fin=False)
+        self.transport.send(msg_type, encode(first), fin=False)
+        if self._write_ready is not None:
+            await self._write_ready
         previous = second
         async for fragment in iterator:
-            await self._send_and_wait_write_ready(
-                picows.WSMsgType.CONTINUATION,
-                encode(previous),
-                fin=False,
-            )
+            self.transport.send(WSMsgType.CONTINUATION, encode(previous), fin=False)
+            if self._write_ready is not None:
+                await self._write_ready
             previous = fragment
-        await self._send_and_wait_write_ready(
-            picows.WSMsgType.CONTINUATION,
-            encode(previous),
-            fin=True,
-        )
+        self.transport.send(WSMsgType.CONTINUATION, encode(previous), fin=True)
+        if self._write_ready is not None:
+            await self._write_ready
 
+    @cython.cfunc
     def _get_fragment_codec(
         self,
         first: Data,
         text: Optional[bool],
-    ) -> tuple[picows.WSMsgType, Callable[[Data], bytes]]:
+    ) -> tuple[WSMsgType, Callable[[Data], bytes]]:
         if isinstance(first, str):
             def encode(item: Data) -> bytes:
                 if not isinstance(item, str):
                     raise TypeError("all fragments must be of the same type")
                 return item.encode("utf-8")
 
-            return picows.WSMsgType.TEXT, encode
+            return WSMsgType.TEXT, encode
 
         if isinstance(first, (bytes, bytearray, memoryview)):
-            def encode(item: Data) -> bytes:
+            def encode(item: Data) -> Data:
                 if not isinstance(item, (bytes, bytearray, memoryview)):
                     raise TypeError("all fragments must be of the same type")
-                return bytes(item)
+                return item
 
-            return (picows.WSMsgType.TEXT if text else picows.WSMsgType.BINARY), encode
+            return (WSMsgType.TEXT if text else WSMsgType.BINARY), encode
 
         raise TypeError(f"message must contain str or bytes-like objects, got {type(first).__name__}")
 
-    async def close(self, code: CloseCodeT = 1000, reason: str = "") -> None:
+    async def close(self, code: int = 1000, reason: str = "") -> None:
         if self.state is State.CLOSED:
             return
         if self.state is State.OPEN:
             self._state = State.CLOSING
-        close_code = code if isinstance(code, picows.WSCloseCode) else picows.WSCloseCode(code)
-        self.transport.send_close(close_code, reason.encode("utf-8"))
+        self.transport.send_close(code, reason.encode("utf-8"))
         try:
             if self._close_timeout is None:
                 await self.wait_closed()
@@ -586,7 +640,7 @@ class ClientConnection(picows.WSListener):
             if self.state is not State.CLOSED:
                 await self.close(code=1011, reason="keepalive ping timeout")
 
-    async def __aenter__(self) -> "ClientConnection":
+    async def __aenter__(self) -> ClientConnection:
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
@@ -703,7 +757,7 @@ class _Connect:
             await self._connection.close()
             self._connection = None
 
-    def __aiter__(self) -> "_Connect":
+    def __aiter__(self) -> _Connect:
         return self
 
     async def __anext__(self) -> ClientConnection:
@@ -793,7 +847,7 @@ class _Connect:
                 websocket_handshake_timeout=self.open_timeout,
                 enable_auto_ping=False,
                 enable_auto_pong=False,
-                max_frame_size=max_fragment_size if max_fragment_size is not None else 2 ** 31 - 1,
+                max_frame_size=max_fragment_size if max_fragment_size > 0 else 2 ** 31 - 1,
                 extra_headers=extra_headers,
                 proxy=proxy,
                 socket_factory=socket_factory,
@@ -813,16 +867,17 @@ class _Connect:
         except picows.WSHandshakeError as exc:
             raise InvalidHandshake(str(exc)) from exc
 
-        return cast(ClientConnection, listener)
+        return cython.cast(ClientConnection, listener)
 
     def _normalize_max_size(
         self,
         max_size: Union[int, tuple[Optional[int], Optional[int]], None],
-    ) -> tuple[Optional[int], Optional[int]]:
+    ) -> tuple[cython.Py_ssize_t, cython.Py_ssize_t]:
         if max_size is None:
-            return None, None
+            return 0, 0
         if isinstance(max_size, tuple):
-            return max_size
+            max_message_size, max_fragment_size = max_size
+            return _normalize_size_limit(max_message_size), _normalize_size_limit(max_fragment_size)
         return max_size, max_size
 
     def _build_headers(self) -> list[tuple[str, str]]:
