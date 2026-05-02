@@ -64,7 +64,7 @@ async def test_echo(use_aiofastnet, ssl_context, msg_size):
 
             # Test non-bytes like send
             with pytest.raises(TypeError):
-                client.transport.send(picows.WSMsgType.BINARY, "hi")
+                client.transport.send(picows.WSMsgType.BINARY, TestException())
 
 
 async def test_echo_control_frames(use_aiofastnet, ssl_context):
