@@ -113,6 +113,33 @@ async def test_send_external_bytearray_asserts():
                 client.transport.send_reuse_external_bytearray(picows.WSMsgType.CLOSE, bytearray(b"1234567890123HELLO"), 16)
 
 
+async def test_control_frames():
+    async with WSServer() as server:
+        async with WSClient(server) as client:
+            # Check ping
+            client.transport.send_ping(b"hi")
+            frame = await client.get_message()
+            assert frame.frame_str.startswith("WSFrame(PING, fin=True, rsv1=False")
+            assert frame.msg_type == picows.WSMsgType.PING
+            assert frame.payload_as_bytes == b"hi"
+
+            # Check pong
+            client.transport.send_pong(b"hi")
+            frame = await client.get_message()
+            assert frame.frame_str.startswith("WSFrame(PONG, fin=True, rsv1=False")
+            assert frame.msg_type == picows.WSMsgType.PONG
+            assert frame.payload_as_bytes == b"hi"
+
+            # Check close
+            client.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"goodbye")
+            assert client.transport.is_close_frame_sent
+            frame = await client.get_message()
+            assert frame.frame_str.startswith("WSFrame(CLOSE, fin=True, rsv1=False")
+            assert frame.msg_type == picows.WSMsgType.CLOSE
+            assert frame.close_code == picows.WSCloseCode.GOING_AWAY
+            assert frame.close_message == b"goodbye"
+
+
 async def test_max_frame_size_violation_huge_frame_from_client(use_aiofastnet, ssl_context):
     msg = os.urandom(128 * 1024)
     async with WSServer(ssl=ssl_context.server, use_aiofastnet=use_aiofastnet, max_frame_size=64*1024) as server:
