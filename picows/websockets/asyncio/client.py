@@ -13,7 +13,7 @@ from enum import IntEnum
 from ssl import SSLContext
 from time import monotonic
 from typing import Any, AsyncIterator, Awaitable, Callable, Optional, Sequence, \
-    Union, cast, Dict, Tuple
+    Union, cast, Dict, Tuple, Iterator
 from urllib.request import getproxies
 
 import cython
@@ -482,15 +482,18 @@ class ClientConnection(WSListener):
         if self._recv_lock.locked():
             raise ConcurrencyError("cannot call recv_streaming() concurrently")
         self._recv_streaming_in_progress = True
-        started = False
-        finished = False
+        started: cython.bint = False
+        finished: cython.bint = False
 
         async def iterator() -> AsyncIterator[Union[str, bytes]]:
             nonlocal started, finished
+            msg_type: WSMsgType
+            first: _BufferedFrame
+            frame: _BufferedFrame
             try:
                 self._recv_lock.acquire()
                 try:
-                    first: _BufferedFrame = await self._next_frame()
+                    first = await self._next_frame()
                     if first.msg_type not in (WSMsgType.TEXT, WSMsgType.BINARY):
                         raise ProtocolError(f"unexpected opcode while receiving message: {first.msg_type}")
                     msg_type = first.msg_type
@@ -499,7 +502,7 @@ class ClientConnection(WSListener):
                     total: cython.Py_ssize_t = len(first.payload)
                     frame = first
                     while not frame.fin:
-                        frame: _BufferedFrame = await self._next_frame()
+                        frame = await self._next_frame()
                         if frame.msg_type != WSMsgType.CONTINUATION:
                             raise ProtocolError("expected continuation frame")
                         total += len(frame.payload)
@@ -542,93 +545,66 @@ class ClientConnection(WSListener):
                 if self._write_ready is not None:
                     await self._write_ready
                 return
-            if isinstance(message, AsyncIterable):
-                await self._send_async_fragments(message, text)
+            elif isinstance(message, AsyncIterable):
+                await self._send_fragments(True, message.__aiter__(), text)
                 return
-            if isinstance(message, Iterable):
-                await self._send_sync_fragments(message, text)
+            elif isinstance(message, Iterable):
+                await self._send_fragments(False, iter(message), text)
                 return
             raise TypeError(f"message has unsupported type {type(message).__name__}")
         finally:
             self._send_lock.release()
 
-    async def _send_sync_fragments(self, message: Iterable[Data], text: Optional[bool]) -> None:
-        iterator = iter(message)
+    @cython.cfunc
+    @cython.inline
+    def _check_fragment_type(self, message, first_is_str: cython.bint) -> None:
+        if first_is_str and isinstance(message, str):
+            return
+        elif not first_is_str and isinstance(message, (bytes, bytearray, memoryview)):
+            return
+
+        raise TypeError("all fragments must be of the same category: str vs bytes-like")
+
+    async def _send_fragments(self, is_async: cython.bint, iterator: Union[Iterator[Data], AsyncIterator[Data]], text: Optional[bool]) -> None:
+        stop_exception_type = StopAsyncIteration if is_async else StopIteration
         try:
-            first = next(iterator)
-        except StopIteration:
+            if is_async:
+                first = await anext(iterator)
+            else:
+                first = next(iterator)
+        except stop_exception_type:
             raise TypeError("message iterable cannot be empty") from None
 
-        expected_type = type(first)
-        if expected_type is str:
+        first_is_str: cython.bint
+        if isinstance(first, str):
             msg_type = WSMsgType.BINARY if text is False else WSMsgType.TEXT
-        elif expected_type in (bytes, bytearray, memoryview):
+            first_is_str = True
+        elif isinstance(first, (bytes, bytearray, memoryview)):
             msg_type = WSMsgType.TEXT if text else WSMsgType.BINARY
+            first_is_str = False
         else:
             raise TypeError(f"message must contain str or bytes-like objects, got {type(first).__name__}")
 
-        try:
-            second = next(iterator)
-        except StopIteration:
-            self.transport.send(msg_type, first)
+        previous = first
+        while True:
+            try:
+                if is_async:
+                    current = await anext(iterator)
+                else:
+                    current = next(iterator)
+            except stop_exception_type:
+                break
+
+            self._check_fragment_type(current, first_is_str)
+
+            self.transport.send(msg_type, previous, fin=False)
+            msg_type = WSMsgType.CONTINUATION
             if self._write_ready is not None:
                 await self._write_ready
-            return
 
-        self.transport.send(msg_type, first, fin=False)
-        if self._write_ready is not None:
-            await self._write_ready
-        previous = second
-        for fragment in iterator:
-            if type(previous) is not expected_type:
-                raise TypeError("all fragments must be of the same type")
-            self.transport.send(WSMsgType.CONTINUATION, previous, fin=False)
-            if self._write_ready is not None:
-                await self._write_ready
-            previous = fragment
-        if type(previous) is not expected_type:
-            raise TypeError("all fragments must be of the same type")
-        self.transport.send(WSMsgType.CONTINUATION, previous, fin=True)
-        if self._write_ready is not None:
-            await self._write_ready
+            previous = current
 
-    async def _send_async_fragments(self, message: AsyncIterable[Data], text: Optional[bool]) -> None:
-        iterator = message.__aiter__()
-        try:
-            first = await anext(iterator)
-        except StopAsyncIteration:
-            raise TypeError("message iterable cannot be empty") from None
-
-        expected_type = type(first)
-        if expected_type is str:
-            msg_type = WSMsgType.BINARY if text is False else WSMsgType.TEXT
-        elif expected_type in (bytes, bytearray, memoryview):
-            msg_type = WSMsgType.TEXT if text else WSMsgType.BINARY
-        else:
-            raise TypeError(f"message must contain str or bytes-like objects, got {type(first).__name__}")
-
-        try:
-            second = await anext(iterator)
-        except StopAsyncIteration:
-            self.transport.send(msg_type, first)
-            if self._write_ready is not None:
-                await self._write_ready
-            return
-
-        self.transport.send(msg_type, first, fin=False)
-        if self._write_ready is not None:
-            await self._write_ready
-        previous = second
-        async for fragment in iterator:
-            if type(previous) is not expected_type:
-                raise TypeError("all fragments must be of the same type")
-            self.transport.send(WSMsgType.CONTINUATION, previous, fin=False)
-            if self._write_ready is not None:
-                await self._write_ready
-            previous = fragment
-        if type(previous) is not expected_type:
-            raise TypeError("all fragments must be of the same type")
-        self.transport.send(WSMsgType.CONTINUATION, previous, fin=True)
+        self.transport.send(msg_type, previous, fin=True)
         if self._write_ready is not None:
             await self._write_ready
 
