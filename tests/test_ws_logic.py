@@ -68,6 +68,31 @@ async def delayed_handshake_server(delay: float):
         await server.wait_closed()
 
 
+async def test_send_str():
+    async with WSServer() as server:
+        async with WSClient(server) as client:
+            msg = "ABCDПРИВЕТ"
+
+            client.transport.send(picows.WSMsgType.TEXT, msg)
+            frame = await client.get_message()
+            assert frame.payload_as_utf8_text == msg
+
+            client.transport.send_ping(msg)
+            frame = await client.get_message()
+            assert frame.payload_as_bytes == msg.encode()
+
+            client.transport.send_pong(msg)
+            frame = await client.get_message()
+            assert frame.payload_as_bytes == msg.encode()
+
+            client.transport.send_close(picows.WSCloseCode.GOING_AWAY, msg)
+            frame = await client.get_message()
+            assert frame.close_reason == msg
+
+            client.transport.disconnect()
+            await client.transport.wait_disconnected()
+
+
 async def test_send_external_bytearray_asserts():
     async with WSServer() as server:
         async with WSClient(server) as client:
@@ -86,6 +111,33 @@ async def test_send_external_bytearray_asserts():
             with pytest.raises(ValueError):
                 # Check CLOSE is not allowed
                 client.transport.send_reuse_external_bytearray(picows.WSMsgType.CLOSE, bytearray(b"1234567890123HELLO"), 16)
+
+
+async def test_control_frames():
+    async with WSServer() as server:
+        async with WSClient(server) as client:
+            # Check ping
+            client.transport.send_ping(b"hi")
+            frame = await client.get_message()
+            assert frame.frame_str.startswith("WSFrame(PING, fin=True, rsv1=False")
+            assert frame.msg_type == picows.WSMsgType.PING
+            assert frame.payload_as_bytes == b"hi"
+
+            # Check pong
+            client.transport.send_pong(b"hi")
+            frame = await client.get_message()
+            assert frame.frame_str.startswith("WSFrame(PONG, fin=True, rsv1=False")
+            assert frame.msg_type == picows.WSMsgType.PONG
+            assert frame.payload_as_bytes == b"hi"
+
+            # Check close
+            client.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"goodbye")
+            assert client.transport.is_close_frame_sent
+            frame = await client.get_message()
+            assert frame.frame_str.startswith("WSFrame(CLOSE, fin=True, rsv1=False")
+            assert frame.msg_type == picows.WSMsgType.CLOSE
+            assert frame.close_code == picows.WSCloseCode.GOING_AWAY
+            assert frame.close_message == b"goodbye"
 
 
 async def test_max_frame_size_violation_huge_frame_from_client(use_aiofastnet, ssl_context):

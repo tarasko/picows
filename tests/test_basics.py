@@ -7,6 +7,7 @@ import picows
 import pytest
 import async_timeout
 
+from picows import WSCloseCode
 from tests.utils import (TIMEOUT, AsyncClient, WSServer, WSClient, TestException)
 from tests.fixtures import multiloop_event_loop_policy
 
@@ -63,35 +64,7 @@ async def test_echo(use_aiofastnet, ssl_context, msg_size):
 
             # Test non-bytes like send
             with pytest.raises(TypeError):
-                client.transport.send(picows.WSMsgType.BINARY, "hi")
-
-
-async def test_echo_control_frames(use_aiofastnet, ssl_context):
-    async with WSServer(ssl=ssl_context.server, use_aiofastnet=use_aiofastnet) as server:
-        async with WSClient(server, ssl_context=ssl_context.client, use_aiofastnet=use_aiofastnet) as client:
-            # Check ping
-            client.transport.send_ping(b"hi")
-            frame = await client.get_message()
-            assert frame.frame_str.startswith("WSFrame(PING, fin=True, rsv1=False")
-            assert frame.msg_type == picows.WSMsgType.PING
-            assert frame.payload_as_bytes == b"hi"
-
-            # Check pong
-            client.transport.send_pong(b"hi")
-            frame = await client.get_message()
-            assert frame.frame_str.startswith("WSFrame(PONG, fin=True, rsv1=False")
-            assert frame.msg_type == picows.WSMsgType.PONG
-            assert frame.payload_as_bytes == b"hi"
-
-            # Check close
-            client.transport.send_close(picows.WSCloseCode.GOING_AWAY, b"goodbye")
-            assert client.transport.is_close_frame_sent
-            frame = await client.get_message()
-            assert frame.frame_str.startswith("WSFrame(CLOSE, fin=True, rsv1=False")
-            assert frame.msg_type == picows.WSMsgType.CLOSE
-            assert frame.close_code == picows.WSCloseCode.GOING_AWAY
-            assert frame.close_message == b"goodbye"
-
+                client.transport.send(picows.WSMsgType.BINARY, TestException())
 
 
 async def test_client_handshake_timeout(use_aiofastnet, ssl_context):

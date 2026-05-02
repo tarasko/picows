@@ -16,7 +16,7 @@ from cpython.bytearray cimport PyByteArray_AS_STRING, PyByteArray_GET_SIZE
 from cpython.memoryview cimport PyMemoryView_FromMemory
 from cpython.mem cimport PyMem_Malloc, PyMem_Realloc, PyMem_Free
 from cpython.buffer cimport PyBUF_WRITE, PyBUF_READ, PyBUF_SIMPLE, PyObject_GetBuffer, PyBuffer_Release
-from cpython.unicode cimport PyUnicode_FromStringAndSize, PyUnicode_DecodeASCII
+from cpython.unicode cimport PyUnicode_FromStringAndSize, PyUnicode_DecodeASCII, PyUnicode_AsUTF8String
 from cpython.pythread cimport PyThread_get_thread_ident
 
 from libc.string cimport memmove, memcpy
@@ -468,6 +468,9 @@ cdef class WSTransport:
             self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
             return
 
+        if isinstance(message, str):
+            message = PyUnicode_AsUTF8String(message)
+
         cdef:
             char* msg_ptr
             Py_ssize_t msg_size
@@ -632,6 +635,9 @@ cdef class WSTransport:
         :param close_message: an optional bytes-like object        
         """
         self._check_thread("send_close")
+
+        if isinstance(close_message, str):
+            close_message = PyUnicode_AsUTF8String(close_message)
 
         cdef:
             char* close_msg_ptr

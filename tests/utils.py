@@ -32,8 +32,15 @@ class TextFrame:
     def __init__(self, frame: picows.WSFrame):
         self.frame_str = str(frame)
         self.msg_type = frame.msg_type
-        self.payload_as_ascii_text = frame.get_payload_as_ascii_text()
-        self.payload_as_utf8_text = frame.get_payload_as_utf8_text()
+        try:
+            self.payload_as_ascii_text = frame.get_payload_as_ascii_text()
+        except UnicodeDecodeError:
+            self.payload_as_ascii_text = None
+        try:
+            self.payload_as_utf8_text = frame.get_payload_as_utf8_text()
+        except UnicodeDecodeError:
+            self.payload_as_utf8_text = None
+
         self.fin = frame.fin
         self.rsv1 = frame.rsv1
         self.rsv2 = frame.rsv2
@@ -46,6 +53,7 @@ class CloseFrame:
         self.msg_type = frame.msg_type
         self.close_code = frame.get_close_code()
         self.close_message = frame.get_close_message()
+        self.close_reason = frame.get_close_reason()
         self.fin = frame.fin
         self.rsv1 = frame.rsv1
         self.rsv2 = frame.rsv2
