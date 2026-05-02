@@ -442,7 +442,7 @@ class ClientConnection(WSListener):
                 raise ProtocolError(f"unexpected opcode while receiving message: {first.msg_type}")
             msg_type = first.msg_type
             if first.fin:
-                return self._decode_payload(first.payload, msg_type, decode)
+                return self._decode_data(first.payload, msg_type, decode)
 
             chunks = [first.payload]
             total: cython.Py_ssize_t = len(first.payload)
@@ -457,13 +457,13 @@ class ClientConnection(WSListener):
                     raise PayloadTooBig("message too big")
 
             payload = b"".join(chunks)
-            return self._decode_payload(payload, msg_type, decode)
+            return self._decode_data(payload, msg_type, decode)
         finally:
             self._recv_lock.release()
 
     @cython.cfunc
     @cython.inline
-    def _decode_payload(
+    def _decode_data(
         self,
         payload: bytes,
         msg_type: WSMsgType,
@@ -495,7 +495,7 @@ class ClientConnection(WSListener):
                         raise ProtocolError(f"unexpected opcode while receiving message: {first.msg_type}")
                     msg_type = first.msg_type
                     started = True
-                    yield self._decode_fragment(first.payload, msg_type, decode)
+                    yield self._decode_data(first.payload, msg_type, decode)
                     total: cython.Py_ssize_t = len(first.payload)
                     frame = first
                     while not frame.fin:
@@ -506,7 +506,7 @@ class ClientConnection(WSListener):
                         if self._max_message_size > 0 and total > self._max_message_size:
                             self._fail_message_too_big("message too big")
                             raise PayloadTooBig("message too big")
-                        yield self._decode_fragment(frame.payload, msg_type, decode)
+                        yield self._decode_data(frame.payload, msg_type, decode)
                     finished = True
                 finally:
                     self._recv_lock.release()
@@ -519,28 +519,12 @@ class ClientConnection(WSListener):
 
         return iterator()
 
-    @cython.cfunc
-    @cython.inline
-    def _decode_fragment(
-        self,
-        payload: bytes,
-        msg_type: WSMsgType,
-        decode: Optional[bool],
-    ) -> Union[str, bytes]:
-        if msg_type == WSMsgType.TEXT:
-            if decode is False:
-                return payload
-            return payload.decode("utf-8")
-        if decode is True:
-            return payload.decode("utf-8")
-        return payload
-
     async def send(
         self,
         message: Union[Data, Iterable[Data], AsyncIterator[Data]],
         text: Optional[bool] = None,
     ) -> None:
-        if self.state is State.CLOSED:
+        if self._state is State.CLOSED:
             raise self._connection_closed()
 
         if self._send_lock.locked():
@@ -551,9 +535,10 @@ class ClientConnection(WSListener):
         try:
             if isinstance(message, (str, bytes, bytearray, memoryview)):
                 if isinstance(message, str):
-                    self.transport.send(WSMsgType.TEXT, cython.cast(str, message).encode("utf-8"))
+                    msg_type = WSMsgType.BINARY if text is False else WSMsgType.TEXT
                 else:
-                    self.transport.send(WSMsgType.TEXT if text else WSMsgType.BINARY, message)
+                    msg_type = WSMsgType.TEXT if text else WSMsgType.BINARY
+                self.transport.send(msg_type, message)
                 if self._write_ready is not None:
                     await self._write_ready
                 return
@@ -574,26 +559,36 @@ class ClientConnection(WSListener):
         except StopIteration:
             raise TypeError("message iterable cannot be empty") from None
 
-        msg_type, encode = self._get_fragment_codec(first, text)
+        expected_type = type(first)
+        if expected_type is str:
+            msg_type = WSMsgType.BINARY if text is False else WSMsgType.TEXT
+        elif expected_type in (bytes, bytearray, memoryview):
+            msg_type = WSMsgType.TEXT if text else WSMsgType.BINARY
+        else:
+            raise TypeError(f"message must contain str or bytes-like objects, got {type(first).__name__}")
 
         try:
             second = next(iterator)
         except StopIteration:
-            self.transport.send(msg_type, encode(first))
+            self.transport.send(msg_type, first)
             if self._write_ready is not None:
                 await self._write_ready
             return
 
-        self.transport.send(msg_type, encode(first), fin=False)
+        self.transport.send(msg_type, first, fin=False)
         if self._write_ready is not None:
             await self._write_ready
         previous = second
         for fragment in iterator:
-            self.transport.send(WSMsgType.CONTINUATION, encode(previous), fin=False)
+            if type(previous) is not expected_type:
+                raise TypeError("all fragments must be of the same type")
+            self.transport.send(WSMsgType.CONTINUATION, previous, fin=False)
             if self._write_ready is not None:
                 await self._write_ready
             previous = fragment
-        self.transport.send(WSMsgType.CONTINUATION, encode(previous), fin=True)
+        if type(previous) is not expected_type:
+            raise TypeError("all fragments must be of the same type")
+        self.transport.send(WSMsgType.CONTINUATION, previous, fin=True)
         if self._write_ready is not None:
             await self._write_ready
 
@@ -604,58 +599,43 @@ class ClientConnection(WSListener):
         except StopAsyncIteration:
             raise TypeError("message iterable cannot be empty") from None
 
-        msg_type, encode = self._get_fragment_codec(first, text)
+        expected_type = type(first)
+        if expected_type is str:
+            msg_type = WSMsgType.BINARY if text is False else WSMsgType.TEXT
+        elif expected_type in (bytes, bytearray, memoryview):
+            msg_type = WSMsgType.TEXT if text else WSMsgType.BINARY
+        else:
+            raise TypeError(f"message must contain str or bytes-like objects, got {type(first).__name__}")
 
         try:
             second = await anext(iterator)
         except StopAsyncIteration:
-            self.transport.send(msg_type, encode(first))
+            self.transport.send(msg_type, first)
             if self._write_ready is not None:
                 await self._write_ready
             return
 
-        self.transport.send(msg_type, encode(first), fin=False)
+        self.transport.send(msg_type, first, fin=False)
         if self._write_ready is not None:
             await self._write_ready
         previous = second
         async for fragment in iterator:
-            self.transport.send(WSMsgType.CONTINUATION, encode(previous), fin=False)
+            if type(previous) is not expected_type:
+                raise TypeError("all fragments must be of the same type")
+            self.transport.send(WSMsgType.CONTINUATION, previous, fin=False)
             if self._write_ready is not None:
                 await self._write_ready
             previous = fragment
-        self.transport.send(WSMsgType.CONTINUATION, encode(previous), fin=True)
+        if type(previous) is not expected_type:
+            raise TypeError("all fragments must be of the same type")
+        self.transport.send(WSMsgType.CONTINUATION, previous, fin=True)
         if self._write_ready is not None:
             await self._write_ready
 
-    @cython.cfunc
-    @cython.inline
-    def _get_fragment_codec(
-        self,
-        first: Data,
-        text: Optional[bool],
-    ) -> tuple[WSMsgType, Callable[[Data], bytes]]:
-        if isinstance(first, str):
-            def encode(item: Data) -> bytes:
-                if not isinstance(item, str):
-                    raise TypeError("all fragments must be of the same type")
-                return item.encode("utf-8")
-
-            return WSMsgType.TEXT, encode
-
-        if isinstance(first, (bytes, bytearray, memoryview)):
-            def encode(item: Data) -> Data:
-                if not isinstance(item, (bytes, bytearray, memoryview)):
-                    raise TypeError("all fragments must be of the same type")
-                return item
-
-            return (WSMsgType.TEXT if text else WSMsgType.BINARY), encode
-
-        raise TypeError(f"message must contain str or bytes-like objects, got {type(first).__name__}")
-
     async def close(self, code: int = 1000, reason: str = "") -> None:
-        if self.state is State.CLOSED:
+        if self._state is State.CLOSED:
             return
-        if self.state is State.OPEN:
+        if self._state is State.OPEN:
             self._state = State.CLOSING
         self.transport.send_close(code, reason.encode("utf-8"))
         try:
@@ -671,7 +651,7 @@ class ClientConnection(WSListener):
         await self._closed_event.wait()
 
     async def ping(self, data: Optional[Union[str, bytes]] = None) -> Awaitable[float]:
-        if self.state is State.CLOSED:
+        if self._state is State.CLOSED:
             raise self._connection_closed()
         if data is None:
             while True:
@@ -694,7 +674,7 @@ class ClientConnection(WSListener):
         return waiter
 
     async def pong(self, data: Union[str, bytes] = b"") -> None:
-        if self.state is State.CLOSED:
+        if self._state is State.CLOSED:
             raise self._connection_closed()
         payload = data.encode("utf-8") if isinstance(data, str) else data
         self.transport.send_pong(payload)

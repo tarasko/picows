@@ -19,6 +19,10 @@ examples - Various examples for users on how to use picows + perf_test that coul
   Every extra "just in case" branch teaches the reader that the state is part of normal behavior.
   Add such checks only for real risks like external misuse, concurrency races, partial failure, or invariants that are genuinely hard to guarantee.
   If the only reason for the check is uncertainty in the design, fix the design first.
+- When simplifying code, finish the simplification across all equivalent branches, not only at the first local site.
+  If the same conversion, check, or tiny code pattern appears in multiple sibling paths after a refactor, stop and normalize it before considering the work done.
+  Do not remove one layer of abstraction only to inline the same logic redundantly in several places.
+  After a refactor, scan for duplicated branch bodies and duplicated type-specific handling introduced by the change.
 
 ## Testing instructions
 - Run lint after updating code with:
