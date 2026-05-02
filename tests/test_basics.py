@@ -7,6 +7,7 @@ import picows
 import pytest
 import async_timeout
 
+from picows import WSCloseCode
 from tests.utils import (TIMEOUT, AsyncClient, WSServer, WSClient, TestException)
 from tests.fixtures import multiloop_event_loop_policy
 

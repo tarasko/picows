@@ -3,7 +3,7 @@ from typing import Union, Optional, Mapping, Iterable, Final, cast, Any, NewType
 from multidict import CIMultiDict
 
 WSHeadersLike = Union[Mapping[str, str], Iterable[tuple[str, str]]]
-WSBuffer = Union[bytes, bytearray, memoryview]
+WSBuffer = Union[str, bytes, bytearray, memoryview]
 WSHost = NewType('WSHost', str)
 WSPort = NewType('WSPort', int)
 
