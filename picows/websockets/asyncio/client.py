@@ -7,6 +7,7 @@ import os
 import socket
 import uuid
 import warnings
+from collections import deque
 from collections.abc import AsyncIterable, Generator, Iterable
 from enum import IntEnum
 from ssl import SSLContext
@@ -72,22 +73,70 @@ class _BufferedFrame:
         self.fin = fin
 
 
+@cython.cclass
+class _AsyncLock:
+    _loop: asyncio.AbstractEventLoop
+    _locked: cython.bint
+    _waiters: Any
+
+    def __init__(self, loop: asyncio.AbstractEventLoop):
+        self._loop = loop
+        self._locked = False
+        self._waiters = deque()
+
+    @cython.cfunc
+    @cython.inline
+    def locked(self) -> cython.bint:
+        return self._locked
+
+    @cython.cfunc
+    @cython.inline
+    def acquire(self) -> None:
+        self._locked = True
+
+    async def wait_and_acquire(self) -> None:
+        waiter = self._loop.create_future()
+        self._waiters.append(waiter)
+        try:
+            await waiter
+        except Exception:
+            try:
+                self._waiters.remove(waiter)
+            except ValueError:
+                pass
+            raise
+
+    @cython.cfunc
+    @cython.inline
+    def release(self) -> None:
+        while self._waiters:
+            waiter = self._waiters.popleft()
+            if not waiter.done():
+                waiter.set_result(None)
+                return
+        self._locked = False
+
+
 @cython.cfunc
+@cython.inline
 def _coerce_close_code(code: WSCloseCode) -> Optional[int]:
     return None if code is None else int(code)
 
 
 @cython.cfunc
+@cython.inline
 def _coerce_close_reason(reason: Optional[str]) -> Optional[str]:
     return reason if reason is not None else None
 
 
 @cython.cfunc
+@cython.inline
 def _header_items(headers: Any) -> list[tuple[str, str]]:
     return [] if headers is None else list(headers.items())
 
 
 @cython.cfunc
+@cython.inline
 def _resolve_subprotocol(subprotocols: Optional[Sequence[str]], response: Any) -> Optional[str]:
     if response is None:
         return None
@@ -100,11 +149,13 @@ def _resolve_subprotocol(subprotocols: Optional[Sequence[str]], response: Any) -
 
 
 @cython.cfunc
+@cython.inline
 def _default_user_agent() -> str:
     return f"Python/{sys.version_info.major}.{sys.version_info.minor} picows-websockets/0"
 
 
 @cython.cfunc
+@cython.inline
 def _process_proxy(proxy: Union[str, bool, None], secure: bool) -> Optional[str]:
     if proxy is None:
         return None
@@ -120,6 +171,7 @@ def _process_proxy(proxy: Union[str, bool, None], secure: bool) -> Optional[str]
 
 
 @cython.cfunc
+@cython.inline
 def _normalize_size_limit(limit: Optional[int]) -> cython.Py_ssize_t:
     return 0 if limit is None else limit
 
@@ -149,8 +201,8 @@ class ClientConnection(WSListener):
     _frames: asyncio.Queue[Optional[_BufferedFrame]]
     _close_exc: Optional[ConnectionClosed]
     _loop: asyncio.AbstractEventLoop
-    _recv_lock: asyncio.Lock
-    _send_lock: asyncio.Lock
+    _recv_lock: _AsyncLock
+    _send_lock: _AsyncLock
     _write_ready: Optional[asyncio.Future[None]]
     _recv_streaming_in_progress: cython.bint
     _recv_streaming_broken: cython.bint
@@ -192,8 +244,8 @@ class ClientConnection(WSListener):
         self._frames: asyncio.Queue[Optional[_BufferedFrame]] = asyncio.Queue()
         self._close_exc: Optional[ConnectionClosed] = None
         self._loop = asyncio.get_running_loop()
-        self._recv_lock = asyncio.Lock()
-        self._send_lock = asyncio.Lock()
+        self._recv_lock = _AsyncLock(self._loop)
+        self._send_lock = _AsyncLock(self._loop)
         self._write_ready: Optional[asyncio.Future[None]] = None
         self._recv_streaming_in_progress = False
         self._recv_streaming_broken = False
@@ -210,6 +262,7 @@ class ClientConnection(WSListener):
         self._paused_reading = False
 
     @cython.cfunc
+    @cython.inline
     def _resolve_logger(self, logger: LoggerLike) -> Union[logging.Logger, logging.LoggerAdapter[Any]]:
         if logger is None:
             return logging.getLogger("websockets.client")
@@ -218,6 +271,7 @@ class ClientConnection(WSListener):
         return logger
 
     @cython.cfunc
+    @cython.inline
     def _normalize_watermarks(
         self,
         max_queue: Union[int, tuple[Optional[int], Optional[int]], None],
@@ -232,6 +286,7 @@ class ClientConnection(WSListener):
         return max_queue, max_queue // 4
 
     @cython.cfunc
+    @cython.inline
     def _set_write_limits(self, write_limit: Union[int, tuple[int, Optional[int]]]) -> None:
         if isinstance(write_limit, tuple):
             high, low = write_limit
@@ -263,12 +318,14 @@ class ClientConnection(WSListener):
             self._write_ready = None
 
     @cython.cfunc
+    @cython.inline
     def _pause_reading_if_needed(self) -> None:
         if self._max_queue_high > 0 and not self._paused_reading and self._frames.qsize() >= self._max_queue_high:
             self.transport.underlying_transport.pause_reading()
             self._paused_reading = True
 
     @cython.cfunc
+    @cython.inline
     def _resume_reading_if_needed(self) -> None:
         if not self._paused_reading:
             return
@@ -277,6 +334,7 @@ class ClientConnection(WSListener):
             self._paused_reading = False
 
     @cython.cfunc
+    @cython.inline
     def _set_close_exception(self) -> None:
         handshake = self.transport.close_handshake
         if handshake is None:
@@ -315,6 +373,7 @@ class ClientConnection(WSListener):
         self._pending_pings.clear()
 
     @cython.cfunc
+    @cython.inline
     def _fail_message_too_big(self, message: str) -> None:
         self.transport.send_close(WSCloseCode.MESSAGE_TOO_BIG, message.encode("utf-8"))
         self.transport.disconnect(False)
@@ -358,12 +417,14 @@ class ClientConnection(WSListener):
         return frame
 
     @cython.cfunc
+    @cython.inline
     def _connection_closed(self) -> ConnectionClosed:
         if self._close_exc is None:
             self._set_close_exception()
         return self._close_exc or ConnectionClosedError(None, None, None)
 
     @cython.cfunc
+    @cython.inline
     def _ensure_recv_available(self) -> None:
         if self._recv_streaming_broken:
             raise ConcurrencyError("recv_streaming() wasn't fully consumed")
@@ -374,7 +435,8 @@ class ClientConnection(WSListener):
         self._ensure_recv_available()
         if self._recv_lock.locked():
             raise ConcurrencyError("cannot call recv() concurrently")
-        async with self._recv_lock:
+        self._recv_lock.acquire()
+        try:
             first: _BufferedFrame = await self._next_frame()
             if first.msg_type not in (WSMsgType.TEXT, WSMsgType.BINARY):
                 raise ProtocolError(f"unexpected opcode while receiving message: {first.msg_type}")
@@ -396,8 +458,11 @@ class ClientConnection(WSListener):
 
             payload = b"".join(chunks)
             return self._decode_payload(payload, msg_type, decode)
+        finally:
+            self._recv_lock.release()
 
     @cython.cfunc
+    @cython.inline
     def _decode_payload(
         self,
         payload: bytes,
@@ -423,7 +488,8 @@ class ClientConnection(WSListener):
         async def iterator() -> AsyncIterator[Union[str, bytes]]:
             nonlocal started, finished
             try:
-                async with self._recv_lock:
+                self._recv_lock.acquire()
+                try:
                     first: _BufferedFrame = await self._next_frame()
                     if first.msg_type not in (WSMsgType.TEXT, WSMsgType.BINARY):
                         raise ProtocolError(f"unexpected opcode while receiving message: {first.msg_type}")
@@ -441,7 +507,9 @@ class ClientConnection(WSListener):
                             self._fail_message_too_big("message too big")
                             raise PayloadTooBig("message too big")
                         yield self._decode_fragment(frame.payload, msg_type, decode)
-                finished = True
+                    finished = True
+                finally:
+                    self._recv_lock.release()
             finally:
                 if started and not finished:
                     self._recv_streaming_broken = True
@@ -452,6 +520,7 @@ class ClientConnection(WSListener):
         return iterator()
 
     @cython.cfunc
+    @cython.inline
     def _decode_fragment(
         self,
         payload: bytes,
@@ -474,15 +543,17 @@ class ClientConnection(WSListener):
         if self.state is State.CLOSED:
             raise self._connection_closed()
 
-        async with self._send_lock:
+        if self._send_lock.locked():
+            await self._send_lock.wait_and_acquire()
+        else:
+            self._send_lock.acquire()
+
+        try:
             if isinstance(message, (str, bytes, bytearray, memoryview)):
                 if isinstance(message, str):
                     self.transport.send(WSMsgType.TEXT, cython.cast(str, message).encode("utf-8"))
                 else:
-                    self.transport.send(
-                        WSMsgType.TEXT if text else WSMsgType.BINARY,
-                        message,
-                    )
+                    self.transport.send(WSMsgType.TEXT if text else WSMsgType.BINARY, message)
                 if self._write_ready is not None:
                     await self._write_ready
                 return
@@ -493,6 +564,8 @@ class ClientConnection(WSListener):
                 await self._send_sync_fragments(message, text)
                 return
             raise TypeError(f"message has unsupported type {type(message).__name__}")
+        finally:
+            self._send_lock.release()
 
     async def _send_sync_fragments(self, message: Iterable[Data], text: Optional[bool]) -> None:
         iterator = iter(message)
@@ -555,6 +628,7 @@ class ClientConnection(WSListener):
             await self._write_ready
 
     @cython.cfunc
+    @cython.inline
     def _get_fragment_codec(
         self,
         first: Data,
