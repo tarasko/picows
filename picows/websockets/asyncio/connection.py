@@ -537,14 +537,12 @@ class ClientConnection(WSListener):
                 self.transport.send(msg_type, message)
                 if self._write_ready is not None:
                     await self._write_ready
-                return
             elif isinstance(message, AsyncIterable):
                 await self._send_fragments(True, message.__aiter__(), text)
-                return
             elif isinstance(message, Iterable):
                 await self._send_fragments(False, iter(message), text)
-                return
-            raise TypeError(f"message has unsupported type {type(message).__name__}")
+            else:
+                raise TypeError(f"message has unsupported type {type(message).__name__}")
         finally:
             self._send_lock.release()
 
