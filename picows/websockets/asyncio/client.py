@@ -12,18 +12,23 @@ from picows.url import parse_url
 
 from .connection import (
     ClientConnection,
-    HeadersLike,
-    LoggerLike,
     process_exception,
 )
 from ..exceptions import (
     InvalidHandshake,
     InvalidHeader,
     InvalidMessage,
+    InvalidProxy,
     InvalidStatus,
     InvalidUpgrade,
     InvalidURI,
 )
+from ..typing import HeadersLike, LoggerLike, Origin, Subprotocol
+
+__all__ = [
+    "ClientConnection",
+    "connect",
+]
 
 
 def _default_user_agent() -> str:
@@ -47,7 +52,7 @@ def _process_proxy(proxy: Union[str, bool, None], secure: bool) -> Optional[str]
             proxies.get("wss" if secure else "ws")
             or proxies.get("https" if secure else "http")
         )
-    raise InvalidURI(str(proxy), "proxy must be None, True, or a proxy URL")
+    raise InvalidProxy(str(proxy), "proxy must be None, True, or a proxy URL")
 
 
 def _normalize_size_limit(limit: Optional[int]) -> int:
@@ -59,9 +64,9 @@ class _Connect:
         self,
         uri: str,
         *,
-        origin: Optional[str] = None,
+        origin: Optional[Origin] = None,
         extensions: Optional[Sequence[Any]] = None,
-        subprotocols: Optional[Sequence[str]] = None,
+        subprotocols: Optional[Sequence[Subprotocol]] = None,
         compression: Optional[str] = "deflate",
         additional_headers: Optional[HeadersLike] = None,
         user_agent_header: Optional[str] = _default_user_agent(),

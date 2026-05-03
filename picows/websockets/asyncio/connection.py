@@ -1,20 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 import logging
 import os
-import socket
 import uuid
-import warnings
 from collections import deque
 from collections.abc import AsyncIterable, Generator, Iterable
 from enum import IntEnum
-from ssl import SSLContext
 from time import monotonic
-from typing import Any, AsyncIterator, Awaitable, Callable, Optional, Sequence, \
+from typing import Any, AsyncIterator, Awaitable, Optional, Sequence, \
     Union, cast, Dict, Tuple, Iterator
-from urllib.request import getproxies
 
 import cython
 
@@ -26,8 +21,8 @@ else:
 
 
 import picows
-from picows.types import WSHeadersLike
 
+from ..compat import CloseCode, Request, Response
 from ..exceptions import (
     ConcurrencyError,
     ConnectionClosed,
@@ -35,17 +30,12 @@ from ..exceptions import (
     ConnectionClosedOK,
     InvalidHandshake,
     InvalidStatus,
-    InvalidURI,
 )
-
-
-DataLike = Union[str, bytes, bytearray, memoryview]
-HeadersLike = WSHeadersLike
-CloseCodeT = int
-LoggerLike = Union[str, logging.Logger, logging.LoggerAdapter[Any], None]
+from ..typing import Data, DataLike, LoggerLike, Subprotocol
 
 
 OK_CLOSE_CODES = {0, 1000, 1001}
+_QUEUE_EMPTY = object()
 
 
 class State(IntEnum):
@@ -111,9 +101,58 @@ class _AsyncLock:
         self._locked = False
 
 
+@cython.cclass
+class _SingleConsumerQueue:
+    _loop: asyncio.AbstractEventLoop
+    _items: deque
+    _waiter: Optional[asyncio.Future[Optional[_BufferedFrame]]]
+
+    def __init__(self, loop: asyncio.AbstractEventLoop):
+        self._loop = loop
+        self._items = deque()
+        self._waiter = None
+
+    @cython.cfunc
+    @cython.inline
+    def put(self, item: Optional[_BufferedFrame]) -> None:
+        waiter = self._waiter
+        if waiter is not None:
+            self._waiter = None
+            if not waiter.done():
+                waiter.set_result(item)
+                return
+        self._items.append(item)
+
+    @cython.cfunc
+    @cython.inline
+    def get_nowait(self) -> object:
+        if self._items:
+            return self._items.popleft()
+        return _QUEUE_EMPTY
+
+    async def get(self) -> Optional[_BufferedFrame]:
+        item = self.get_nowait()
+        if item is not _QUEUE_EMPTY:
+            return item
+
+        waiter: asyncio.Future[Optional[_BufferedFrame]] = self._loop.create_future()
+        self._waiter = waiter
+        try:
+            return await waiter
+        except Exception:
+            if self._waiter is waiter:
+                self._waiter = None
+            raise
+
+    @cython.cfunc
+    @cython.inline
+    def qsize(self) -> cython.Py_ssize_t:
+        return len(self._items)
+
+
 @cython.cfunc
 @cython.inline
-def _coerce_close_code(code: WSCloseCode) -> Optional[int]:
+def _coerce_close_code(code: CloseCode) -> Optional[int]:
     return None if code is None else int(code)
 
 
@@ -125,13 +164,10 @@ def _coerce_close_reason(reason: Optional[str]) -> Optional[str]:
 
 @cython.cfunc
 @cython.inline
-def _header_items(headers: Any) -> list[tuple[str, str]]:
-    return [] if headers is None else list(headers.items())
-
-
-@cython.cfunc
-@cython.inline
-def _resolve_subprotocol(subprotocols: Optional[Sequence[str]], response: Any) -> Optional[str]:
+def _resolve_subprotocol(
+    subprotocols: Optional[Sequence[Subprotocol]],
+    response: Any,
+) -> Optional[Subprotocol]:
     if response is None:
         return None
     value = response.headers.get("Sec-WebSocket-Protocol")
@@ -139,29 +175,7 @@ def _resolve_subprotocol(subprotocols: Optional[Sequence[str]], response: Any) -
         return None
     if subprotocols is not None and value not in subprotocols:
         raise InvalidHandshake(f"unsupported subprotocol negotiated by server: {value}")
-    return cast(str, value)
-
-
-@cython.cfunc
-@cython.inline
-def _default_user_agent() -> str:
-    return f"Python/{sys.version_info.major}.{sys.version_info.minor} picows-websockets/0"
-
-
-@cython.cfunc
-@cython.inline
-def _process_proxy(proxy: Union[str, bool, None], secure: bool) -> Optional[str]:
-    if proxy is None:
-        return None
-    if isinstance(proxy, str):
-        return proxy
-    if proxy is True:
-        proxies = getproxies()
-        return (
-            proxies.get("wss" if secure else "ws")
-            or proxies.get("https" if secure else "http")
-        )
-    raise InvalidURI(str(proxy), "proxy must be None, True, or a proxy URL")
+    return cast(Subprotocol, value)
 
 
 @cython.cfunc
@@ -205,12 +219,12 @@ class ClientConnection(WSListener):
     id: uuid.UUID
     logger: Union[logging.Logger, logging.LoggerAdapter[Any]]
     transport: WSTransport
-    request: picows.WSUpgradeRequest
-    response: picows.WSUpgradeResponse
-    _subprotocols: Optional[Sequence[str]]
-    _subprotocol: Optional[str]
+    request: Request
+    response: Response
+    _subprotocols: Optional[Sequence[Subprotocol]]
+    _subprotocol: Optional[Subprotocol]
     _state: State
-    _frames: asyncio.Queue[Optional[_BufferedFrame]]
+    _frames: _SingleConsumerQueue
     _close_exc: Optional[ConnectionClosed]
     _loop: asyncio.AbstractEventLoop
     _recv_in_progress: cython.bint
@@ -241,19 +255,19 @@ class ClientConnection(WSListener):
         write_limit: Union[int, tuple[int, Optional[int]]] = 32768,
         max_message_size: Optional[int] = 1024 * 1024,
         logger: LoggerLike = None,
-        subprotocols: Optional[Sequence[str]] = None,
+        subprotocols: Optional[Sequence[Subprotocol]] = None,
     ):
         self.id = uuid.uuid4()
         self.logger = _resolve_logger(logger)
         self.transport = cython.cast(WSTransport, None)
-        self.request = cast(picows.WSUpgradeRequest, None)
-        self.response = cast(picows.WSUpgradeResponse, None)
+        self.request = cast(Request, None)
+        self.response = cast(Response, None)
         self._subprotocols = subprotocols
-        self._subprotocol = cast(Optional[str], None)
+        self._subprotocol = cast(Optional[Subprotocol], None)
         self._state = State.CONNECTING
-        self._frames: asyncio.Queue[Optional[_BufferedFrame]] = asyncio.Queue()
         self._close_exc: Optional[ConnectionClosed] = None
         self._loop = asyncio.get_running_loop()
+        self._frames = _SingleConsumerQueue(self._loop)
         self._recv_in_progress = False
         self._send_lock = _AsyncLock(self._loop)
         self._write_ready: Optional[asyncio.Future[None]] = None
@@ -286,7 +300,7 @@ class ClientConnection(WSListener):
     def on_ws_disconnected(self, transport: WSTransport) -> None:
         self._state = State.CLOSED
         self._set_close_exception()
-        self._frames.put_nowait(None)
+        self._frames.put(None)
         if self._keepalive_task is not None:
             self._keepalive_task.cancel()
             self._keepalive_task = None
@@ -348,7 +362,7 @@ class ClientConnection(WSListener):
             self._fail_protocol_error(f"unexpected opcode while receiving message: {frame.msg_type}")
             return
 
-        self._frames.put_nowait(_BufferedFrame(frame.msg_type, frame.get_payload_as_bytes(), frame.fin))
+        self._frames.put(_BufferedFrame(frame.msg_type, frame.get_payload_as_bytes(), frame.fin))
         self._pause_reading_if_needed()
 
     @cython.ccall
@@ -437,7 +451,7 @@ class ClientConnection(WSListener):
 
     @cython.cfunc
     @cython.inline
-    def _decode_data(self, payload: bytes, msg_type: WSMsgType, decode: Optional[bool]) -> Union[str, bytes]:
+    def _decode_data(self, payload: bytes, msg_type: WSMsgType, decode: Optional[bool]) -> Data:
         if decode is True or (msg_type == WSMsgType.TEXT and decode is None):
             return payload.decode("utf-8")
         else:
@@ -451,15 +465,23 @@ class ClientConnection(WSListener):
         if frame is None:
             raise self._connection_closed()
 
-    async def recv(self, decode: Optional[bool] = None) -> Union[str, bytes]:
+    @cython.cfunc
+    @cython.inline
+    def _get_frame_nowait(self) -> object:
+        return self._frames.get_nowait()
+
+    async def recv(self, decode: Optional[bool] = None) -> Data:
         frame: Optional[_BufferedFrame]
 
         self._set_recv_in_progress()
 
         try:
-            frame = await self._frames.get()
+            item = self._get_frame_nowait()
+            if item is _QUEUE_EMPTY:
+                item = await self._frames.get()
+
+            frame = cython.cast(_BufferedFrame, item)
             self._check_frame(frame)
-            frame = cast(_BufferedFrame, frame)
 
             msg_type = frame.msg_type
             if frame.fin:
@@ -467,8 +489,11 @@ class ClientConnection(WSListener):
 
             chunks = [frame.payload]
             while not frame.fin:
-                frame = await self._frames.get()
+                frame = self._get_frame_nowait()
+                if frame is _QUEUE_EMPTY:
+                    frame = await self._frames.get()
                 self._check_frame(frame)
+                frame = cast(_BufferedFrame, frame)
 
                 chunks.append(frame.payload)
 
@@ -477,19 +502,21 @@ class ClientConnection(WSListener):
         finally:
             self._recv_in_progress = False
 
-    def recv_streaming(self, decode: Optional[bool] = None) -> AsyncIterator[Union[str, bytes]]:
+    def recv_streaming(self, decode: Optional[bool] = None) -> AsyncIterator[Data]:
         self._set_recv_in_progress()
 
         msg_started: cython.bint = False
         msg_finished: cython.bint = False
 
-        async def iterator() -> AsyncIterator[Union[str, bytes]]:
+        async def iterator() -> AsyncIterator[Data]:
             nonlocal msg_started, msg_finished
             frame: Optional[_BufferedFrame]
             msg_type: WSMsgType
 
             try:
-                frame = await self._frames.get()
+                frame = self._get_frame_nowait()
+                if frame is _QUEUE_EMPTY:
+                    frame = await self._frames.get()
                 self._check_frame(frame)
                 frame = cast(_BufferedFrame, frame)
                 msg_started = True
@@ -497,7 +524,9 @@ class ClientConnection(WSListener):
                 yield self._decode_data(frame.payload, msg_type, decode)
 
                 while not frame.fin:
-                    frame = await self._frames.get()
+                    frame = self._get_frame_nowait()
+                    if frame is _QUEUE_EMPTY:
+                        frame = await self._frames.get()
                     self._check_frame(frame)
                     frame = cast(_BufferedFrame, frame)
                     yield self._decode_data(frame.payload, msg_type, decode)
@@ -666,7 +695,7 @@ class ClientConnection(WSListener):
     def __aiter__(self) -> AsyncIterator[Union[str, bytes]]:
         return self._iterate_messages()
 
-    async def _iterate_messages(self) -> AsyncIterator[Union[str, bytes]]:
+    async def _iterate_messages(self) -> AsyncIterator[Data]:
         while True:
             try:
                 yield await self.recv()
@@ -690,7 +719,7 @@ class ClientConnection(WSListener):
         return self._latency
 
     @property
-    def subprotocol(self) -> Optional[str]:
+    def subprotocol(self) -> Optional[Subprotocol]:
         return self._subprotocol
 
     @property

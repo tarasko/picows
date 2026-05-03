@@ -24,6 +24,10 @@ examples - Various examples for users on how to use picows + perf_test that coul
   If the same conversion, check, or tiny code pattern appears in multiple sibling paths after a refactor, stop and normalize it before considering the work done.
   Do not remove one layer of abstraction only to inline the same logic redundantly in several places.
   After a refactor, scan for duplicated branch bodies and duplicated type-specific handling introduced by the change.
+- `picows.websockets` aims for import-level compatibility with the official `websockets` package on the client side.
+  We can skip complicated areas such as the full server interface, but simple surface-area compatibility matters.
+  Type definitions, exception definitions, and other lightweight importable names should exist when upstream exposes them.
+  People switching from `websockets` to `picows.websockets` should notice as little difference as possible.
 
 ## Testing instructions
 - Run lint after updating code with:
