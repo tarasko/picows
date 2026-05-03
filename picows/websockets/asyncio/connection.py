@@ -468,7 +468,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
 
             msg_type = frame.msg_type
             if frame.fin:
-                return self._decode_data(frame.payload, msg_type, decode)
+                return self._decode_data(frame.payload, msg_type, decode) # type: ignore[no-any-return]
 
             chunks = [frame.payload]
             while not frame.fin:
@@ -481,7 +481,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
                 chunks.append(frame.payload)
 
             payload = b"".join(chunks)
-            return self._decode_data(payload, msg_type, decode)
+            return self._decode_data(payload, msg_type, decode) # type: ignore[no-any-return]
         finally:
             self._recv_in_progress = False
 
