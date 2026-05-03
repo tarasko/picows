@@ -58,50 +58,6 @@ class _BufferedFrame:
 
 
 @cython.cclass
-class _AsyncLock:
-    _loop: asyncio.AbstractEventLoop
-    _locked: cython.bint
-    _waiters: Any
-
-    def __init__(self, loop: asyncio.AbstractEventLoop):
-        self._loop = loop
-        self._locked = False
-        self._waiters = deque()
-
-    @cython.cfunc
-    @cython.inline
-    def locked(self) -> cython.bint:
-        return self._locked
-
-    @cython.cfunc
-    @cython.inline
-    def acquire(self) -> None:
-        self._locked = True
-
-    async def wait_and_acquire(self) -> None:
-        waiter = self._loop.create_future()
-        self._waiters.append(waiter)
-        try:
-            await waiter
-        except Exception:
-            try:
-                self._waiters.remove(waiter)
-            except ValueError:
-                pass
-            raise
-
-    @cython.cfunc
-    @cython.inline
-    def release(self) -> None:
-        while self._waiters:
-            waiter = self._waiters.popleft()
-            if not waiter.done():
-                waiter.set_result(None)
-                return
-        self._locked = False
-
-
-@cython.cclass
 class _SingleConsumerQueue:
     _loop: asyncio.AbstractEventLoop
     _items: deque[Optional[_BufferedFrame]]
@@ -228,7 +184,8 @@ class ClientConnection(WSListener):  # type: ignore[misc]
     _close_exc: Optional[ConnectionClosed]
     _loop: asyncio.AbstractEventLoop
     _recv_in_progress: cython.bint
-    _send_lock: _AsyncLock
+    _send_in_progress: cython.bint
+    _send_waiters: deque[asyncio.Future[None]]
     _write_ready: Optional[asyncio.Future[None]]
     _recv_streaming_broken: cython.bint
     _pending_pings: Dict[bytes, Tuple[asyncio.Future[float], float]]
@@ -269,7 +226,8 @@ class ClientConnection(WSListener):  # type: ignore[misc]
         self._loop = asyncio.get_running_loop()
         self._frames = _SingleConsumerQueue(self._loop)
         self._recv_in_progress = False
-        self._send_lock = _AsyncLock(self._loop)
+        self._send_in_progress = False
+        self._send_waiters = deque()
         self._write_ready: Optional[asyncio.Future[None]] = None
         self._recv_streaming_broken = False
         self._pending_pings: dict[bytes, tuple[asyncio.Future[float], float]] = {}
@@ -449,6 +407,31 @@ class ClientConnection(WSListener):  # type: ignore[misc]
             raise ConcurrencyError("recv_streaming() wasn't fully consumed")
         self._recv_in_progress = True
 
+    async def _wait_send_turn(self) -> None:
+        waiter: asyncio.Future[None] = self._loop.create_future()
+        self._send_waiters.append(waiter)
+        try:
+            await waiter
+        except Exception:
+            try:
+                self._send_waiters.remove(waiter)
+            except ValueError:
+                pass
+            raise
+
+    @cython.cfunc
+    @cython.inline
+    def _release_send(self) -> None:
+        waiter: asyncio.Future[None]
+
+        while self._send_waiters:
+            waiter = self._send_waiters.popleft()
+            if not waiter.done():
+                waiter.set_result(None)
+                return
+
+        self._send_in_progress = False
+
     @cython.cfunc
     @cython.inline
     def _decode_data(self, payload: bytes, msg_type: WSMsgType, decode: Optional[bool]) -> Data:
@@ -548,10 +531,10 @@ class ClientConnection(WSListener):  # type: ignore[misc]
         if self._state is State.CLOSED:
             raise self._connection_closed()
 
-        if self._send_lock.locked():
-            await self._send_lock.wait_and_acquire()
+        if self._send_in_progress:
+            await self._wait_send_turn()
         else:
-            self._send_lock.acquire()
+            self._send_in_progress = True
 
         try:
             if isinstance(message, (str, bytes, bytearray, memoryview)):
@@ -569,7 +552,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
             else:
                 raise TypeError(f"message has unsupported type {type(message).__name__}")
         finally:
-            self._send_lock.release()
+            self._release_send()
 
     @cython.cfunc
     @cython.inline
