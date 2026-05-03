@@ -9,7 +9,7 @@ from collections.abc import AsyncIterable, Generator, Iterable
 from enum import IntEnum
 from time import monotonic
 from typing import Any, AsyncIterator, Awaitable, Optional, Sequence, \
-    Union, cast, Dict, Tuple, Iterator
+    Union, Dict, Tuple, Iterator
 
 import cython
 
@@ -18,9 +18,6 @@ if cython.compiled:
         WSMsgType, WSCloseCode
 else:
     from picows import WSListener, WSTransport, WSFrame, WSMsgType, WSCloseCode
-
-
-import picows
 
 from ..compat import CloseCode, Request, Response
 from ..exceptions import (
@@ -59,7 +56,7 @@ class _BufferedFrame:
 @cython.cfunc
 @cython.inline
 def _coerce_close_code(code: CloseCode) -> Optional[int]:
-    return None if code is None else cast(int, code)
+    return None if code is None else code  # type: ignore[return-value]
 
 
 @cython.cfunc
@@ -79,9 +76,11 @@ def _resolve_subprotocol(
     value = response.headers.get("Sec-WebSocket-Protocol")
     if value is None:
         return None
+    if not isinstance(value, str):
+        raise InvalidHandshake("server returned non-string subprotocol")
     if subprotocols is not None and value not in subprotocols:
         raise InvalidHandshake(f"unsupported subprotocol negotiated by server: {value}")
-    return cast(Subprotocol, value)
+    return value
 
 
 @cython.cfunc
@@ -173,10 +172,10 @@ class ClientConnection(WSListener):  # type: ignore[misc]
         self.id = uuid.uuid4()
         self.logger = _resolve_logger(logger)
         self.transport = cython.cast(WSTransport, None)
-        self.request = cast(Request, None)
-        self.response = cast(Response, None)
+        self.request = None  # type: ignore[assignment]
+        self.response = None  # type: ignore[assignment]
         self._subprotocols = subprotocols
-        self._subprotocol = cast(Optional[Subprotocol], None)
+        self._subprotocol = None
         self._state = State.CONNECTING
         self._close_exc: Optional[ConnectionClosed] = None
         self._loop = asyncio.get_running_loop()
@@ -519,10 +518,8 @@ class ClientConnection(WSListener):  # type: ignore[misc]
                 self.transport.send(msg_type, message)
                 if self._write_ready is not None:
                     await self._write_ready
-            elif isinstance(message, AsyncIterable):
-                await self._send_fragments(True, message.__aiter__(), text)
-            elif isinstance(message, Iterable):
-                await self._send_fragments(False, iter(message), text)
+            elif isinstance(message, (AsyncIterable, Iterable)):
+                await self._send_fragments(message, text)  # type: ignore[arg-type]
             else:
                 raise TypeError(f"message has unsupported type {type(message).__name__}")
         finally:
@@ -540,51 +537,69 @@ class ClientConnection(WSListener):  # type: ignore[misc]
 
     async def _send_fragments(
         self,
-        is_async: cython.bint,
-        iterator: Union[Iterator[DataLike], AsyncIterator[DataLike]],
+        messages: Union[AsyncIterable[DataLike], Iterable[DataLike]],
         text: Optional[bool],
     ) -> None:
-        stop_exception_type = StopAsyncIteration if is_async else StopIteration
-        try:
-            if is_async:
-                first = await anext(cast(AsyncIterator[DataLike], iterator))
-            else:
-                first = next(cast(Iterator[DataLike], iterator))
-        except stop_exception_type:
-            raise TypeError("message iterable cannot be empty") from None
+        is_async: cython.bint
+        async_iterator: AsyncIterator[DataLike]
+        iterator: Iterator[DataLike]
+        stop_exception_type: Union[type[StopAsyncIteration], type[StopIteration]]
 
-        first_is_str: cython.bint
-        if isinstance(first, str):
-            msg_type = WSMsgType.BINARY if text is False else WSMsgType.TEXT
-            first_is_str = True
-        elif isinstance(first, (bytes, bytearray, memoryview)):
-            msg_type = WSMsgType.TEXT if text else WSMsgType.BINARY
-            first_is_str = False
+        if isinstance(messages, AsyncIterable):
+            async_iterator = messages.__aiter__()
+            iterator = None # type: ignore[assignment]
+            stop_exception_type = StopAsyncIteration
+            is_async = True
         else:
-            raise TypeError(f"message must contain str or bytes-like objects, got {type(first).__name__}")
+            async_iterator = None # type: ignore[assignment]
+            iterator = iter(messages)
+            stop_exception_type = StopIteration
+            is_async = False
 
-        previous = first
-        while True:
+        try:
             try:
                 if is_async:
-                    current = await anext(cast(AsyncIterator[DataLike], iterator))
+                    first = await anext(async_iterator)
                 else:
-                    current = next(cast(Iterator[DataLike], iterator))
+                    first = next(iterator)
             except stop_exception_type:
-                break
+                raise TypeError("message iterable cannot be empty") from None
 
-            self._check_fragment_type(current, first_is_str)
+            first_is_str: cython.bint
+            if isinstance(first, str):
+                msg_type = WSMsgType.BINARY if text is False else WSMsgType.TEXT
+                first_is_str = True
+            elif isinstance(first, (bytes, bytearray, memoryview)):
+                msg_type = WSMsgType.TEXT if text else WSMsgType.BINARY
+                first_is_str = False
+            else:
+                raise TypeError(f"message must contain str or bytes-like objects, got {type(first).__name__}")
 
-            self.transport.send(msg_type, previous, fin=False)
-            msg_type = WSMsgType.CONTINUATION
+            previous = first
+            while True:
+                try:
+                    if is_async:
+                        current = await anext(async_iterator)
+                    else:
+                        current = next(iterator)
+                except stop_exception_type:
+                    break
+
+                self._check_fragment_type(current, first_is_str)
+
+                self.transport.send(msg_type, previous, fin=False)
+                msg_type = WSMsgType.CONTINUATION
+                if self._write_ready is not None:
+                    await self._write_ready
+
+                previous = current
+
+            self.transport.send(msg_type, previous, fin=True)
             if self._write_ready is not None:
                 await self._write_ready
-
-            previous = current
-
-        self.transport.send(msg_type, previous, fin=True)
-        if self._write_ready is not None:
-            await self._write_ready
+        except:
+            self._fail_protocol_error("error in fragmented message")
+            raise
 
     async def close(self, code: int = 1000, reason: str = "") -> None:
         if self._state is State.CLOSED:
@@ -630,8 +645,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
     async def pong(self, data: Union[str, bytes] = b"") -> None:
         if self._state is State.CLOSED:
             raise self._connection_closed()
-        payload = data.encode("utf-8") if isinstance(data, str) else data
-        self.transport.send_pong(payload)
+        self.transport.send_pong(data)
 
     async def _keepalive_loop(self) -> None:
         try:
@@ -648,7 +662,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
             if self.state is not State.CLOSED:
                 await self.close(code=1011, reason="keepalive ping timeout")
 
-    async def __aenter__(self) -> ClientConnection:
+    async def __aenter__(self): # type: ignore[no-untyped-def]
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
@@ -690,9 +704,9 @@ class ClientConnection(WSListener):  # type: ignore[misc]
         if handshake is None:
             return None
         if handshake.recv is not None:
-            return cast(Optional[int], _coerce_close_code(handshake.recv.code))
+            return _coerce_close_code(handshake.recv.code)  # type: ignore[no-any-return]
         if handshake.sent is not None:
-            return cast(Optional[int], _coerce_close_code(handshake.sent.code))
+            return _coerce_close_code(handshake.sent.code)  # type: ignore[no-any-return]
         return None
 
     @property
@@ -701,7 +715,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
         if handshake is None:
             return None
         if handshake.recv is not None:
-            return cast(Optional[str], _coerce_close_reason(handshake.recv.reason))
+            return _coerce_close_reason(handshake.recv.reason)  # type: ignore[no-any-return]
         if handshake.sent is not None:
-            return cast(Optional[str], _coerce_close_reason(handshake.sent.reason))
+            return _coerce_close_reason(handshake.sent.reason)  # type: ignore[no-any-return]
         return None

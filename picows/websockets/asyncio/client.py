@@ -5,7 +5,7 @@ import socket
 import warnings
 from collections.abc import Generator
 from ssl import SSLContext
-from typing import Any, Callable, Optional, Sequence, Union, cast
+from typing import Any, Callable, Optional, Sequence, Union
 
 import picows
 from picows.url import parse_url
@@ -166,8 +166,10 @@ class _Connect:
         if preexisting_sock is not None:
             if socket_factory is not None:
                 raise TypeError("cannot pass both sock and socket_factory")
+            if not isinstance(preexisting_sock, socket.socket):
+                raise TypeError("sock must be a socket.socket instance")
 
-            provided_sock = cast(socket.socket, preexisting_sock)
+            provided_sock = preexisting_sock
 
             def provided_socket(_: Any) -> socket.socket:
                 return provided_sock
@@ -228,7 +230,8 @@ class _Connect:
         except picows.WSHandshakeError as exc:
             raise InvalidHandshake(str(exc)) from exc
 
-        return cast(ClientConnection, listener)
+        assert isinstance(listener, ClientConnection)
+        return listener
 
     def _build_headers(self) -> list[tuple[str, str]]:
         headers = _header_items(self.additional_headers)
