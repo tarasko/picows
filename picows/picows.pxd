@@ -67,7 +67,7 @@ cdef class MemoryBuffer:
 cdef class WSFrame:
     cdef:
         char* payload_ptr
-        Py_ssize_t payload_size
+        readonly Py_ssize_t payload_size
         readonly Py_ssize_t tail_size
         readonly WSMsgType msg_type
         readonly uint8_t fin

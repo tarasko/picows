@@ -146,8 +146,6 @@ Classes
     .. py:attribute:: payload_size
         :type: size_t
 
-        **Available only from Cython.**
-
         Size of the payload.
 
 .. autoclass:: WSUpgradeRequest

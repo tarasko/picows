@@ -210,7 +210,6 @@ class ClientConnection(WSListener):
     _subprotocols: Optional[Sequence[str]]
     _subprotocol: Optional[str]
     _state: State
-    _closed_event: asyncio.Event
     _frames: asyncio.Queue[Optional[_BufferedFrame]]
     _close_exc: Optional[ConnectionClosed]
     _loop: asyncio.AbstractEventLoop
@@ -252,7 +251,6 @@ class ClientConnection(WSListener):
         self._subprotocols = subprotocols
         self._subprotocol = cast(Optional[str], None)
         self._state = State.CONNECTING
-        self._closed_event = asyncio.Event()
         self._frames: asyncio.Queue[Optional[_BufferedFrame]] = asyncio.Queue()
         self._close_exc: Optional[ConnectionClosed] = None
         self._loop = asyncio.get_running_loop()
@@ -289,7 +287,6 @@ class ClientConnection(WSListener):
         self._state = State.CLOSED
         self._set_close_exception()
         self._frames.put_nowait(None)
-        self._closed_event.set()
         if self._keepalive_task is not None:
             self._keepalive_task.cancel()
             self._keepalive_task = None
@@ -306,9 +303,8 @@ class ClientConnection(WSListener):
 
     @cython.ccall
     def on_ws_frame(self, transport: WSTransport, frame: WSFrame) -> None:
-        payload = frame.get_payload_as_bytes()
         if frame.msg_type == WSMsgType.PONG:
-            ping = self._pending_pings.pop(payload, None)
+            ping = self._pending_pings.pop(frame.get_payload_as_bytes(), None)
             if ping is not None:
                 waiter, sent_at = ping
                 self._latency = monotonic() - sent_at
@@ -328,7 +324,8 @@ class ClientConnection(WSListener):
             if not self._incoming_message_active:
                 self._fail_protocol_error("unexpected continuation frame")
                 return
-            self._incoming_message_size += len(payload)
+
+            self._incoming_message_size += frame.payload_size
             if self._max_message_size > 0 and self._incoming_message_size > self._max_message_size:
                 self._fail_message_too_big("message too big")
                 return
@@ -339,7 +336,7 @@ class ClientConnection(WSListener):
             if self._incoming_message_active:
                 self._fail_protocol_error("expected continuation frame")
                 return
-            self._incoming_message_size = len(payload)
+            self._incoming_message_size = frame.payload_size
             if self._max_message_size > 0 and self._incoming_message_size > self._max_message_size:
                 self._fail_message_too_big("message too big")
                 return
@@ -351,7 +348,7 @@ class ClientConnection(WSListener):
             self._fail_protocol_error(f"unexpected opcode while receiving message: {frame.msg_type}")
             return
 
-        self._frames.put_nowait(_BufferedFrame(frame.msg_type, payload, frame.fin))
+        self._frames.put_nowait(_BufferedFrame(frame.msg_type, frame.get_payload_as_bytes(), frame.fin))
         self._pause_reading_if_needed()
 
     @cython.ccall
@@ -614,7 +611,7 @@ class ClientConnection(WSListener):
             await self.wait_closed()
 
     async def wait_closed(self) -> None:
-        await self._closed_event.wait()
+        await self.transport.wait_disconnected()
 
     async def ping(self, data: Optional[Union[str, bytes]] = None) -> Awaitable[float]:
         if self._state is State.CLOSED:
