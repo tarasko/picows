@@ -440,8 +440,8 @@ class ClientConnection(WSListener):  # type: ignore[misc]
             if frame.fin:
                 return self._decode_data(frame.payload, msg_type, decode) # type: ignore[no-any-return]
 
+            frames = [frame]
             try:
-                frames = [frame]
                 payloads = [frame.payload]
                 while not frame.fin:
                     if not self._recv_queue:
