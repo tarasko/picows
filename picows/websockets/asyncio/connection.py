@@ -472,11 +472,12 @@ class ClientConnection(WSListener):  # type: ignore[misc]
 
             chunks = [frame.payload]
             while not frame.fin:
-                frame = self._get_frame_nowait()
-                if frame is _QUEUE_EMPTY:
-                    frame = await self._frames.get()
+                item = self._get_frame_nowait()
+                if item is _QUEUE_EMPTY:
+                    item = await self._frames.get()
+
+                frame = cython.cast(_BufferedFrame, item)
                 self._check_frame(frame)
-                frame = cast(_BufferedFrame, frame)
 
                 chunks.append(frame.payload)
 
@@ -490,29 +491,31 @@ class ClientConnection(WSListener):  # type: ignore[misc]
 
         msg_started: cython.bint = False
         msg_finished: cython.bint = False
+        frame: Optional[_BufferedFrame]
+        msg_type: WSMsgType
 
         async def iterator() -> AsyncIterator[Data]:
             nonlocal msg_started, msg_finished
-            frame: Optional[_BufferedFrame]
-            msg_type: WSMsgType
 
             try:
-                frame = self._get_frame_nowait()
-                if frame is _QUEUE_EMPTY:
-                    frame = await self._frames.get()
+                item = self._get_frame_nowait()
+                if item is _QUEUE_EMPTY:
+                    item = await self._frames.get()
+                frame = cython.cast(_BufferedFrame, item)
                 self._check_frame(frame)
-                frame = cast(_BufferedFrame, frame)
+
                 msg_started = True
                 msg_type = frame.msg_type
                 yield self._decode_data(frame.payload, msg_type, decode)
 
                 while not frame.fin:
-                    frame = self._get_frame_nowait()
-                    if frame is _QUEUE_EMPTY:
-                        frame = await self._frames.get()
+                    item = self._get_frame_nowait()
+                    if item is _QUEUE_EMPTY:
+                        item = await self._frames.get()
+                    frame = cython.cast(_BufferedFrame, item)
                     self._check_frame(frame)
-                    frame = cast(_BufferedFrame, frame)
-                    yield cast(Data, self._decode_data(frame.payload, msg_type, decode))
+
+                    yield self._decode_data(frame.payload, msg_type, decode)
                 msg_finished = True
             finally:
                 self._recv_in_progress = False
