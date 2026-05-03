@@ -202,7 +202,7 @@ class _Connect:
                 ssl_context=self._coerce_ssl_context(ssl_context),
                 websocket_handshake_timeout=self.open_timeout,
                 enable_auto_ping=False,
-                enable_auto_pong=False,
+                enable_auto_pong=True,
                 max_frame_size=max_frame_size,
                 extra_headers=extra_headers,
                 proxy=proxy,

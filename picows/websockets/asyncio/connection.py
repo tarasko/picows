@@ -307,10 +307,6 @@ class ClientConnection(WSListener):
     @cython.ccall
     def on_ws_frame(self, transport: WSTransport, frame: WSFrame) -> None:
         payload = frame.get_payload_as_bytes()
-        if frame.msg_type == WSMsgType.PING:
-            self.transport.send_pong(payload)
-            return
-
         if frame.msg_type == WSMsgType.PONG:
             ping = self._pending_pings.pop(payload, None)
             if ping is not None:
