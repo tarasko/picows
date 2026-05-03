@@ -166,12 +166,6 @@ def _process_proxy(proxy: Union[str, bool, None], secure: bool) -> Optional[str]
 
 @cython.cfunc
 @cython.inline
-def _normalize_size_limit(limit: Optional[int]) -> cython.Py_ssize_t:
-    return 0 if limit is None else limit
-
-
-@cython.cfunc
-@cython.inline
 def _normalize_watermarks(
     max_queue: Union[int, tuple[Optional[int], Optional[int]], None],
 ) -> tuple[cython.Py_ssize_t, cython.Py_ssize_t]:
@@ -272,7 +266,7 @@ class ClientConnection(WSListener):
         self._close_timeout = close_timeout
         self._keepalive_task: Optional[asyncio.Task[None]] = None
         self._latency = 0.0
-        self._max_message_size = _normalize_size_limit(max_message_size)
+        self._max_message_size = 0 if max_message_size is None else max_message_size
         self._max_queue_high, self._max_queue_low = _normalize_watermarks(max_queue)
         self._incoming_message_active = False
         self._incoming_message_size = 0

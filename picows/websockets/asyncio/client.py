@@ -137,7 +137,8 @@ class _Connect:
         parsed = parse_url(self.uri)
         proxy = _process_proxy(self.proxy, parsed.is_secure)
         extra_headers = self._build_headers()
-        max_message_size = self._normalize_max_size(self.max_size)
+        max_message_size = 0 if self.max_size is None else self.max_size
+        max_frame_size = 2 ** 31 - 1 if not self.max_size else self.max_size
 
         if self.extensions is not None:
             raise NotImplementedError("custom extensions aren't supported by picows.websockets")
@@ -202,7 +203,7 @@ class _Connect:
                 websocket_handshake_timeout=self.open_timeout,
                 enable_auto_ping=False,
                 enable_auto_pong=False,
-                max_frame_size=2 ** 31 - 1,
+                max_frame_size=max_frame_size,
                 extra_headers=extra_headers,
                 proxy=proxy,
                 socket_factory=socket_factory,
@@ -223,9 +224,6 @@ class _Connect:
             raise InvalidHandshake(str(exc)) from exc
 
         return cast(ClientConnection, listener)
-
-    def _normalize_max_size(self, max_size: Optional[int]) -> int:
-        return _normalize_size_limit(max_size)
 
     def _build_headers(self) -> list[tuple[str, str]]:
         headers = _header_items(self.additional_headers)

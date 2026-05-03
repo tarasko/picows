@@ -1632,7 +1632,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 self._f_payload_start_pos = self._f_curr_state_start_pos
                 self._state = WSParserState.READ_PAYLOAD
 
-            if self._f_payload_length > self._max_frame_size:
+            if (self._f_payload_length > self._max_frame_size and
+                    self._f_msg_type not in (WSMsgType.PING, WSMsgType.PONG, WSMsgType.CLOSE)):
                 raise WSProtocolError(
                     WSCloseCode.MESSAGE_TOO_BIG,
                     f"Received frame with payload size exceeding max allowed size, "
