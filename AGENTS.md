@@ -8,6 +8,7 @@ tests - Contains tests for picows
 examples - Various examples for users on how to use picows + perf_test that could be used to build call-graph with perf 
 
 ## Code style notes
+- Max line width is 120
 - Do not write `del transport` or similar `del <parameter>` statements inside callbacks just to mark arguments as unused.
   Leave unused callback parameters as-is or rename them with a leading underscore if that is clearer.
   Using `del` in this situation is confusing and suggests reference-counting or lifetime management concerns.

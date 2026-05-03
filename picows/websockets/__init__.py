@@ -1,5 +1,6 @@
 from . import exceptions
-from .asyncio.client import ClientConnection, State, connect, process_exception
+from .asyncio.client import connect
+from .asyncio.connection import ClientConnection, State, process_exception
 from .exceptions import (
     ConcurrencyError,
     ConnectionClosed,
