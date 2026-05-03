@@ -436,9 +436,9 @@ class ClientConnection(WSListener):  # type: ignore[misc]
     @cython.inline
     def _decode_data(self, payload: bytes, msg_type: WSMsgType, decode: Optional[bool]) -> Data:
         if decode is True or (msg_type == WSMsgType.TEXT and decode is None):
-            return cast(Data, payload.decode("utf-8"))
+            return payload.decode("utf-8")
         else:
-            return cast(Data, payload)
+            return payload
 
     @cython.cfunc
     @cython.inline
@@ -468,7 +468,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
 
             msg_type = frame.msg_type
             if frame.fin:
-                return cast(Data, self._decode_data(frame.payload, msg_type, decode))
+                return self._decode_data(frame.payload, msg_type, decode)
 
             chunks = [frame.payload]
             while not frame.fin:
@@ -481,7 +481,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
                 chunks.append(frame.payload)
 
             payload = b"".join(chunks)
-            return cast(Data, self._decode_data(payload, msg_type, decode))
+            return self._decode_data(payload, msg_type, decode)
         finally:
             self._recv_in_progress = False
 
