@@ -56,6 +56,10 @@ files = "picows"
 ignore_missing_imports = true
 strict = true
 
+[[tool.mypy.overrides]]
+module = ["picows.websockets.asyncio.connection"]
+disable_error_code = ["untyped-decorator"]
+
 [tool.coverage.run]
 source = ["picows"]
 branch = true

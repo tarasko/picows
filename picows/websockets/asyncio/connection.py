@@ -104,7 +104,7 @@ class _AsyncLock:
 @cython.cclass
 class _SingleConsumerQueue:
     _loop: asyncio.AbstractEventLoop
-    _items: deque
+    _items: deque[Optional[_BufferedFrame]]
     _waiter: Optional[asyncio.Future[Optional[_BufferedFrame]]]
 
     def __init__(self, loop: asyncio.AbstractEventLoop):
@@ -133,7 +133,7 @@ class _SingleConsumerQueue:
     async def get(self) -> Optional[_BufferedFrame]:
         item = self.get_nowait()
         if item is not _QUEUE_EMPTY:
-            return item
+            return cast(Optional[_BufferedFrame], item)
 
         waiter: asyncio.Future[Optional[_BufferedFrame]] = self._loop.create_future()
         self._waiter = waiter
@@ -153,7 +153,7 @@ class _SingleConsumerQueue:
 @cython.cfunc
 @cython.inline
 def _coerce_close_code(code: CloseCode) -> Optional[int]:
-    return None if code is None else int(code)
+    return None if code is None else cast(int, code)
 
 
 @cython.cfunc
@@ -215,7 +215,7 @@ def process_exception(exc: Exception) -> Optional[Exception]:
 
 
 @cython.cclass
-class ClientConnection(WSListener):
+class ClientConnection(WSListener):  # type: ignore[misc]
     id: uuid.UUID
     logger: Union[logging.Logger, logging.LoggerAdapter[Any]]
     transport: WSTransport
@@ -453,9 +453,9 @@ class ClientConnection(WSListener):
     @cython.inline
     def _decode_data(self, payload: bytes, msg_type: WSMsgType, decode: Optional[bool]) -> Data:
         if decode is True or (msg_type == WSMsgType.TEXT and decode is None):
-            return payload.decode("utf-8")
+            return cast(Data, payload.decode("utf-8"))
         else:
-            return payload
+            return cast(Data, payload)
 
     @cython.cfunc
     @cython.inline
@@ -485,7 +485,7 @@ class ClientConnection(WSListener):
 
             msg_type = frame.msg_type
             if frame.fin:
-                return self._decode_data(frame.payload, msg_type, decode)
+                return cast(Data, self._decode_data(frame.payload, msg_type, decode))
 
             chunks = [frame.payload]
             while not frame.fin:
@@ -498,7 +498,7 @@ class ClientConnection(WSListener):
                 chunks.append(frame.payload)
 
             payload = b"".join(chunks)
-            return self._decode_data(payload, msg_type, decode)
+            return cast(Data, self._decode_data(payload, msg_type, decode))
         finally:
             self._recv_in_progress = False
 
@@ -529,7 +529,7 @@ class ClientConnection(WSListener):
                         frame = await self._frames.get()
                     self._check_frame(frame)
                     frame = cast(_BufferedFrame, frame)
-                    yield self._decode_data(frame.payload, msg_type, decode)
+                    yield cast(Data, self._decode_data(frame.payload, msg_type, decode))
                 msg_finished = True
             finally:
                 self._recv_in_progress = False
@@ -573,7 +573,7 @@ class ClientConnection(WSListener):
 
     @cython.cfunc
     @cython.inline
-    def _check_fragment_type(self, message, first_is_str: cython.bint) -> None:
+    def _check_fragment_type(self, message: DataLike, first_is_str: cython.bint) -> None:
         if first_is_str and isinstance(message, str):
             return
         elif not first_is_str and isinstance(message, (bytes, bytearray, memoryview)):
@@ -581,13 +581,18 @@ class ClientConnection(WSListener):
 
         raise TypeError("all fragments must be of the same category: str vs bytes-like")
 
-    async def _send_fragments(self, is_async: cython.bint, iterator: Union[Iterator[DataLike], AsyncIterator[DataLike]], text: Optional[bool]) -> None:
+    async def _send_fragments(
+        self,
+        is_async: cython.bint,
+        iterator: Union[Iterator[DataLike], AsyncIterator[DataLike]],
+        text: Optional[bool],
+    ) -> None:
         stop_exception_type = StopAsyncIteration if is_async else StopIteration
         try:
             if is_async:
-                first = await anext(iterator)
+                first = await anext(cast(AsyncIterator[DataLike], iterator))
             else:
-                first = next(iterator)
+                first = next(cast(Iterator[DataLike], iterator))
         except stop_exception_type:
             raise TypeError("message iterable cannot be empty") from None
 
@@ -605,9 +610,9 @@ class ClientConnection(WSListener):
         while True:
             try:
                 if is_async:
-                    current = await anext(iterator)
+                    current = await anext(cast(AsyncIterator[DataLike], iterator))
                 else:
-                    current = next(iterator)
+                    current = next(cast(Iterator[DataLike], iterator))
             except stop_exception_type:
                 break
 
@@ -716,7 +721,7 @@ class ClientConnection(WSListener):
 
     @property
     def latency(self) -> float:
-        return self._latency
+        return cast(float, self._latency)
 
     @property
     def subprotocol(self) -> Optional[Subprotocol]:
@@ -728,9 +733,9 @@ class ClientConnection(WSListener):
         if handshake is None:
             return None
         if handshake.recv is not None:
-            return _coerce_close_code(handshake.recv.code)
+            return cast(Optional[int], _coerce_close_code(handshake.recv.code))
         if handshake.sent is not None:
-            return _coerce_close_code(handshake.sent.code)
+            return cast(Optional[int], _coerce_close_code(handshake.sent.code))
         return None
 
     @property
@@ -739,7 +744,7 @@ class ClientConnection(WSListener):
         if handshake is None:
             return None
         if handshake.recv is not None:
-            return _coerce_close_reason(handshake.recv.reason)
+            return cast(Optional[str], _coerce_close_reason(handshake.recv.reason))
         if handshake.sent is not None:
-            return _coerce_close_reason(handshake.sent.reason)
+            return cast(Optional[str], _coerce_close_reason(handshake.sent.reason))
         return None

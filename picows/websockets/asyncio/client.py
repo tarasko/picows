@@ -5,7 +5,7 @@ import socket
 import warnings
 from collections.abc import Generator
 from ssl import SSLContext
-from typing import Any, Optional, Sequence, Union, cast
+from typing import Any, Callable, Optional, Sequence, Union, cast
 
 import picows
 from picows.url import parse_url
@@ -71,7 +71,7 @@ class _Connect:
         additional_headers: Optional[HeadersLike] = None,
         user_agent_header: Optional[str] = _default_user_agent(),
         proxy: Union[str, bool, None] = True,
-        process_exception=process_exception,
+        process_exception: Callable[[Exception], Optional[Exception]] = process_exception,
         open_timeout: Optional[float] = 10,
         ping_interval: Optional[float] = 20,
         ping_timeout: Optional[float] = 20,
