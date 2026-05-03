@@ -71,7 +71,7 @@ class _Connect:
         ping_interval: Optional[float] = 20,
         ping_timeout: Optional[float] = 20,
         close_timeout: Optional[float] = 10,
-        max_size: Union[int, tuple[Optional[int], Optional[int]], None] = 1024 * 1024,
+        max_size: Optional[int] = 1024 * 1024,
         max_queue: Union[int, tuple[Optional[int], Optional[int]], None] = 16,
         write_limit: Union[int, tuple[int, Optional[int]]] = 32768,
         logger: LoggerLike = None,
@@ -137,7 +137,7 @@ class _Connect:
         parsed = parse_url(self.uri)
         proxy = _process_proxy(self.proxy, parsed.is_secure)
         extra_headers = self._build_headers()
-        max_message_size, max_fragment_size = self._normalize_max_size(self.max_size)
+        max_message_size = self._normalize_max_size(self.max_size)
 
         if self.extensions is not None:
             raise NotImplementedError("custom extensions aren't supported by picows.websockets")
@@ -190,7 +190,6 @@ class _Connect:
                 max_queue=self.max_queue,
                 write_limit=self.write_limit,
                 max_message_size=max_message_size,
-                max_fragment_size=max_fragment_size,
                 logger=self.logger,
                 subprotocols=self.subprotocols,
             )
@@ -203,7 +202,7 @@ class _Connect:
                 websocket_handshake_timeout=self.open_timeout,
                 enable_auto_ping=False,
                 enable_auto_pong=False,
-                max_frame_size=max_fragment_size if max_fragment_size > 0 else 2 ** 31 - 1,
+                max_frame_size=2 ** 31 - 1,
                 extra_headers=extra_headers,
                 proxy=proxy,
                 socket_factory=socket_factory,
@@ -225,16 +224,8 @@ class _Connect:
 
         return cast(ClientConnection, listener)
 
-    def _normalize_max_size(
-        self,
-        max_size: Union[int, tuple[Optional[int], Optional[int]], None],
-    ) -> tuple[int, int]:
-        if max_size is None:
-            return 0, 0
-        if isinstance(max_size, tuple):
-            max_message_size, max_fragment_size = max_size
-            return _normalize_size_limit(max_message_size), _normalize_size_limit(max_fragment_size)
-        return max_size, max_size
+    def _normalize_max_size(self, max_size: Optional[int]) -> int:
+        return _normalize_size_limit(max_size)
 
     def _build_headers(self) -> list[tuple[str, str]]:
         headers = _header_items(self.additional_headers)

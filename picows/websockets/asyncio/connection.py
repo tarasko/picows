@@ -36,8 +36,6 @@ from ..exceptions import (
     InvalidHandshake,
     InvalidStatus,
     InvalidURI,
-    PayloadTooBig,
-    ProtocolError,
 )
 
 
@@ -233,9 +231,10 @@ class ClientConnection(WSListener):
     _keepalive_task: Optional[asyncio.Task[None]]
     _latency: cython.double
     _max_message_size: cython.Py_ssize_t
-    _max_fragment_size: cython.Py_ssize_t
     _max_queue_high: cython.Py_ssize_t
     _max_queue_low: cython.Py_ssize_t
+    _incoming_message_active: cython.bint
+    _incoming_message_size: cython.Py_ssize_t
     _write_limit: Union[int, tuple[int, Optional[int]]]
     _paused_reading: cython.bint
 
@@ -248,7 +247,6 @@ class ClientConnection(WSListener):
         max_queue: Union[int, tuple[Optional[int], Optional[int]], None] = 16,
         write_limit: Union[int, tuple[int, Optional[int]]] = 32768,
         max_message_size: Optional[int] = 1024 * 1024,
-        max_fragment_size: Optional[int] = 1024 * 1024,
         logger: LoggerLike = None,
         subprotocols: Optional[Sequence[str]] = None,
     ):
@@ -275,8 +273,9 @@ class ClientConnection(WSListener):
         self._keepalive_task: Optional[asyncio.Task[None]] = None
         self._latency = 0.0
         self._max_message_size = _normalize_size_limit(max_message_size)
-        self._max_fragment_size = _normalize_size_limit(max_fragment_size)
         self._max_queue_high, self._max_queue_low = _normalize_watermarks(max_queue)
+        self._incoming_message_active = False
+        self._incoming_message_size = 0
         self._write_limit = write_limit
         self._paused_reading = False
 
@@ -335,8 +334,31 @@ class ClientConnection(WSListener):
             self._state = State.CLOSING
             return
 
-        if self._max_fragment_size > 0 and len(payload) > self._max_fragment_size:
-            self._fail_message_too_big("fragment too big")
+        if frame.msg_type == WSMsgType.CONTINUATION:
+            if not self._incoming_message_active:
+                self._fail_protocol_error("unexpected continuation frame")
+                return
+            self._incoming_message_size += len(payload)
+            if self._max_message_size > 0 and self._incoming_message_size > self._max_message_size:
+                self._fail_message_too_big("message too big")
+                return
+            if frame.fin:
+                self._incoming_message_active = False
+                self._incoming_message_size = 0
+        elif frame.msg_type in (WSMsgType.TEXT, WSMsgType.BINARY):
+            if self._incoming_message_active:
+                self._fail_protocol_error("expected continuation frame")
+                return
+            self._incoming_message_size = len(payload)
+            if self._max_message_size > 0 and self._incoming_message_size > self._max_message_size:
+                self._fail_message_too_big("message too big")
+                return
+            if frame.fin:
+                self._incoming_message_size = 0
+            else:
+                self._incoming_message_active = True
+        else:
+            self._fail_protocol_error(f"unexpected opcode while receiving message: {frame.msg_type}")
             return
 
         self._frames.put_nowait(_BufferedFrame(frame.msg_type, payload, frame.fin))
@@ -400,16 +422,22 @@ class ClientConnection(WSListener):
 
     @cython.cfunc
     @cython.inline
-    def _fail_message_too_big(self, message: str) -> None:
-        self.transport.send_close(WSCloseCode.MESSAGE_TOO_BIG, message.encode("utf-8"))
-        self.transport.disconnect(False)
-
-    @cython.cfunc
-    @cython.inline
     def _connection_closed(self) -> ConnectionClosed:
         if self._close_exc is None:
             self._set_close_exception()
         return self._close_exc or ConnectionClosedError(None, None, None)
+
+    @cython.cfunc
+    @cython.inline
+    def _fail_protocol_error(self, message: str) -> None:
+        self.transport.send_close(WSCloseCode.PROTOCOL_ERROR, message.encode("utf-8"))
+        self.transport.disconnect(False)
+
+    @cython.cfunc
+    @cython.inline
+    def _fail_message_too_big(self, message: str) -> None:
+        self.transport.send_close(WSCloseCode.MESSAGE_TOO_BIG, message.encode("utf-8"))
+        self.transport.disconnect(False)
 
     @cython.cfunc
     @cython.inline
@@ -430,44 +458,32 @@ class ClientConnection(WSListener):
 
     @cython.cfunc
     @cython.inline
-    def _check_frame(self, frame: Optional[_BufferedFrame], is_first: cython.bint) -> None:
+    def _check_frame(self, frame: Optional[_BufferedFrame]) -> None:
         self._resume_reading_if_needed()
 
         if frame is None:
             raise self._connection_closed()
 
-        if is_first:
-            if frame.msg_type not in (WSMsgType.TEXT, WSMsgType.BINARY):
-                raise ProtocolError(f"unexpected opcode while receiving message: {frame.msg_type}")
-        else:
-            if frame.msg_type != WSMsgType.CONTINUATION:
-                raise ProtocolError("expected continuation frame")
-
     async def recv(self, decode: Optional[bool] = None) -> Union[str, bytes]:
         frame: Optional[_BufferedFrame]
-        total: cython.Py_ssize_t
 
         self._set_recv_in_progress()
 
         try:
             frame = await self._frames.get()
-            self._check_frame(frame, True)
+            self._check_frame(frame)
+            frame = cast(_BufferedFrame, frame)
 
             msg_type = frame.msg_type
             if frame.fin:
                 return self._decode_data(frame.payload, msg_type, decode)
 
             chunks = [frame.payload]
-            total = len(frame.payload)
             while not frame.fin:
                 frame = await self._frames.get()
-                self._check_frame(frame, False)
+                self._check_frame(frame)
 
                 chunks.append(frame.payload)
-                total += len(frame.payload)
-                if self._max_message_size > 0 and total > self._max_message_size:
-                    self._fail_message_too_big("message too big")
-                    raise PayloadTooBig("message too big")
 
             payload = b"".join(chunks)
             return self._decode_data(payload, msg_type, decode)
@@ -477,40 +493,33 @@ class ClientConnection(WSListener):
     def recv_streaming(self, decode: Optional[bool] = None) -> AsyncIterator[Union[str, bytes]]:
         self._set_recv_in_progress()
 
-        started: cython.bint = False
-        finished: cython.bint = False
+        msg_started: cython.bint = False
+        msg_finished: cython.bint = False
 
         async def iterator() -> AsyncIterator[Union[str, bytes]]:
-            nonlocal started, finished
-            msg_type: WSMsgType
-            first: Optional[_BufferedFrame]
+            nonlocal msg_started, msg_finished
             frame: Optional[_BufferedFrame]
-            total: cython.Py_ssize_t
+            msg_type: WSMsgType
 
             try:
-                first = await self._frames.get()
-                self._check_frame(first, True)
+                frame = await self._frames.get()
+                self._check_frame(frame)
+                frame = cast(_BufferedFrame, frame)
+                msg_started = True
+                msg_type = frame.msg_type
+                yield self._decode_data(frame.payload, msg_type, decode)
 
-                msg_type = first.msg_type
-                started = True
-                yield self._decode_data(first.payload, msg_type, decode)
-                total = len(first.payload)
-                frame = first
                 while not frame.fin:
                     frame = await self._frames.get()
-                    self._check_frame(frame, False)
-
-                    total += len(frame.payload)
-                    if self._max_message_size > 0 and total > self._max_message_size:
-                        self._fail_message_too_big("message too big")
-                        raise PayloadTooBig("message too big")
+                    self._check_frame(frame)
+                    frame = cast(_BufferedFrame, frame)
                     yield self._decode_data(frame.payload, msg_type, decode)
-                finished = True
+                msg_finished = True
             finally:
                 self._recv_in_progress = False
-                if started and not finished:
+                if msg_started and not msg_finished:
                     self._recv_streaming_broken = True
-                elif finished:
+                elif msg_finished:
                     self._recv_streaming_broken = False
 
         return iterator()
