@@ -450,12 +450,12 @@ class ClientConnection(WSListener):  # type: ignore[misc]
 
                     frames.append(frame)
                     payloads.append(frame.payload)
+
+                payload = b"".join(payloads)
+                return self._decode_data(payload, msg_type, decode)
             except asyncio.CancelledError:
                 self._recv_queue.extendleft(reversed(frames))
                 raise
-
-            payload = b"".join(payloads)
-            return self._decode_data(payload, msg_type, decode)
         finally:
             self._recv_in_progress = False
             self._recv_waiter = None
