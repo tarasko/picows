@@ -440,18 +440,25 @@ class ClientConnection(WSListener):  # type: ignore[misc]
             if frame.fin:
                 return self._decode_data(frame.payload, msg_type, decode) # type: ignore[no-any-return]
 
-            chunks = [frame.payload]
-            while not frame.fin:
-                if not self._recv_queue:
-                    await self._wait_recv_queue_not_empty()
-                frame = self._check_frame(self._recv_queue.popleft())
+            try:
+                frames = [frame]
+                payloads = [frame.payload]
+                while not frame.fin:
+                    if not self._recv_queue:
+                        await self._wait_recv_queue_not_empty()
+                    frame = self._check_frame(self._recv_queue.popleft())
 
-                chunks.append(frame.payload)
+                    frames.append(frame)
+                    payloads.append(frame.payload)
+            except asyncio.CancelledError:
+                self._recv_queue.extendleft(reversed(frames))
+                raise
 
-            payload = b"".join(chunks)
+            payload = b"".join(payloads)
             return self._decode_data(payload, msg_type, decode)
         finally:
             self._recv_in_progress = False
+            self._recv_waiter = None
 
     def recv_streaming(self, decode: Optional[bool] = None) -> AsyncIterator[Data]:
         self._set_recv_in_progress()
@@ -482,6 +489,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
                 msg_finished = True
             finally:
                 self._recv_in_progress = False
+                self._recv_waiter = None
                 if msg_started and not msg_finished:
                     self._recv_streaming_broken = True
                 elif msg_finished:
