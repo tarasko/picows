@@ -35,7 +35,6 @@ from ..typing import Data, DataLike, LoggerLike, Subprotocol
 
 
 OK_CLOSE_CODES = {0, 1000, 1001}
-_QUEUE_EMPTY = object()
 
 
 class State(IntEnum):
@@ -55,55 +54,6 @@ class _BufferedFrame:
         self.msg_type = msg_type
         self.payload = payload
         self.fin = fin
-
-
-@cython.cclass
-class _SingleConsumerQueue:
-    _loop: asyncio.AbstractEventLoop
-    _items: deque[Optional[_BufferedFrame]]
-    _waiter: Optional[asyncio.Future[Optional[_BufferedFrame]]]
-
-    def __init__(self, loop: asyncio.AbstractEventLoop):
-        self._loop = loop
-        self._items = deque()
-        self._waiter = None
-
-    @cython.cfunc
-    @cython.inline
-    def put(self, item: Optional[_BufferedFrame]) -> None:
-        waiter = self._waiter
-        if waiter is not None:
-            self._waiter = None
-            if not waiter.done():
-                waiter.set_result(item)
-                return
-        self._items.append(item)
-
-    @cython.cfunc
-    @cython.inline
-    def get_nowait(self) -> object:
-        if self._items:
-            return self._items.popleft()
-        return _QUEUE_EMPTY
-
-    async def get(self) -> Optional[_BufferedFrame]:
-        item = self.get_nowait()
-        if item is not _QUEUE_EMPTY:
-            return cast(Optional[_BufferedFrame], item)
-
-        waiter: asyncio.Future[Optional[_BufferedFrame]] = self._loop.create_future()
-        self._waiter = waiter
-        try:
-            return await waiter
-        except Exception:
-            if self._waiter is waiter:
-                self._waiter = None
-            raise
-
-    @cython.cfunc
-    @cython.inline
-    def qsize(self) -> cython.Py_ssize_t:
-        return len(self._items)
 
 
 @cython.cfunc
@@ -180,27 +130,33 @@ class ClientConnection(WSListener):  # type: ignore[misc]
     _subprotocols: Optional[Sequence[Subprotocol]]
     _subprotocol: Optional[Subprotocol]
     _state: State
-    _frames: _SingleConsumerQueue
     _close_exc: Optional[ConnectionClosed]
     _loop: asyncio.AbstractEventLoop
-    _recv_in_progress: cython.bint
+
+    # Send side
     _send_in_progress: cython.bint
     _send_waiters: deque[asyncio.Future[None]]
     _write_ready: Optional[asyncio.Future[None]]
+    _write_limit: Union[int, tuple[int, Optional[int]]]
+
+    # Recv side
+    _recv_in_progress: cython.bint
     _recv_streaming_broken: cython.bint
+    _paused_reading: cython.bint
+    _recv_waiter: Optional[asyncio.Future[None]]
+    _recv_queue: deque[Optional[_BufferedFrame]]
+    _max_message_size: cython.Py_ssize_t
+    _max_queue_high: cython.Py_ssize_t
+    _max_queue_low: cython.Py_ssize_t
+    _incoming_message_active: cython.bint
+    _incoming_message_size: cython.Py_ssize_t
+
     _pending_pings: Dict[bytes, Tuple[asyncio.Future[float], float]]
     _ping_interval: Optional[float]
     _ping_timeout: Optional[float]
     _close_timeout: Optional[float]
     _keepalive_task: Optional[asyncio.Task[None]]
     _latency: cython.double
-    _max_message_size: cython.Py_ssize_t
-    _max_queue_high: cython.Py_ssize_t
-    _max_queue_low: cython.Py_ssize_t
-    _incoming_message_active: cython.bint
-    _incoming_message_size: cython.Py_ssize_t
-    _write_limit: Union[int, tuple[int, Optional[int]]]
-    _paused_reading: cython.bint
 
     def __init__(
         self,
@@ -224,24 +180,28 @@ class ClientConnection(WSListener):  # type: ignore[misc]
         self._state = State.CONNECTING
         self._close_exc: Optional[ConnectionClosed] = None
         self._loop = asyncio.get_running_loop()
-        self._frames = _SingleConsumerQueue(self._loop)
-        self._recv_in_progress = False
+
         self._send_in_progress = False
         self._send_waiters = deque()
         self._write_ready: Optional[asyncio.Future[None]] = None
+        self._write_limit = write_limit
+
+        self._recv_in_progress = False
         self._recv_streaming_broken = False
+        self._paused_reading = False
+        self._recv_waiter = None
+        self._recv_queue = deque()
+        self._max_message_size = 0 if max_message_size is None else max_message_size
+        self._max_queue_high, self._max_queue_low = _normalize_watermarks(max_queue)
+        self._incoming_message_active = False
+        self._incoming_message_size = 0
+
         self._pending_pings: dict[bytes, tuple[asyncio.Future[float], float]] = {}
         self._ping_interval = ping_interval
         self._ping_timeout = ping_timeout
         self._close_timeout = close_timeout
         self._keepalive_task: Optional[asyncio.Task[None]] = None
         self._latency = 0.0
-        self._max_message_size = 0 if max_message_size is None else max_message_size
-        self._max_queue_high, self._max_queue_low = _normalize_watermarks(max_queue)
-        self._incoming_message_active = False
-        self._incoming_message_size = 0
-        self._write_limit = write_limit
-        self._paused_reading = False
 
     @cython.ccall
     def on_ws_connected(self, transport: WSTransport) -> None:
@@ -258,7 +218,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
     def on_ws_disconnected(self, transport: WSTransport) -> None:
         self._state = State.CLOSED
         self._set_close_exception()
-        self._frames.put(None)
+        self._add_to_recv_queue(None)
         if self._keepalive_task is not None:
             self._keepalive_task.cancel()
             self._keepalive_task = None
@@ -320,7 +280,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
             self._fail_protocol_error(f"unexpected opcode while receiving message: {frame.msg_type}")
             return
 
-        self._frames.put(_BufferedFrame(frame.msg_type, frame.get_payload_as_bytes(), frame.fin))
+        self._add_to_recv_queue(_BufferedFrame(frame.msg_type, frame.get_payload_as_bytes(), frame.fin))
         self._pause_reading_if_needed()
 
     @cython.ccall
@@ -347,7 +307,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
     @cython.cfunc
     @cython.inline
     def _pause_reading_if_needed(self) -> None:
-        if self._max_queue_high > 0 and not self._paused_reading and self._frames.qsize() >= self._max_queue_high:
+        if self._max_queue_high > 0 and not self._paused_reading and len(self._recv_queue) >= self._max_queue_high:
             self.transport.underlying_transport.pause_reading()
             self._paused_reading = True
 
@@ -356,9 +316,27 @@ class ClientConnection(WSListener):  # type: ignore[misc]
     def _resume_reading_if_needed(self) -> None:
         if not self._paused_reading:
             return
-        if self._max_queue_low == 0 or self._frames.qsize() <= self._max_queue_low:
+        if self._max_queue_low == 0 or len(self._recv_queue) <= self._max_queue_low:
             self.transport.underlying_transport.resume_reading()
             self._paused_reading = False
+
+    @cython.cfunc
+    @cython.inline
+    def _add_to_recv_queue(self, frame: Optional[_BufferedFrame]) -> None:
+        self._recv_queue.append(frame)
+        waiter = self._recv_waiter
+        if waiter is not None:
+            self._recv_waiter = None
+            if not waiter.done():
+                waiter.set_result(None)
+
+    @cython.cfunc
+    @cython.inline
+    def _wait_recv_queue_not_empty(self) -> asyncio.Future[None]:
+        assert self._recv_waiter is None
+        waiter: asyncio.Future[None] = self._loop.create_future()
+        self._recv_waiter = waiter
+        return waiter
 
     @cython.cfunc
     @cython.inline
@@ -442,29 +420,21 @@ class ClientConnection(WSListener):  # type: ignore[misc]
 
     @cython.cfunc
     @cython.inline
-    def _check_frame(self, frame: Optional[_BufferedFrame]) -> None:
+    def _check_frame(self, frame: Optional[_BufferedFrame]) -> _BufferedFrame:
         self._resume_reading_if_needed()
-
         if frame is None:
             raise self._connection_closed()
-
-    @cython.cfunc
-    @cython.inline
-    def _get_frame_nowait(self) -> object:
-        return self._frames.get_nowait()
+        return frame
 
     async def recv(self, decode: Optional[bool] = None) -> Data:
-        frame: Optional[_BufferedFrame]
+        frame: _BufferedFrame
 
         self._set_recv_in_progress()
 
         try:
-            item = self._get_frame_nowait()
-            if item is _QUEUE_EMPTY:
-                item = await self._frames.get()
-
-            frame = cython.cast(_BufferedFrame, item)
-            self._check_frame(frame)
+            if not self._recv_queue:
+                await self._wait_recv_queue_not_empty()
+            frame = self._check_frame(self._recv_queue.popleft())
 
             msg_type = frame.msg_type
             if frame.fin:
@@ -472,17 +442,14 @@ class ClientConnection(WSListener):  # type: ignore[misc]
 
             chunks = [frame.payload]
             while not frame.fin:
-                item = self._get_frame_nowait()
-                if item is _QUEUE_EMPTY:
-                    item = await self._frames.get()
-
-                frame = cython.cast(_BufferedFrame, item)
-                self._check_frame(frame)
+                if not self._recv_queue:
+                    await self._wait_recv_queue_not_empty()
+                frame = self._check_frame(self._recv_queue.popleft())
 
                 chunks.append(frame.payload)
 
             payload = b"".join(chunks)
-            return self._decode_data(payload, msg_type, decode) # type: ignore[no-any-return]
+            return self._decode_data(payload, msg_type, decode)
         finally:
             self._recv_in_progress = False
 
@@ -491,29 +458,25 @@ class ClientConnection(WSListener):  # type: ignore[misc]
 
         msg_started: cython.bint = False
         msg_finished: cython.bint = False
-        frame: Optional[_BufferedFrame]
+        frame: _BufferedFrame
         msg_type: WSMsgType
 
         async def iterator() -> AsyncIterator[Data]:
             nonlocal msg_started, msg_finished
 
             try:
-                item = self._get_frame_nowait()
-                if item is _QUEUE_EMPTY:
-                    item = await self._frames.get()
-                frame = cython.cast(_BufferedFrame, item)
-                self._check_frame(frame)
+                if not self._recv_queue:
+                    await self._wait_recv_queue_not_empty()
+                frame = self._check_frame(self._recv_queue.popleft())
 
                 msg_started = True
                 msg_type = frame.msg_type
                 yield self._decode_data(frame.payload, msg_type, decode)
 
                 while not frame.fin:
-                    item = self._get_frame_nowait()
-                    if item is _QUEUE_EMPTY:
-                        item = await self._frames.get()
-                    frame = cython.cast(_BufferedFrame, item)
-                    self._check_frame(frame)
+                    if not self._recv_queue:
+                        await self._wait_recv_queue_not_empty()
+                    frame = self._check_frame(self._recv_queue.popleft())
 
                     yield self._decode_data(frame.payload, msg_type, decode)
                 msg_finished = True
@@ -707,7 +670,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
 
     @property
     def latency(self) -> float:
-        return cast(float, self._latency)
+        return self._latency    # type: ignore[no-any-return]
 
     @property
     def subprotocol(self) -> Optional[Subprotocol]:
