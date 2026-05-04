@@ -33,7 +33,6 @@ from ..typing import BytesLike, Data, DataLike, LoggerLike, Subprotocol
 
 
 OK_CLOSE_CODES = {0, 1000, 1001}
-_EMPTY_UNCOMPRESSED_BLOCK = cython.declare(bytes, b"\x00\x00\xff\xff")
 
 
 class State(IntEnum):
@@ -66,6 +65,13 @@ class _CompressionError(Exception):
     pass
 
 
+# zlib/compress/decompress utils, cached for performance
+_empty_uncompressed_block = cython.declare(bytes, b"\x00\x00\xff\xff")
+_zlib_compressobj = cython.declare(object, zlib.compressobj)
+_zlib_decompressobj = cython.declare(object, zlib.decompressobj)
+_zlib_z_sync_flush = cython.declare(object, zlib.Z_SYNC_FLUSH)
+
+
 @cython.no_gc
 @cython.cclass
 class _PerMessageDeflate:
@@ -73,12 +79,9 @@ class _PerMessageDeflate:
     local_no_context_takeover: cython.bint
     remote_max_window_bits: int
     local_max_window_bits: int
-    _zlib_compressobj: Any
-    _zlib_decompressobj: Any
-    _zlib_z_sync_flush: Any
     _decoder: Any
     _encoder: Any
-    _decode_cont_data: cython.int
+    _decode_cont_data: cython.bint
 
     @classmethod
     def from_response_header(cls, header_value: str) -> _PerMessageDeflate:
@@ -139,9 +142,6 @@ class _PerMessageDeflate:
         self.local_no_context_takeover = client_no_context_takeover
         self.remote_max_window_bits = -(server_max_window_bits or 15)
         self.local_max_window_bits = -(client_max_window_bits or 15)
-        self._zlib_compressobj = zlib.compressobj
-        self._zlib_decompressobj = zlib.decompressobj
-        self._zlib_z_sync_flush = zlib.Z_SYNC_FLUSH
         self._decoder = None
         self._encoder = None
         self._decode_cont_data = False
@@ -155,9 +155,9 @@ class _PerMessageDeflate:
         # while producing a raw output stream with no header or trailing checksum.
 
         if not self.remote_no_context_takeover:
-            self._decoder = self._zlib_decompressobj(wbits=self.remote_max_window_bits)
+            self._decoder = _zlib_decompressobj(wbits=self.remote_max_window_bits)
         if not self.local_no_context_takeover:
-            self._encoder = self._zlib_compressobj(wbits=self.local_max_window_bits)
+            self._encoder = _zlib_compressobj(wbits=self.local_max_window_bits)
 
         return self
 
@@ -171,16 +171,16 @@ class _PerMessageDeflate:
             if frame.rsv1:
                 raise _CompressionError("unexpected rsv1 on continuation frame")
             if not self._decode_cont_data:
-                return frame.get_payload_as_bytes()
+                return frame.get_payload_as_bytes() # type: ignore[no-any-return]
             if frame.fin:
                 self._decode_cont_data = False
         else:
             if not frame.rsv1:
-                return frame.get_payload_as_bytes()
+                return frame.get_payload_as_bytes() # type: ignore[no-any-return]
             if not frame.fin:
                 self._decode_cont_data = True
             if self.remote_no_context_takeover or self._decoder is None:
-                self._decoder = self._zlib_decompressobj(wbits=self.remote_max_window_bits)
+                self._decoder = _zlib_decompressobj(wbits=self.remote_max_window_bits)
 
         assert self._decoder is not None
         try:
@@ -190,7 +190,7 @@ class _PerMessageDeflate:
                 raise _CompressionError("message too big")
 
             if frame.fin:
-                data2 = self._decoder.decompress(_EMPTY_UNCOMPRESSED_BLOCK, max_length)
+                data2 = self._decoder.decompress(_empty_uncompressed_block, max_length)
                 if data2:
                     data += data2
         except zlib.error as exc:
@@ -206,13 +206,13 @@ class _PerMessageDeflate:
     @cython.wraparound(True)
     def encode_frame(self, msg_type: WSMsgType, payload: BytesLike, fin: cython.bint) -> BytesLike:
         if msg_type != WSMsgType.CONTINUATION and (self.local_no_context_takeover or self._encoder is None):
-            self._encoder = self._zlib_compressobj(wbits=self.local_max_window_bits)
+            self._encoder = _zlib_compressobj(wbits=self.local_max_window_bits)
 
         data: BytesLike = (self._encoder.compress(payload) +
-                           self._encoder.flush(self._zlib_z_sync_flush))
+                           self._encoder.flush(_zlib_z_sync_flush))
         if fin:
             data_mv = memoryview(data)
-            assert data_mv[-4:] == _EMPTY_UNCOMPRESSED_BLOCK
+            assert data_mv[-4:] == _empty_uncompressed_block
             data = data_mv[:-4]
             if self.local_no_context_takeover:
                 self._encoder = None
@@ -675,7 +675,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
                     payloads.append(frame.payload)
 
                 payload = b"".join(payloads)
-                return self._decode_data(payload, msg_type, decode)
+                return self._decode_data(payload, msg_type, decode) # type: ignore[no-any-return]
             except asyncio.CancelledError:
                 self._recv_queue.extendleft(reversed(frames))
                 raise
@@ -720,7 +720,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
 
         return iterator()
 
-    def _encode_and_send(self, msg_type: WSMsgType, message: Data, fin: cython.bint) -> None:
+    def _encode_and_send(self, msg_type: WSMsgType, message: DataLike, fin: cython.bint) -> None:
         if self._permessage_deflate is not None:
             message = self._permessage_deflate.encode_frame(
                 msg_type, self._compression_payload(message), fin
