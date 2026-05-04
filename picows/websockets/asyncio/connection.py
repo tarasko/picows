@@ -20,6 +20,8 @@ if cython.compiled:
 else:
     from picows import WSListener, WSTransport, WSFrame, WSMsgType, WSCloseCode
 
+from picows import WSProtocolError
+
 from ..compat import CloseCode, Request, Response
 from ..exceptions import (
     ConcurrencyError,
@@ -61,10 +63,6 @@ def _make_buffered_frame(msg_type: WSMsgType, payload: bytes, fin: cython.bint) 
     return self
 
 
-class _CompressionError(Exception):
-    pass
-
-
 # zlib/compress/decompress utils, cached for performance
 _empty_uncompressed_block = cython.declare(bytes, b"\x00\x00\xff\xff")
 _zlib_compressobj = cython.declare(object, zlib.compressobj)
@@ -87,11 +85,11 @@ class _PerMessageDeflate:
     def from_response_header(cls, header_value: str) -> _PerMessageDeflate:
         extensions = [item.strip() for item in header_value.split(",") if item.strip()]
         if len(extensions) != 1:
-            raise _CompressionError("unsupported websocket extension negotiation")
+            raise InvalidHandshake("unsupported websocket extension negotiation")
 
         parts = [item.strip() for item in extensions[0].split(";")]
         if not parts or parts[0] != "permessage-deflate":
-            raise _CompressionError("unsupported websocket extension negotiation")
+            raise InvalidHandshake("unsupported websocket extension negotiation")
 
         server_no_context_takeover = False
         client_no_context_takeover = False
@@ -111,31 +109,32 @@ class _PerMessageDeflate:
                 value = None
 
             if name in seen:
-                raise _CompressionError(f"duplicate extension parameter: {name}")
+                raise InvalidHandshake(
+                    f"unsupported websocket extension negotiation: {name}")
             seen.add(name)
 
             if name == "server_no_context_takeover":
                 if value is not None:
-                    raise _CompressionError("invalid server_no_context_takeover value")
+                    raise InvalidHandshake("invalid server_no_context_takeover value")
                 server_no_context_takeover = True
             elif name == "client_no_context_takeover":
                 if value is not None:
-                    raise _CompressionError("invalid client_no_context_takeover value")
+                    raise InvalidHandshake("invalid client_no_context_takeover value")
                 client_no_context_takeover = True
             elif name == "server_max_window_bits":
                 if value is None or not value.isdigit():
-                    raise _CompressionError("invalid server_max_window_bits value")
+                    raise InvalidHandshake("invalid server_max_window_bits value")
                 server_max_window_bits = int(value)
                 if not 8 <= server_max_window_bits <= 15:
-                    raise _CompressionError("invalid server_max_window_bits value")
+                    raise InvalidHandshake("invalid server_max_window_bits value")
             elif name == "client_max_window_bits":
                 if value is None or not value.isdigit():
-                    raise _CompressionError("invalid client_max_window_bits value")
+                    raise InvalidHandshake("invalid client_max_window_bits value")
                 client_max_window_bits = int(value)
                 if not 8 <= client_max_window_bits <= 15:
-                    raise _CompressionError("invalid client_max_window_bits value")
+                    raise InvalidHandshake("invalid client_max_window_bits value")
             else:
-                raise _CompressionError(f"unsupported extension parameter: {name}")
+                raise InvalidHandshake(f"unsupported extension parameter: {name}")
 
         self: _PerMessageDeflate = _PerMessageDeflate.__new__(_PerMessageDeflate)
         self.remote_no_context_takeover = server_no_context_takeover
@@ -169,7 +168,7 @@ class _PerMessageDeflate:
 
         if frame.msg_type == WSMsgType.CONTINUATION:
             if frame.rsv1:
-                raise _CompressionError("unexpected rsv1 on continuation frame")
+                raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR, "unexpected rsv1 on continuation frame")
             if not self._decode_cont_data:
                 return frame.get_payload_as_bytes() # type: ignore[no-any-return]
             if frame.fin:
@@ -185,16 +184,19 @@ class _PerMessageDeflate:
         assert self._decoder is not None
         try:
             data = self._decoder.decompress(frame.get_payload_as_memoryview(), max_length)
+            max_length -= len(data)
 
             if self._decoder.unconsumed_tail:
-                raise _CompressionError("message too big")
+                raise WSProtocolError(WSCloseCode.MESSAGE_TOO_BIG,
+                                      "message too big")
 
             if frame.fin:
                 data2 = self._decoder.decompress(_empty_uncompressed_block, max_length)
                 if data2:
                     data += data2
         except zlib.error as exc:
-            raise _CompressionError("decompression failed") from exc
+            raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
+                                  "decompression failed") from exc
 
         if frame.fin and self.remote_no_context_takeover:
             self._decoder = None
@@ -386,7 +388,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
             self._configure_extensions()
         except InvalidHandshake as exc:
             self._connect_exception = exc
-            self.transport.send_close(WSCloseCode.PROTOCOL_ERROR, str(exc).encode("utf-8"))
+            self.transport.send_close(WSCloseCode.PROTOCOL_ERROR, str(exc))
             self.transport.disconnect(False)
             return
         self._state = State.OPEN
@@ -443,40 +445,28 @@ class ClientConnection(WSListener):  # type: ignore[misc]
             return
 
         if frame.msg_type not in (WSMsgType.TEXT, WSMsgType.BINARY, WSMsgType.CONTINUATION):
-            self._fail_protocol_error("unsupported frame opcode")
-            return
+            raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR, "unsupported frame opcode")
 
         if self._permessage_deflate is None and frame.rsv1:
-            self._fail_protocol_error("received compressed frame without negotiated permessage-deflate")
-            return
+            raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR, "received compressed frame without negotiated permessage-deflate")
 
         if frame.msg_type == WSMsgType.CONTINUATION and not self._incoming_message_active:
-            self._fail_protocol_error("unexpected continuation frame")
-            return
+            raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR, "unexpected continuation frame")
 
         if frame.msg_type != WSMsgType.CONTINUATION and self._incoming_message_active:
-            self._fail_protocol_error("expected continuation frame")
-            return
+            raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR, "expected continuation frame")
 
         payload: bytes
         if self._permessage_deflate is not None:
             remaining = 0 if self._max_message_size == 0 else (
                 max(self._max_message_size - self._incoming_message_size, 0))
-            try:
-                payload = self._permessage_deflate.decode_frame(frame, remaining)
-            except _CompressionError as exc:
-                if str(exc) == "message too big":
-                    self._fail_message_too_big("message too big")
-                else:
-                    self._fail_protocol_error(str(exc))
-                return
+            payload = self._permessage_deflate.decode_frame(frame, remaining)
         else:
             payload = frame.get_payload_as_bytes()
 
         self._incoming_message_size = len(payload)
         if self._max_message_size > 0 and self._incoming_message_size > self._max_message_size:
-            self._fail_message_too_big("message too big")
-            return
+            raise WSProtocolError(WSCloseCode.MESSAGE_TOO_BIG, "message too big")
 
         if frame.msg_type == WSMsgType.CONTINUATION:
             if frame.fin:
@@ -556,10 +546,8 @@ class ClientConnection(WSListener):  # type: ignore[misc]
             raise InvalidHandshake("unexpected websocket extensions negotiated by server")
         if not isinstance(header_value, str):
             raise InvalidHandshake("invalid Sec-WebSocket-Extensions header")
-        try:
-            self._permessage_deflate = _PerMessageDeflate.from_response_header(header_value)
-        except _CompressionError as exc:
-            raise InvalidHandshake(str(exc)) from exc
+
+        self._permessage_deflate = _PerMessageDeflate.from_response_header(header_value)
 
     @cython.cfunc
     @cython.inline
@@ -590,13 +578,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
     @cython.cfunc
     @cython.inline
     def _fail_protocol_error(self, message: str) -> None:
-        self.transport.send_close(WSCloseCode.PROTOCOL_ERROR, message.encode("utf-8"))
-        self.transport.disconnect(False)
-
-    @cython.cfunc
-    @cython.inline
-    def _fail_message_too_big(self, message: str) -> None:
-        self.transport.send_close(WSCloseCode.MESSAGE_TOO_BIG, message.encode("utf-8"))
+        self.transport.send_close(WSCloseCode.PROTOCOL_ERROR, message)
         self.transport.disconnect(False)
 
     @cython.cfunc
@@ -853,7 +835,7 @@ class ClientConnection(WSListener):  # type: ignore[misc]
             return
         if self._state is State.OPEN:
             self._state = State.CLOSING
-        self.transport.send_close(code, reason.encode("utf-8"))
+        self.transport.send_close(code, reason)
         try:
             if self._close_timeout is None:
                 await self.wait_closed()
