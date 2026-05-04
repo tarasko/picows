@@ -4,12 +4,13 @@ import asyncio
 import logging
 import os
 import uuid
+import zlib
 from collections import deque
 from collections.abc import AsyncIterable, Generator, Iterable
 from enum import IntEnum
 from time import monotonic
 from typing import Any, AsyncIterator, Awaitable, Optional, Sequence, \
-    Union, Dict, Tuple, Iterator
+    Union, Dict, Tuple, Iterator, Mapping
 
 import cython
 
@@ -28,10 +29,11 @@ from ..exceptions import (
     InvalidHandshake,
     InvalidStatus,
 )
-from ..typing import Data, DataLike, LoggerLike, Subprotocol
+from ..typing import BytesLike, Data, DataLike, LoggerLike, Subprotocol
 
 
 OK_CLOSE_CODES = {0, 1000, 1001}
+_EMPTY_UNCOMPRESSED_BLOCK = b"\x00\x00\xff\xff"
 
 
 class State(IntEnum):
@@ -51,6 +53,168 @@ class _BufferedFrame:
         self.msg_type = msg_type
         self.payload = payload
         self.fin = fin
+
+
+class _CompressionError(Exception):
+    pass
+
+
+@cython.cclass
+class _PerMessageDeflate:
+    remote_no_context_takeover: cython.bint
+    local_no_context_takeover: cython.bint
+    remote_max_window_bits: cython.int
+    local_max_window_bits: cython.int
+    _decoder: Any
+    _encoder: Any
+    _decode_cont_data: cython.int
+
+    def __init__(
+        self,
+        *,
+        remote_no_context_takeover: bool,
+        local_no_context_takeover: bool,
+        remote_max_window_bits: int,
+        local_max_window_bits: int,
+    ):
+        self.remote_no_context_takeover = remote_no_context_takeover
+        self.local_no_context_takeover = local_no_context_takeover
+        self.remote_max_window_bits = remote_max_window_bits
+        self.local_max_window_bits = local_max_window_bits
+        self._decoder = None
+        self._encoder = None
+        self._decode_cont_data = False
+
+        # wbits: +9 to +15
+        # The base-two logarithm of the window size, which therefore ranges between 512 and 32768.
+        # Larger values produce better compression at the expense of greater memory usage.
+        # The resulting output will include a zlib-specific header and trailer.
+        # Negative wbits:
+        # Uses the absolute value of wbits as the window size logarithm,
+        # while producing a raw output stream with no header or trailing checksum.
+
+        if not self.remote_no_context_takeover:
+            self._decoder = zlib.decompressobj(wbits=-self.remote_max_window_bits)
+        if not self.local_no_context_takeover:
+            self._encoder = zlib.compressobj(wbits=-self.local_max_window_bits)
+
+    @classmethod
+    def from_response_header(cls, header_value: str) -> _PerMessageDeflate:
+        extensions = [item.strip() for item in header_value.split(",") if item.strip()]
+        if len(extensions) != 1:
+            raise _CompressionError("unsupported websocket extension negotiation")
+
+        parts = [item.strip() for item in extensions[0].split(";")]
+        if not parts or parts[0] != "permessage-deflate":
+            raise _CompressionError("unsupported websocket extension negotiation")
+
+        server_no_context_takeover = False
+        client_no_context_takeover = False
+        server_max_window_bits = None
+        client_max_window_bits = None
+        seen = set()
+
+        for raw_param in parts[1:]:
+            if not raw_param:
+                continue
+            if "=" in raw_param:
+                name, value = raw_param.split("=", 1)
+                name = name.strip()
+                value = value.strip()
+            else:
+                name = raw_param
+                value = None
+
+            if name in seen:
+                raise _CompressionError(f"duplicate extension parameter: {name}")
+            seen.add(name)
+
+            if name == "server_no_context_takeover":
+                if value is not None:
+                    raise _CompressionError("invalid server_no_context_takeover value")
+                server_no_context_takeover = True
+            elif name == "client_no_context_takeover":
+                if value is not None:
+                    raise _CompressionError("invalid client_no_context_takeover value")
+                client_no_context_takeover = True
+            elif name == "server_max_window_bits":
+                if value is None or not value.isdigit():
+                    raise _CompressionError("invalid server_max_window_bits value")
+                server_max_window_bits = int(value)
+                if not 8 <= server_max_window_bits <= 15:
+                    raise _CompressionError("invalid server_max_window_bits value")
+            elif name == "client_max_window_bits":
+                if value is None or not value.isdigit():
+                    raise _CompressionError("invalid client_max_window_bits value")
+                client_max_window_bits = int(value)
+                if not 8 <= client_max_window_bits <= 15:
+                    raise _CompressionError("invalid client_max_window_bits value")
+            else:
+                raise _CompressionError(f"unsupported extension parameter: {name}")
+
+        return cls(
+            remote_no_context_takeover=server_no_context_takeover,
+            local_no_context_takeover=client_no_context_takeover,
+            remote_max_window_bits=server_max_window_bits or 15,
+            local_max_window_bits=client_max_window_bits or 15,
+        )
+
+    @cython.cfunc
+    @cython.inline
+    def decode_frame(self, frame: WSFrame, max_length: cython.Py_ssize_t) -> bytes:
+        data: bytes
+        data2: bytes
+
+        if frame.msg_type == WSMsgType.CONTINUATION:
+            if frame.rsv1:
+                raise _CompressionError("unexpected rsv1 on continuation frame")
+            if not self._decode_cont_data:
+                return frame.get_payload_as_bytes()
+            if frame.fin:
+                self._decode_cont_data = False
+        else:
+            if not frame.rsv1:
+                return frame.get_payload_as_bytes()
+            if not frame.fin:
+                self._decode_cont_data = True
+            if self.remote_no_context_takeover or self._decoder is None:
+                self._decoder = zlib.decompressobj(wbits=-self.remote_max_window_bits)
+
+        assert self._decoder is not None
+        try:
+            data = self._decoder.decompress(frame.get_payload_as_memoryview(), max_length)
+
+            if self._decoder.unconsumed_tail:
+                raise _CompressionError("message too big")
+
+            if frame.fin:
+                data2 = self._decoder.decompress(_EMPTY_UNCOMPRESSED_BLOCK, max_length)
+                if data2:
+                    data += data2
+        except zlib.error as exc:
+            raise _CompressionError("decompression failed") from exc
+
+        if frame.fin and self.remote_no_context_takeover:
+            self._decoder = None
+
+        return data
+
+    @cython.cfunc
+    @cython.inline
+    def encode_frame(self, msg_type: WSMsgType, payload: BytesLike, fin: cython.bint) -> tuple[BytesLike, cython.bint]:
+        if msg_type != WSMsgType.CONTINUATION and (self.local_no_context_takeover or self._encoder is None):
+            self._encoder = zlib.compressobj(wbits=-self.local_max_window_bits)
+
+        data: BytesLike = (self._encoder.compress(payload) +
+                           self._encoder.flush(zlib.Z_SYNC_FLUSH))
+        if fin:
+            data_mv = memoryview(data)
+            assert data_mv[-4:] == _EMPTY_UNCOMPRESSED_BLOCK
+            data = data_mv[:-4]
+            if self.local_no_context_takeover:
+                self._encoder = None
+
+        return data, msg_type != WSMsgType.CONTINUATION
 
 
 @cython.cfunc
@@ -124,10 +288,13 @@ class ClientConnection(WSListener):  # type: ignore[misc]
     id: uuid.UUID
     logger: Union[logging.Logger, logging.LoggerAdapter[Any]]
     transport: WSTransport
-    request: Request
-    response: Response
+    _request: Request
+    _response: Response
+    _connect_exception: Optional[Exception]
     _subprotocols: Optional[Sequence[Subprotocol]]
     _subprotocol: Optional[Subprotocol]
+    _compression: Optional[str]
+    _permessage_deflate: Optional[_PerMessageDeflate]
     _state: State
     _close_exc: Optional[ConnectionClosed]
     _loop: asyncio.AbstractEventLoop
@@ -168,14 +335,18 @@ class ClientConnection(WSListener):  # type: ignore[misc]
         max_message_size: Optional[int] = 1024 * 1024,
         logger: LoggerLike = None,
         subprotocols: Optional[Sequence[Subprotocol]] = None,
+        compression: Optional[str] = None,
     ):
         self.id = uuid.uuid4()
         self.logger = _resolve_logger(logger)
         self.transport = cython.cast(WSTransport, None)
-        self.request = None  # type: ignore[assignment]
-        self.response = None  # type: ignore[assignment]
+        self._request = None  # type: ignore[assignment]
+        self._response = None  # type: ignore[assignment]
+        self._connect_exception = None
         self._subprotocols = subprotocols
         self._subprotocol = None
+        self._compression = compression
+        self._permessage_deflate = None
         self._state = State.CONNECTING
         self._close_exc: Optional[ConnectionClosed] = None
         self._loop = asyncio.get_running_loop()
@@ -205,9 +376,16 @@ class ClientConnection(WSListener):  # type: ignore[misc]
     @cython.ccall
     def on_ws_connected(self, transport: WSTransport) -> None:
         self.transport = transport
-        self.request = transport.request
-        self.response = transport.response
-        self._subprotocol = _resolve_subprotocol(self._subprotocols, self.response)
+        self._request = transport.request
+        self._response = transport.response
+        try:
+            self._subprotocol = _resolve_subprotocol(self._subprotocols, self._response)
+            self._configure_extensions()
+        except InvalidHandshake as exc:
+            self._connect_exception = exc
+            self.transport.send_close(WSCloseCode.PROTOCOL_ERROR, str(exc).encode("utf-8"))
+            self.transport.disconnect(False)
+            return
         self._state = State.OPEN
         self._set_write_limits(self._write_limit)
         if self._ping_interval is not None and self._keepalive_task is None:
@@ -232,54 +410,82 @@ class ClientConnection(WSListener):  # type: ignore[misc]
                 waiter.set_exception(self._close_exc or ConnectionClosedError(None, None, None))
         self._pending_pings.clear()
 
+    @cython.cfunc
+    @cython.inline
+    def _process_pong_frame(self, frame: WSFrame) -> None:
+        ping = self._pending_pings.pop(frame.get_payload_as_bytes(), None)
+        if ping is not None:
+            waiter, sent_at = ping
+            self._latency = monotonic() - sent_at
+            if not waiter.done():
+                waiter.set_result(self._latency)
+
+    @cython.cfunc
+    @cython.inline
+    def _process_close_frame(self, frame: WSFrame) -> None:
+        close_code = frame.get_close_code()
+        close_message = frame.get_close_message()
+        self.transport.send_close(close_code, close_message)
+        self.transport.disconnect()
+        self._state = State.CLOSING
+
     @cython.ccall
     def on_ws_frame(self, transport: WSTransport, frame: WSFrame) -> None:
         if frame.msg_type == WSMsgType.PONG:
-            ping = self._pending_pings.pop(frame.get_payload_as_bytes(), None)
-            if ping is not None:
-                waiter, sent_at = ping
-                self._latency = monotonic() - sent_at
-                if not waiter.done():
-                    waiter.set_result(self._latency)
+            self._process_pong_frame(frame)
             return
 
         if frame.msg_type == WSMsgType.CLOSE:
-            close_code = frame.get_close_code()
-            close_message = frame.get_close_message()
-            self.transport.send_close(close_code, close_message)
-            self.transport.disconnect()
-            self._state = State.CLOSING
+            self._process_close_frame(frame)
+            return
+
+        if frame.msg_type not in (WSMsgType.TEXT, WSMsgType.BINARY, WSMsgType.CONTINUATION):
+            self._fail_protocol_error("unsupported frame opcode")
+            return
+
+        if self._permessage_deflate is None and frame.rsv1:
+            self._fail_protocol_error("received compressed frame without negotiated permessage-deflate")
+            return
+
+        if frame.msg_type == WSMsgType.CONTINUATION and not self._incoming_message_active:
+            self._fail_protocol_error("unexpected continuation frame")
+            return
+
+        if frame.msg_type != WSMsgType.CONTINUATION and self._incoming_message_active:
+            self._fail_protocol_error("expected continuation frame")
+            return
+
+        payload: bytes
+        if self._permessage_deflate is not None:
+            remaining = 0 if self._max_message_size == 0 else (
+                max(self._max_message_size - self._incoming_message_size, 0))
+            try:
+                payload = self._permessage_deflate.decode_frame(frame, remaining)
+            except _CompressionError as exc:
+                if str(exc) == "message too big":
+                    self._fail_message_too_big("message too big")
+                else:
+                    self._fail_protocol_error(str(exc))
+                return
+        else:
+            payload = frame.get_payload_as_bytes()
+
+        self._incoming_message_size = len(payload)
+        if self._max_message_size > 0 and self._incoming_message_size > self._max_message_size:
+            self._fail_message_too_big("message too big")
             return
 
         if frame.msg_type == WSMsgType.CONTINUATION:
-            if not self._incoming_message_active:
-                self._fail_protocol_error("unexpected continuation frame")
-                return
-
-            self._incoming_message_size += frame.payload_size
-            if self._max_message_size > 0 and self._incoming_message_size > self._max_message_size:
-                self._fail_message_too_big("message too big")
-                return
             if frame.fin:
                 self._incoming_message_active = False
                 self._incoming_message_size = 0
-        elif frame.msg_type in (WSMsgType.TEXT, WSMsgType.BINARY):
-            if self._incoming_message_active:
-                self._fail_protocol_error("expected continuation frame")
-                return
-            self._incoming_message_size = frame.payload_size
-            if self._max_message_size > 0 and self._incoming_message_size > self._max_message_size:
-                self._fail_message_too_big("message too big")
-                return
+        else:
             if frame.fin:
                 self._incoming_message_size = 0
             else:
                 self._incoming_message_active = True
-        else:
-            self._fail_protocol_error(f"unexpected opcode while receiving message: {frame.msg_type}")
-            return
 
-        self._add_to_recv_queue(_BufferedFrame(frame.msg_type, frame.get_payload_as_bytes(), frame.fin))
+        self._add_to_recv_queue(_BufferedFrame(frame.msg_type, payload, frame.fin))
         self._pause_reading_if_needed()
 
     @cython.ccall
@@ -336,6 +542,21 @@ class ClientConnection(WSListener):  # type: ignore[misc]
         waiter: asyncio.Future[None] = self._loop.create_future()
         self._recv_waiter = waiter
         return waiter
+
+    @cython.cfunc
+    @cython.inline
+    def _configure_extensions(self) -> None:
+        header_value = self._response.headers.get("Sec-WebSocket-Extensions")
+        if header_value is None:
+            return
+        if self._compression != "deflate":
+            raise InvalidHandshake("unexpected websocket extensions negotiated by server")
+        if not isinstance(header_value, str):
+            raise InvalidHandshake("invalid Sec-WebSocket-Extensions header")
+        try:
+            self._permessage_deflate = _PerMessageDeflate.from_response_header(header_value)
+        except _CompressionError as exc:
+            raise InvalidHandshake(str(exc)) from exc
 
     @cython.cfunc
     @cython.inline
@@ -496,11 +717,24 @@ class ClientConnection(WSListener):  # type: ignore[misc]
 
         return iterator()
 
+    def _encode_and_send(self, msg_type: WSMsgType, message: Data, fin: cython.bint) -> None:
+        rsv1: cython.bint = False
+        if self._permessage_deflate is not None:
+            message, rsv1 = self._permessage_deflate.encode_frame(
+                msg_type, self._compression_payload(message), fin
+            )
+
+        self.transport.send(msg_type, message, fin, rsv1)
+
     async def send(
         self,
         message: Union[DataLike, Iterable[DataLike], AsyncIterator[DataLike]],
         text: Optional[bool] = None,
     ) -> None:
+        # Catch a common mistake -- passing a dict to send().
+        if isinstance(message, Mapping):
+            raise TypeError("data is a dict-like object")
+
         if self._state is State.CLOSED:
             raise self._connection_closed()
 
@@ -515,7 +749,9 @@ class ClientConnection(WSListener):  # type: ignore[misc]
                     msg_type = WSMsgType.BINARY if text is False else WSMsgType.TEXT
                 else:
                     msg_type = WSMsgType.TEXT if text else WSMsgType.BINARY
-                self.transport.send(msg_type, message)
+
+                self._encode_and_send(msg_type, message, True)
+
                 if self._write_ready is not None:
                     await self._write_ready
             elif isinstance(message, (AsyncIterable, Iterable)):
@@ -534,6 +770,13 @@ class ClientConnection(WSListener):  # type: ignore[misc]
             return
 
         raise TypeError("all fragments must be of the same category: str vs bytes-like")
+
+    @cython.cfunc
+    @cython.inline
+    def _compression_payload(self, message: DataLike) -> BytesLike:
+        if isinstance(message, str):
+            return message.encode("utf-8")
+        return message
 
     async def _send_fragments(
         self,
@@ -559,24 +802,30 @@ class ClientConnection(WSListener):  # type: ignore[misc]
         try:
             try:
                 if is_async:
-                    first = await anext(async_iterator)
+                    current = await anext(async_iterator)
                 else:
-                    first = next(iterator)
+                    current = next(iterator)
             except stop_exception_type:
                 raise TypeError("message iterable cannot be empty") from None
 
             first_is_str: cython.bint
-            if isinstance(first, str):
+            if isinstance(current, str):
                 msg_type = WSMsgType.BINARY if text is False else WSMsgType.TEXT
                 first_is_str = True
-            elif isinstance(first, (bytes, bytearray, memoryview)):
+            elif isinstance(current, (bytes, bytearray, memoryview)):
                 msg_type = WSMsgType.TEXT if text else WSMsgType.BINARY
                 first_is_str = False
             else:
-                raise TypeError(f"message must contain str or bytes-like objects, got {type(first).__name__}")
+                raise TypeError(f"message must contain str or bytes-like objects, got {type(current).__name__}")
 
-            previous = first
             while True:
+                # Original websockets implementations always send one last empty
+                # frame with fin=True even if iterator returns only one fragment
+                # Perhaps this is useful for the users, just replicate this
+                # behavior.
+                self._encode_and_send(msg_type, current, False)
+                msg_type = WSMsgType.CONTINUATION
+
                 try:
                     if is_async:
                         current = await anext(async_iterator)
@@ -586,18 +835,14 @@ class ClientConnection(WSListener):  # type: ignore[misc]
                     break
 
                 self._check_fragment_type(current, first_is_str)
-
-                self.transport.send(msg_type, previous, fin=False)
-                msg_type = WSMsgType.CONTINUATION
                 if self._write_ready is not None:
                     await self._write_ready
 
-                previous = current
-
-            self.transport.send(msg_type, previous, fin=True)
+            # Send the last empty frame with fin=True
+            self._encode_and_send(msg_type, b"", True)
             if self._write_ready is not None:
                 await self._write_ready
-        except:
+        except Exception:
             self._fail_protocol_error("error in fragmented message")
             raise
 
@@ -681,6 +926,18 @@ class ClientConnection(WSListener):  # type: ignore[misc]
     @property
     def state(self) -> State:
         return self._state
+
+    @property
+    def request(self) -> Request:
+        return self._request
+
+    @property
+    def response(self) -> Response:
+        return self._response
+
+    @property
+    def connect_exception(self) -> Optional[Exception]:
+        return self._connect_exception
 
     @property
     def local_address(self) -> Any:

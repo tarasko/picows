@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import socket
-import warnings
 from collections.abc import Generator
 from ssl import SSLContext
 from typing import Any, Callable, Optional, Sequence, Union
@@ -29,6 +28,9 @@ __all__ = [
     "ClientConnection",
     "connect",
 ]
+
+
+_PERMESSAGE_DEFLATE_REQUEST = "permessage-deflate; client_max_window_bits"
 
 
 def _default_user_agent() -> str:
@@ -149,12 +151,6 @@ class _Connect:
             raise NotImplementedError("custom extensions aren't supported by picows.websockets")
         if self.compression not in (None, "deflate"):
             raise NotImplementedError("only compression=None or 'deflate' are accepted")
-        if self.compression == "deflate":
-            warnings.warn(
-                "picows.websockets doesn't implement permessage-deflate; connecting without compression",
-                RuntimeWarning,
-                stacklevel=2,
-            )
 
         conn_kwargs = dict(self.kwargs)
         ssl_context = conn_kwargs.pop("ssl", None)
@@ -200,6 +196,7 @@ class _Connect:
                 max_message_size=max_message_size,
                 logger=self.logger,
                 subprotocols=self.subprotocols,
+                compression=self.compression,
             )
 
         try:
@@ -231,6 +228,8 @@ class _Connect:
             raise InvalidHandshake(str(exc)) from exc
 
         assert isinstance(listener, ClientConnection)
+        if listener.connect_exception is not None:
+            raise listener.connect_exception
         return listener
 
     def _build_headers(self) -> list[tuple[str, str]]:
@@ -241,6 +240,8 @@ class _Connect:
             headers.append(("User-Agent", self.user_agent_header))
         if self.subprotocols:
             headers.append(("Sec-WebSocket-Protocol", ", ".join(self.subprotocols)))
+        if self.compression == "deflate":
+            headers.append(("Sec-WebSocket-Extensions", _PERMESSAGE_DEFLATE_REQUEST))
         return headers
 
     def _coerce_ssl_context(self, value: Any) -> Optional[SSLContext]:

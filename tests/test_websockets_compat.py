@@ -52,7 +52,7 @@ async def test_recv_streaming_fragmented_message():
             fragments = []
             async for fragment in ws.recv_streaming():
                 fragments.append(fragment)
-            assert fragments == [b"ab", b"cd"]
+            assert fragments == [b"ab", b"cd", b""]
 
 
 async def test_subprotocol_header_and_property():
