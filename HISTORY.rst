@@ -5,6 +5,11 @@ picows Release History
    :depth: 1
    :local:
 
+2.1.1 (2026-06-05)
+-----------------
+
+* Bump aiofastnet requirements, this fixes potential issues with python distributions that are statically linked with openssl
+
 2.1.0 (2026-05-18)
 -----------------
 
