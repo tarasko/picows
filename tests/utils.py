@@ -12,7 +12,7 @@ from picows import ws_create_server, ws_connect
 TIMEOUT = 1.0
 
 
-class TestException(Exception):
+class SomeException(Exception):
     pass
 
 
@@ -184,5 +184,5 @@ async def WSClient(server, listener_factory=None, **kwargs):
         transport.disconnect(False)
         try:
             await transport.wait_disconnected()
-        except (TestException, picows.WSError):
+        except (SomeException, picows.WSError):
             pass

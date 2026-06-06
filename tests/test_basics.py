@@ -8,7 +8,7 @@ import pytest
 import async_timeout
 
 from picows import WSCloseCode
-from tests.utils import (TIMEOUT, AsyncClient, WSServer, WSClient, TestException)
+from tests.utils import (TIMEOUT, AsyncClient, WSServer, WSClient, SomeException)
 from tests.fixtures import multiloop_event_loop_policy
 
 event_loop_policy = multiloop_event_loop_policy()
@@ -64,7 +64,7 @@ async def test_echo(use_aiofastnet, ssl_context, msg_size):
 
             # Test non-bytes like send
             with pytest.raises(TypeError):
-                client.transport.send(picows.WSMsgType.BINARY, TestException())
+                client.transport.send(picows.WSMsgType.BINARY, SomeException())
 
 
 async def test_client_handshake_timeout(use_aiofastnet, ssl_context):
@@ -132,10 +132,10 @@ async def test_ws_on_connected_raise_client_side(use_aiofastnet, ssl_context):
     class ClientListener(AsyncClient):
         def on_ws_connected(self, transport: picows.WSTransport):
             super().on_ws_connected(transport)
-            raise TestException("exception from client side on_ws_connected")
+            raise SomeException("exception from client side on_ws_connected")
 
     async with WSServer(use_aiofastnet=use_aiofastnet, ssl=ssl_context.server) as server:
-        with pytest.raises(TestException):
+        with pytest.raises(SomeException):
             async with WSClient(server, ClientListener, use_aiofastnet=use_aiofastnet, ssl_context=ssl_context.client) as client:
                 async with async_timeout.timeout(TIMEOUT):
                     await client.transport.wait_disconnected()
@@ -146,7 +146,7 @@ async def test_ws_on_connected_raise_server_side(use_aiofastnet, ssl_context):
     # swallow exception
     class ServerClientListener(picows.WSListener):
         def on_ws_connected(self, transport: picows.WSTransport):
-            raise TestException("exception from server side on_ws_connected")
+            raise SomeException("exception from server side on_ws_connected")
 
     async with WSServer(lambda _: ServerClientListener(), use_aiofastnet=use_aiofastnet, ssl=ssl_context.server) as server:
         async with WSClient(server, use_aiofastnet=use_aiofastnet, ssl_context=ssl_context.client) as client:
@@ -178,7 +178,7 @@ async def test_ws_on_frame_raise_client_side(use_aiofastnet, ssl_context, discon
 
     class ClientListener(AsyncClient):
         def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-            raise TestException("exception from client side on_ws_frame")
+            raise SomeException("exception from client side on_ws_frame")
 
     async with WSServer(lambda _: ServerClientListener(),
                         use_aiofastnet=use_aiofastnet, ssl=ssl_context.server) as server:
@@ -186,7 +186,7 @@ async def test_ws_on_frame_raise_client_side(use_aiofastnet, ssl_context, discon
                             use_aiofastnet=use_aiofastnet, ssl_context=ssl_context.client,
                             disconnect_on_exception=disconnect_on_exception) as client:
             if disconnect_on_exception:
-                with pytest.raises(TestException):
+                with pytest.raises(SomeException):
                     async with async_timeout.timeout(TIMEOUT):
                         await client.transport.wait_disconnected()
             else:
@@ -200,7 +200,7 @@ async def test_ws_on_frame_raise_client_side(use_aiofastnet, ssl_context, discon
 async def test_ws_on_frame_raise_server_side(use_aiofastnet, ssl_context, disconnect_on_exception):
     class ServerClientListener(picows.WSListener):
         def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
-            raise TestException("exception from server side on_ws_frame")
+            raise SomeException("exception from server side on_ws_frame")
 
     async with WSServer(lambda _: ServerClientListener(),
                         use_aiofastnet=use_aiofastnet, ssl=ssl_context.server,
@@ -238,13 +238,13 @@ async def test_ws_on_disconnected_raise_client_side(use_aiofastnet, ssl_context)
     # Check that exception is transferred to wait_disconnected from on_ws_disconnected
     class ClientListener(AsyncClient):
         def on_ws_disconnected(self, transport):
-            raise TestException("exception from on_ws_disconnected")
+            raise SomeException("exception from on_ws_disconnected")
 
     async with WSServer(use_aiofastnet=use_aiofastnet, ssl=ssl_context.server) as server:
         async with WSClient(server, ClientListener,
                             use_aiofastnet=use_aiofastnet, ssl_context=ssl_context.client) as client:
             async with async_timeout.timeout(TIMEOUT):
-                with pytest.raises(TestException):
+                with pytest.raises(SomeException):
                     client.transport.disconnect()
                     await client.transport.wait_disconnected()
 
