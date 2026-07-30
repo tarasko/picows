@@ -184,12 +184,18 @@ async def test_proxy_dns_resolution(proxy_type):
     client_ssl_ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
 
     async with ProxyServer(proxy_type) as proxy_url:
-        async with WSClient("wss://echo.websocket.org",
-                            ssl_context=client_ssl_ctx, proxy=proxy_url,
-                            websocket_handshake_timeout=1.0) as client:
-            frame = await client.get_message()
-            _logger.debug("Welcome frame from echo.websocket.org: %s", frame.payload_as_ascii_text)
-            client.transport.send(picows.WSMsgType.BINARY, b"hello over proxy")
-            frame = await client.get_message()
-            assert frame.msg_type == picows.WSMsgType.BINARY
-            assert frame.payload_as_bytes == b"hello over proxy"
+        try:
+            async with WSClient("wss://echo.websocket.org",
+                                ssl_context=client_ssl_ctx, proxy=proxy_url,
+                                websocket_handshake_timeout=1.0) as client:
+                frame = await client.get_message()
+                _logger.debug("Welcome frame from echo.websocket.org: %s", frame.payload_as_ascii_text)
+                client.transport.send(picows.WSMsgType.BINARY, b"hello over proxy")
+                frame = await client.get_message()
+                assert frame.msg_type == picows.WSMsgType.BINARY
+                assert frame.payload_as_bytes == b"hello over proxy"
+        except picows.WSInvalidStatusError as exc:
+            if exc.response.status == HTTPStatus.TOO_MANY_REQUESTS: # 429
+                pytest.skip("Too many requests")
+            else:
+                raise
