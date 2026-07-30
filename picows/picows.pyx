@@ -1596,6 +1596,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         cdef:
             uint8_t first_byte
             uint8_t second_byte
+            uint64_t host_len_64
             WSFrame frame
             WSCloseInfo recv
 
@@ -1659,11 +1660,29 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 if self._f_new_data_start_pos - self._f_curr_state_start_pos < 2:
                     return None
                 self._f_payload_length = ntohs((<uint16_t*>&self._read_buffer.data[self._f_curr_state_start_pos])[0])
+                if self._f_payload_length < 126:
+                    raise WSProtocolError(
+                        WSCloseCode.PROTOCOL_ERROR,
+                        "Received frame with invalid 16-bit payload len",
+                    )
                 self._f_curr_state_start_pos += 2
             elif self._f_payload_length_flag > 126:
                 if self._f_new_data_start_pos - self._f_curr_state_start_pos < 8:
                     return None
-                self._f_payload_length = be64toh((<uint64_t*>&self._read_buffer.data[self._f_curr_state_start_pos])[0])
+                host_len_64 = be64toh((<uint64_t*>&self._read_buffer.data[self._f_curr_state_start_pos])[0])
+                if host_len_64 >> 63:
+                    # RFC forbids setting the most significant bit
+                    raise WSProtocolError(
+                        WSCloseCode.PROTOCOL_ERROR,
+                        "Received frame with invalid 64-bit payload length",
+                    )
+                self._f_payload_length = host_len_64
+
+                if self._f_payload_length < 65536:
+                    raise WSProtocolError(
+                        WSCloseCode.PROTOCOL_ERROR,
+                        "Received frame with invalid 64-bit payload length",
+                    )
                 self._f_curr_state_start_pos += 8
             else:
                 self._f_payload_length = self._f_payload_length_flag
