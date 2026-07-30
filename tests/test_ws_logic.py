@@ -288,6 +288,42 @@ async def test_unmasked_frame_from_client():
             await client.transport.wait_disconnected()
 
 
+async def test_64_bit_payload_length_with_high_bit_set():
+    async with WSServer() as server:
+        async with WSClient(server) as client:
+            invalid_frame = struct.pack("!BBQI", 0x82, 0x80 | 127, 1 << 63, 0x12345678)
+            client.transport.underlying_transport.write(invalid_frame)
+            frame = await client.get_message()
+            assert frame.msg_type == picows.WSMsgType.CLOSE
+            assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
+            assert b"Received frame with invalid 64-bit payload length" in frame.close_message
+            await client.transport.wait_disconnected()
+
+
+async def test_64_bit_payload_length_with_non_minimal_encoding():
+    async with WSServer() as server:
+        async with WSClient(server) as client:
+            invalid_frame = struct.pack("!BBQI", 0x82, 0x80 | 127, 65535, 0x12345678)
+            client.transport.underlying_transport.write(invalid_frame)
+            frame = await client.get_message()
+            assert frame.msg_type == picows.WSMsgType.CLOSE
+            assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
+            assert b"Received frame with invalid 64-bit payload length" in frame.close_message
+            await client.transport.wait_disconnected()
+
+
+async def test_16_bit_payload_length_with_non_minimal_encoding():
+    async with WSServer() as server:
+        async with WSClient(server) as client:
+            invalid_frame = struct.pack("!BBHI", 0x82, 0x80 | 126, 125, 0x12345678)
+            client.transport.underlying_transport.write(invalid_frame)
+            frame = await client.get_message()
+            assert frame.msg_type == picows.WSMsgType.CLOSE
+            assert frame.close_code == picows.WSCloseCode.PROTOCOL_ERROR
+            assert b"Received frame with invalid 16-bit payload len" in frame.close_message
+            await client.transport.wait_disconnected()
+
+
 async def test_masked_frame_from_server():
     class ServerClientListener(picows.WSListener):
         def on_ws_connected(self, transport: picows.WSTransport):
