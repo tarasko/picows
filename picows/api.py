@@ -496,4 +496,4 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
         host=host,
         port=port,
         **kwargs)
-    return cast(asyncio.Server, server)
+    return server
