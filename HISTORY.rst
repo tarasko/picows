@@ -5,6 +5,11 @@ picows Release History
    :depth: 1
    :local:
 
+2.1.2 (2026-07-30)
+------------------
+
+* GHSA-583m-hcmv-qpq9: Invalid 64-bit WebSocket Payload Length causes server crash
+
 2.1.1 (2026-06-05)
 -----------------
 
