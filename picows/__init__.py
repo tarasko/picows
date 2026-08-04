@@ -1,9 +1,20 @@
-from .types import (
+from .common import (
     WSError,
+    WSHandshakeError,
+    WSInvalidMessageError,
+    WSInvalidStatusError,
+    WSInvalidHeaderError,
+    WSInvalidUpgradeError,
+    WSProtocolError,
     WSUpgradeRequest,
     WSUpgradeResponse,
     WSUpgradeResponseWithListener,
     PICOWS_DEBUG_LL
+)
+
+from .url import (
+    WSInvalidURL,
+    WSParsedURL
 )
 
 from .picows import (
@@ -15,30 +26,33 @@ from .picows import (
     WSListener,
 )
 
-from .url import (
-    WSInvalidURL
-)
-
 from .api import (
     ws_connect,
-    ws_create_server
+    ws_create_server,
 )
 
 __all__ = [
     'WSError',
+    'WSHandshakeError',
+    'WSInvalidMessageError',
+    'WSInvalidStatusError',
+    'WSInvalidHeaderError',
+    'WSInvalidUpgradeError',
+    'WSProtocolError',
+    'WSUpgradeRequest',
+    'WSUpgradeResponse',
+    'WSUpgradeResponseWithListener',
+    'PICOWS_DEBUG_LL',
+    'WSInvalidURL',
+    'WSParsedURL',
     'WSMsgType',
     'WSCloseCode',
     'WSAutoPingStrategy',
     'WSFrame',
     'WSTransport',
     'WSListener',
-    'WSUpgradeRequest',
-    'WSUpgradeResponse',
-    'WSUpgradeResponseWithListener',
     'ws_connect',
     'ws_create_server',
-    'PICOWS_DEBUG_LL'
 ]
 
-__version__ = "1.13.1"
-__author__ = "Taras Kozlov"
+from .version import __author__, __version__

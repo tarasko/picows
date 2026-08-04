@@ -1,3 +1,4 @@
+import urllib.parse
 from http import HTTPStatus
 
 import pytest
@@ -7,16 +8,38 @@ import picows
 from picows import WSUpgradeResponse
 from picows.api import _maybe_handle_redirect
 from picows.url import parse_url
-from tests.utils import AsyncClient, ServerEchoListener, ServerAsyncContext, ClientAsyncContext, get_server_port
+
+
+async def test_url_non_ascii():
+    # Test non-ASCII characters
+    parsed_url = parse_url("ws://логин:пароль@роскомнадзор.ру:666/ws?param=val")
+    assert parsed_url.host == 'xn--80aijjkgebfljd.xn--p1ag'
+    assert parsed_url.port == 666
+    assert parsed_url.path == "/ws"
+    assert parsed_url.query == "param=val"
+    assert parsed_url.user_info is not None
+    assert parsed_url.user_info[0] == urllib.parse.quote("логин")
+    assert parsed_url.user_info[1] == urllib.parse.quote("пароль")
+
+
+async def test_url_parse_errors():
+    with pytest.raises(picows.WSInvalidURL, match="scheme isn't ws or wss"):
+        parse_url("www://hello.com")
+
+    with pytest.raises(picows.WSInvalidURL, match="hostname isn't provided"):
+        parse_url("ws://:2345")
+
+    with pytest.raises(picows.WSInvalidURL, match="fragment identifier is meaningless"):
+        parse_url("ws://hello.com?param=val#fragment")
 
 
 async def test_redirect_location():
-    exc = picows.WSError("initial redirect")
+    exc = picows.WSHandshakeError("initial redirect")
     parsed_url = parse_url("ws://test_login:test_pws@my.domain.org/ws?param=val")
-    assert not parsed_url.secure
+    assert not parsed_url.is_secure
 
     # Test empty response in exception
-    with pytest.raises(picows.WSError, match="initial redirect"):
+    with pytest.raises(picows.WSHandshakeError, match="initial redirect"):
         _maybe_handle_redirect(exc, parsed_url, 1)
 
     response = WSUpgradeResponse()
@@ -28,13 +51,13 @@ async def test_redirect_location():
     exc.response = response
 
     # Test no Location header
-    with pytest.raises(picows.WSError, match="without Location header"):
+    with pytest.raises(picows.WSHandshakeError, match="without Location header"):
         _maybe_handle_redirect(exc, parsed_url, 1)
 
     response.headers["Location"] = "/new_rel_path"
 
     # Check that redirect are done when max_redirects=0
-    with pytest.raises(picows.WSError, match="initial redirect"):
+    with pytest.raises(picows.WSHandshakeError, match="initial redirect"):
         _maybe_handle_redirect(exc, parsed_url, 0)
 
     new_parsed_url = _maybe_handle_redirect(exc, parsed_url, 1)
@@ -59,13 +82,13 @@ async def test_redirect_location():
     response.headers["Location"] = "wss://my.domain.org:8080/"
     new_parsed_url = _maybe_handle_redirect(exc, parsed_url, 1)
     assert new_parsed_url.url == "wss://my.domain.org:8080/"
-    assert new_parsed_url.secure
+    assert new_parsed_url.is_secure
 
     # Test TLS downgrade
     parsed_url = parse_url("wss://my.domain.org/ws?param=val")
-    assert parsed_url.secure
+    assert parsed_url.is_secure
     response.headers["Location"] = "ws://my.domain.org:8080/"
 
-    with pytest.raises(picows.WSError, match="non-secure URL"):
+    with pytest.raises(picows.WSHandshakeError, match="non-secure URL"):
         _maybe_handle_redirect(exc, parsed_url, 1)
 

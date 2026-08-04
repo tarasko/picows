@@ -1,5 +1,5 @@
-Topic guides
-===============
+Core API topic guides
+=====================
 
 Making data interface async
 ---------------------------
@@ -87,9 +87,27 @@ For example, `ConnectionResetError` from :any:`ws_connect` or `BrokenPipeError`
 from :any:`WSTransport.send`.
 
 **picows** does not wrap these exceptions in its own special exception type.
-Additionally, :any:`ws_connect` may raise :any:`WSError` in cases of websocket
-negotiation errors.
-In general, :any:`WSError` is reserved for errors specific to websockets only.
+Additionally, websocket-specific failures are represented by :any:`WSError`
+and its subclasses:
+
+* :any:`WSHandshakeError` for HTTP upgrade negotiation failures (raised by :any:`ws_connect`).
+  More specific subclasses may be raised:
+
+  * :any:`WSInvalidMessageError` for malformed HTTP upgrade responses.
+  * :any:`WSInvalidStatusError` when the HTTP response status isn't ``101 Switching Protocols``.
+  * :any:`WSInvalidHeaderError` for invalid handshake headers such as
+    ``Content-Length`` or ``Sec-WebSocket-Accept``.
+  * :any:`WSInvalidUpgradeError` for invalid ``Upgrade`` / ``Connection`` headers.
+
+  Redirect-following failures in :any:`ws_connect` currently still raise the
+  base :any:`WSHandshakeError`.
+* :any:`WSProtocolError` for websocket parser/protocol violations (can be re-raised by :any:`WSTransport.wait_disconnected` on client side).
+* :any:`WSInvalidURL` for invalid websocket/proxy URL inputs.
+
+In general, :any:`WSError` is reserved for websocket-specific failures only.
+
+Handshake timeouts are separate and currently raise `asyncio.TimeoutError`,
+not :any:`WSError`.
 
 There is also a special exception, `asyncio.CancelledError`, which any coroutine
 can raise when it is externally cancelled. Sometimes you need to handle this
@@ -98,15 +116,28 @@ reconnect on any error, the loop should break on `asyncio.CancelledError`.
 
 **What happens if a user callback raises an exception, and how does the library handle it?**
 
-This is described in the documentation of each particular method.
-In most cases, **picows** will send a CLOSE frame with an INTERNAL_ERROR close code and disconnect.
-However, for :any:`on_ws_frame`, it is possible to override it by setting disconnect_on_error=False
-in :any:`ws_connect`/:any:`ws_create_server`.
+In most cases, **picows** initiates websocket shutdown:
+
+* sends CLOSE(INTERNAL_ERROR),
+* closes the transport,
+* and then calls :any:`WSTransport.wait_disconnected` waiters.
+
+On the **client side**, the first exception raised by a user handler is
+stored internally, transferred to :any:`WSTransport.wait_disconnected`,
+and re-raised when `await transport.wait_disconnected()` completes.
+This makes handler failures observable from your top-level coroutine.
+
+On the **server side**, callback exceptions are logged and not re-raised via
+`wait_disconnected` (there is no per-client await path on server internals).
+
+For :any:`on_ws_frame`, this behavior is configurable via
+`disconnect_on_exception` in :any:`ws_connect`/:any:`ws_create_server`:
+
+* `disconnect_on_exception=True` (default): exception triggers disconnect, and on client side it is re-raised by `wait_disconnected`.
+* `disconnect_on_exception=False`: exception is only logged, connection stays open.
 
 Auto ping
 --------------
-`Available since 1.4`
-
 The WebSocket protocol includes special frame types, WSMsgType.PING and WSMsgType.PONG, which are useful for detecting stale connections.
 
 From the user's perspective, these frames function like regular frames and may contain payload data. When one side receives a PING frame, it must respond with a PONG frame that includes the same payload as the PING.
@@ -177,8 +208,6 @@ If this applies to your use case, it's better to delay the determination of a po
 
 Auto pong
 ---------
-`Available since 1.6`
-
 By default **picows** always replies to incoming PING messages with PONG.
 This is controlled by `enable_auto_pong` argument to :any:`ws_connect`
 and :any:`ws_create_server`. If disabled, PING messages must be handled
@@ -194,10 +223,71 @@ manually from :any:`on_ws_frame`.
 
             ...
 
+Graceful websocket shutdown
+---------------------------
+
+According to RFC 6455, graceful websocket shutdown is a CLOSE handshake:
+one side sends a CLOSE frame, the peer replies with CLOSE, and then both
+sides close the underlying TCP connection.
+
+**picows** does not perform full websocket CLOSE handshake automatically:
+
+* :any:`WSTransport.disconnect` does **not** call :any:`WSTransport.send_close`.
+* Incoming CLOSE frames are delivered to :any:`WSListener.on_ws_frame`; **picows**
+  does not automatically send CLOSE reply.
+
+If you want graceful websocket shutdown, handle CLOSE explicitly in your
+listener:
+
+.. code-block:: python
+
+    class Listener(picows.WSListener):
+
+        def initiate_close(self, transport: picows.WSTransport):
+            transport.send_close(picows.WSCloseCode.OK, b"done")
+            transport.disconnect()
+
+        def on_ws_frame(self, transport: picows.WSTransport, frame: picows.WSFrame):
+            if frame.msg_type == picows.WSMsgType.CLOSE:
+                # If peer initiates close, echo CLOSE and then disconnect.
+                # If CLOSE is a reply to our CLOSE, it safe to call send_close and disconnect again.
+                # They will be ignored.
+                transport.send_close(frame.get_close_code(), frame.get_close_message())
+                transport.disconnect()
+                return
+
+            ...
+
+`graceful_shutdown.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/graceful_shutdown.py>`_
+contains a complete runnable example.
+
+You do not need extra guards around those calls:
+
+* After the first :any:`WSTransport.send_close`, subsequent send calls
+  (:any:`WSTransport.send`, :any:`WSTransport.send_ping`,
+  :any:`WSTransport.send_pong`, :any:`WSTransport.send_close`) are no-ops.
+* :any:`WSTransport.disconnect` is idempotent and safe to call multiple times.
+
+Disconnect behavior and asyncio transport semantics
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+:any:`WSTransport.send`, :any:`WSTransport.send_ping`, :any:`WSTransport.send_pong`,
+and :any:`WSTransport.send_close` eventually rely on asyncio transport
+`write() <https://docs.python.org/3/library/asyncio-protocol.html#asyncio.WriteTransport.write>`_,
+which may buffer data.
+
+By default, :any:`WSTransport.disconnect` calls asyncio transport
+`close() <https://docs.python.org/3/library/asyncio-protocol.html#asyncio.WriteTransport.close>`_.
+This attempts to flush data that has already been enqueued by previous send calls
+before the socket is closed (subject to OS/kernel behavior and network conditions).
+
+For immediate teardown, call :any:`WSTransport.disconnect` with `graceful=False`.
+This maps to asyncio transport
+`abort() <https://docs.python.org/3/library/asyncio-protocol.html#asyncio.WriteTransport.abort>`_
+and closes the connection without waiting for buffered outgoing data.
+
 Measuring/checking round-trip time
 ----------------------------------
-`Available since 1.5`
-
 **picows** allows you to conveniently measure round-trip time to a remote peer using
 :any:`measure_roundtrip_time`. This is done by sending PING requests multiple
 times and measuring response delay.
@@ -206,20 +296,25 @@ Check out `okx_roundtrip_time.py <https://raw.githubusercontent.com/tarasko/pico
 example of how to measure RTT to a popular OKX crypto-currency exchange and initiate
 reconnect if it does not satisfy a predefined threshold.
 
-Dealing with slow clients
--------------------------
+Dealing with slow peers
+-----------------------
 
-When a server pushes messages faster than a client can consume them, the write side of
-the connection eventually hits transport high watermark limits.
-On the server side, per-client listeners can react to this by overriding
-:any:`WSListener.pause_writing` and :any:`WSListener.resume_writing`.
+When one endpoint sends messages faster than the remote peer can consume them,
+the write side of the connection eventually hits transport high watermark limits.
+This can happen in either direction: a server can be slowed down by a client, and
+a client can be slowed down by a server.
+
+Each connection has its own listener, and that listener can react to write-side
+backpressure by overriding :any:`WSListener.pause_writing` and
+:any:`WSListener.resume_writing`.
 
 This allows implementing backpressure-aware producers: pause message generation
 while writing is paused and resume only when the transport drains.
 
 `slow_client_backpressure.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/slow_client_backpressure.py>`_
-demonstrates how ``pause_writing``/``resume_writing`` are triggered and how to stop
-the producer while the client is slow.
+demonstrates the common server-push case: ``pause_writing``/``resume_writing`` are
+triggered on the server-side listener when the client is slow, and the producer
+stops sending until the transport drains.
 
 Using Cython interface
 ----------------------
@@ -232,8 +327,6 @@ Check out an `echo_client_cython.pyx <https://raw.githubusercontent.com/tarasko/
 
 Using proxies
 -------------
-`Available since 1.13`
-
 :any:`ws_connect` supports HTTP, SOCKS4 and SOCKS5 proxies via
 `python-socks <https://github.com/romis2012/python-socks>`_.
 Use the ``proxy`` argument with a proxy URL:
@@ -264,3 +357,73 @@ Basic auth is supported. Login and password can be specified in the proxy URL.
 Currently, **picows** does not attempt to use system proxy settings. If you want to use
 system-wide proxy settings, get them using `getproxies`_ and pass one as the
 proxy argument.
+
+Setting socket options
+----------------------
+
+If you need custom TCP socket tuning, use :any:`on_ws_connected` callback and
+adjust the raw socket there.
+
+.. code-block:: python
+
+    import socket
+    from picows import WSListener, WSTransport
+
+    class Listener(WSListener):
+        ...
+        def on_ws_connected(transport: WSTransport):
+            sock: socket.socket = transport.underlying_transport.get_extra_info("socket")
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 * 1024 * 1024)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1 * 1024 * 1024)
+
+If a socket option must be configured before ``connect()`` (for example, to
+control connection establishment behavior), use ``socket_factory``:
+
+.. code-block:: python
+
+    import socket
+    from picows import ws_connect
+
+    def socket_factory(host, port):
+        # host/port are provided by picows. Return an unconnected socket and
+        # picows will call connect() for you.
+        # Or you can connect the socket youself.
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 * 1024 * 1024)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1 * 1024 * 1024)
+        return sock
+
+    transport, listener = await ws_connect(
+        Listener,
+        "ws://127.0.0.1:9000/",
+        socket_factory=socket_factory,
+    )
+
+.. note::
+    **picows** already enables `TCP_NODELAY` and, when available on the
+    platform, `TCP_QUICKACK` to reduce latency by default.
+
+Free-threaded Python support
+----------------------------
+
+**picows** is fully compatible with free-threaded Python.
+**picows** transports do not require the GIL and can run in parallel in different threads.
+
+For a multithreaded server, start one thread per event loop and call
+:any:`ws_create_server` in each thread with ``reuse_port=True``. This allows all
+server threads to bind the same host/port pair and lets the operating system
+distribute new TCP connections between them.
+
+For a multithreaded client, create one event loop per thread and call
+:any:`ws_connect` for as many client connections as you want from each thread,
+depending on how you want to distribute load between threads. If a client
+thread should stop on a signal from another thread, use a thread-safe primitive
+such as ``threading.Event`` and wait for it from the event loop with
+``asyncio.to_thread``.
+
+Transport methods must be called from the thread that owns the transport.
+Otherwise, an exception will be raised.
+
+See `echo_server_threaded.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_server_threaded.py>`_
+and `echo_client_threaded.py <https://raw.githubusercontent.com/tarasko/picows/master/examples/echo_client_threaded.py>`_
+for complete runnable examples.

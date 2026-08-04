@@ -1,0 +1,145 @@
+# picows guidance for AI coding assistants
+
+picows is an ultra-fast Python WebSocket client and server library for asyncio.
+It provides two APIs:
+
+- `picows.websockets`: a compatibility layer for the popular `websockets` package.
+- `picows` core API: a lower-level frame-oriented API for maximum throughput, low latency, and zero-copy payload handling.
+
+## Choosing the API
+
+Use `picows.websockets` when:
+
+- Migrating existing code from `websockets`.
+- Writing conventional async client or server code.
+- The application expects `send()`, `recv()`, `async for`, `connect()`, or `serve()` style APIs.
+
+Use the core `picows` API when:
+
+- Avoiding Python object creation, payload copies, or async data-path overhead matters.
+- Frame-level control is useful.
+- Low-level details of the parser state may help to optimize application. For example, have we already received more frames (complete or incomplete)?
+- The application can process `WSFrame` objects directly.
+
+## websockets-compatible client
+
+```python
+import asyncio
+from picows.websockets.asyncio.client import connect
+
+
+async def main():
+    async with connect("ws://localhost:8765") as websocket:
+        await websocket.send("Hello world!")
+        reply = await websocket.recv()
+        print(reply)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## websockets-compatible server
+
+```python
+import asyncio
+from picows.websockets.asyncio.server import serve
+
+
+async def echo(websocket):
+    async for message in websocket:
+        await websocket.send(message)
+
+
+async def main():
+    async with serve(echo, "localhost", 8765) as server:
+        await server.serve_forever()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Core API client
+
+```python
+import asyncio
+from picows import WSCloseCode, WSFrame, WSListener, WSMsgType, WSTransport, ws_connect
+
+
+class ClientListener(WSListener):
+    def on_ws_connected(self, transport: WSTransport):
+        transport.send(WSMsgType.TEXT, b"Hello world")
+
+    def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
+        print(frame.get_payload_as_ascii_text())
+        transport.send_close(WSCloseCode.OK)
+        transport.disconnect()
+
+
+async def main():
+    transport, _client = await ws_connect(ClientListener, "ws://127.0.0.1:9001")
+    await transport.wait_disconnected()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Core API server
+
+```python
+import asyncio
+from picows import WSFrame, WSListener, WSMsgType, WSTransport, WSUpgradeRequest, ws_create_server
+
+
+class ServerClientListener(WSListener):
+    def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
+        if frame.msg_type == WSMsgType.CLOSE:
+            transport.send_close(frame.get_close_code(), frame.get_close_message())
+            transport.disconnect()
+        else:
+            transport.send(frame.msg_type, frame.get_payload_as_memoryview())
+
+
+async def main():
+    def listener_factory(request: WSUpgradeRequest):
+        return ServerClientListener()
+
+    server = await ws_create_server(listener_factory, "127.0.0.1", 9001)
+    await server.serve_forever()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Important compatibility notes
+
+- picows supports Python 3.9 and newer. Avoid `A | B` type syntax in examples or tests unless the file has
+  `from __future__ import annotations`; use `Optional[A]` or `Union[A, B]` for broad compatibility.
+- The full upstream `websockets` surface is not implemented. Check the documentation before relying on less common
+  server features or advanced options.
+- The core API receives `WSFrame` objects rather than complete messages. Messages may span multiple frames.
+- Do not cache `WSFrame` objects received by `on_ws_frame`. They point into picows' internal read buffer.
+  Parse the payload immediately or copy it with a `get_payload_as_*` method.
+- Use `frame.get_payload_as_memoryview()` when zero-copy access is desired. Unlike the other `get_payload_as_*`
+  methods, it does not copy the payload and the returned memoryview must not be retained past `on_ws_frame`.
+- `WSUpgradeRequest` and `WSUpgradeResponse` intentionally expose a mixed bytes/str public API: request `method`,
+  `path`, `version`, and response `version` are bytes; headers are decoded strings; response `status` is `HTTPStatus`.
+- In the core API, after a CLOSE frame has been sent, later send-side API calls are effectively no-ops.
+  `disconnect()` and `wait_disconnected()` are safe to call multiple times.
+- `WSTransport.wait_disconnected()` raises only for failures detected on the local picows side that caused the
+  disconnect. It re-raises user exceptions from `on_ws_*` handlers; in that case picows sends a CLOSE frame with
+  `INTERNAL_ERROR`.
+- User code may raise `WSProtocolError` from `on_ws_*` handlers to choose the CLOSE frame code and reason.
+  `wait_disconnected()` also raises when picows detects a protocol violation.
+- `wait_disconnected()` does not raise merely because the peer initiated disconnect, sent a CLOSE frame with a non-OK
+  code, or dropped the connection without sending a CLOSE frame.
+
+## Project links
+
+- Documentation: https://picows.readthedocs.io/en/latest/
+- Examples: https://github.com/tarasko/picows/tree/master/examples
+- Repository: https://github.com/tarasko/picows
+- PyPI: https://pypi.org/project/picows/

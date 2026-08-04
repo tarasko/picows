@@ -41,6 +41,19 @@ cpdef enum WSAutoPingStrategy:
     PING_PERIODICALLY = 2
 
 
+cdef class WSCloseInfo:
+    cdef:
+        readonly WSCloseCode code
+        readonly str reason
+
+
+cdef class WSCloseHandshake:
+    cdef:
+        readonly WSCloseInfo recv
+        readonly WSCloseInfo sent
+        readonly bint recv_then_sent
+
+
 cdef class MemoryBuffer:
     cdef:
         Py_ssize_t size
@@ -53,12 +66,15 @@ cdef class MemoryBuffer:
 
 cdef class WSFrame:
     cdef:
+        bytes _payload_obj # Used only for testing as data storage instead of actual read buffer
         char* payload_ptr
-        Py_ssize_t payload_size
+        readonly Py_ssize_t payload_size
         readonly Py_ssize_t tail_size
         readonly WSMsgType msg_type
         readonly uint8_t fin
         readonly uint8_t rsv1
+        readonly uint8_t rsv2
+        readonly uint8_t rsv3
         readonly uint8_t last_in_buffer
 
     cpdef bytes get_payload_as_bytes(self)
@@ -68,42 +84,61 @@ cdef class WSFrame:
 
     cpdef WSCloseCode get_close_code(self)
     cpdef bytes get_close_message(self)
+    cpdef str get_close_reason(self)
+
+
+cpdef WSFrame _make_test_ws_frame(WSMsgType msg_type, bytes payload, bint fin, bint rsv1)
 
 
 cdef class WSTransport:
     cdef:
         object __weakref__
 
-        readonly object underlying_transport    #: asyncio.Transport
+        readonly object underlying_transport        #: asyncio.Transport
+        readonly object request                     #: WSUpgradeRequest
+        readonly object response                    #: WSUpgradeResponse
+        readonly WSCloseHandshake close_handshake   #: Optional[WSCloseHandshake]
         readonly bint is_client_side
         readonly bint is_secure
-        readonly object request                 #: WSUpgradeRequest
-        readonly object response                #: WSUpgradeResponse
+        readonly bint is_close_frame_sent
+        readonly bint is_disconnected
 
+        # These are not public API, but accessed directly from WSProtocol
+        # Therefore without _. Perhaps I should add underscore, since accessing
+        # from Cython is possible for the user
         bint auto_ping_expect_pong
         object pong_received_at_future
         object listener_proxy
         object disconnected_future             #: asyncio.Future
 
         object _loop
-        object _logger                          #: Logger
-        bint _log_debug_enabled
-        bint _close_frame_is_sent
-        MemoryBuffer _write_buf
-        int _socket
+        object _logger                         #: Logger
+        MemoryBuffer _write_buffer
 
-    cdef inline send_reuse_external_buffer(self, WSMsgType msg_type, char* msg_ptr, Py_ssize_t msg_size, bint fin=*, bint rsv1=*)
-    cpdef send(self, WSMsgType msg_type, message, bint fin=*, bint rsv1=*)
-    cpdef send_reuse_external_bytearray(self, WSMsgType msg_type, bytearray buffer, Py_ssize_t msg_offset, bint fin=*, bint rsv1=*)
+        unsigned long _thread_id
+        int _socket
+        bint _is_aiofn_transport
+        bint _log_debug_enabled
+
+    cdef inline send_reuse_external_buffer(self, WSMsgType msg_type, char* msg_ptr, Py_ssize_t msg_size, bint fin=*, bint rsv1=*, bint rsv2=*, bint rsv3=*)
+    cpdef send(self, WSMsgType msg_type, message, bint fin=*, bint rsv1=*, bint rsv2=*, bint rsv3=*)
+    cpdef send_reuse_external_bytearray(self, WSMsgType msg_type, bytearray buffer, Py_ssize_t msg_offset, bint fin=*, bint rsv1=*, bint rsv2=*, bint rsv3=*)
     cpdef send_ping(self, message=*)
     cpdef send_pong(self, message=*)
     cpdef send_close(self, WSCloseCode close_code=*, close_message=*)
     cpdef disconnect(self, bint graceful=*)
     cpdef notify_user_specific_pong_received(self)
 
+    cdef inline _check_thread(self, meth)
+    cdef inline Py_ssize_t _get_header_size(self, Py_ssize_t msg_size) noexcept
+    cdef inline _send_buffer(self, WSMsgType msg_type,
+                             char* msg_ptr, Py_ssize_t msg_size,
+                             bint fin, bint rsv1, bint rsv2, bint rsv3)
+    cdef inline _send(self, WSMsgType msg_type, message, bint fin, bint rsv1, bint rsv2, bint rsv3)
+    cdef inline uint32_t _prepare_header(self, uint8_t* header_ptr, WSMsgType msg_type, Py_ssize_t msg_size, bint fin, bint rsv1, bint rsv2, bint rsv3) noexcept
     cdef inline _send_http_handshake(self, bytes ws_path, bytes host_port, bytes websocket_key_b64, object extra_headers)
     cdef inline _send_http_handshake_response(self, response, bytes accept_val)
-    cdef inline _try_native_write_then_transport_write(self, char* ptr, Py_ssize_t sz)
+    cdef inline _fast_write(self, char* ptr, Py_ssize_t sz)
 
 
 cdef class WSListener:
@@ -118,4 +153,3 @@ cdef class WSListener:
 
     cpdef pause_writing(self)
     cpdef resume_writing(self)
-

@@ -36,3 +36,6 @@ html_theme_options = {
     'page_width': '1300px',  # Set this to your desired width
     'sidebar_width': '450px',  # Adjust the sidebar width as well
 }
+
+python_maximum_signature_line_length = 80
+autodoc_typehints = "description"

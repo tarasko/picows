@@ -1,5 +1,7 @@
-API reference
-====================
+.. py:currentmodule:: picows
+
+Core API reference
+==================
 
 .. automodule:: picows
 
@@ -12,14 +14,69 @@ Functions
 Classes
 -------
 
-.. autoclass:: WSError
-    :members:
+.. autoexception:: WSError
+    :show-inheritance:
 
-.. autoclass:: WSInvalidURL
-    :members:
+.. autoexception:: WSHandshakeError
+    :show-inheritance:
+
+.. autoexception:: WSInvalidMessageError
+    :show-inheritance:
+
+.. autoexception:: WSInvalidStatusError
+    :show-inheritance:
+
+.. autoexception:: WSInvalidHeaderError
+    :show-inheritance:
+
+.. autoexception:: WSInvalidUpgradeError
+    :show-inheritance:
+
+.. autoexception:: WSProtocolError
+    :show-inheritance:
+
+.. autoexception:: WSInvalidURL
+    :show-inheritance:
+
+.. py:class:: WSParsedURL
+
+    .. py:attribute:: url
+        :type: str
+
+        Original URL that was used to construct this object
+
+    .. py:attribute:: scheme
+        :type: str
+
+    .. py:attribute:: is_secure
+        :type: bool
+
+    .. py:attribute:: host
+        :type: WSHost
+
+    .. py:attribute:: port
+        :type: WSPort
+
+    .. py:attribute:: netloc
+        :type: str
+
+    .. py:attribute:: path
+        :type: str
+
+    .. py:attribute:: query
+        :type: str
+
+        May be empty if the URL doesn't include a query component.
+
+    .. py:attribute:: username
+        :type: Optional[str]
+
+    .. py:attribute:: password
+        :type: Optional[str]
 
 .. autoclass:: WSFrame
     :members:
+    :exclude-members: __new__
 
     .. py:attribute:: msg_type
         :type: WSMsgType
@@ -52,10 +109,17 @@ Classes
         is compressed.
         For example in `permessage_deflate extension <https://www.rfc-editor.org/rfc/rfc7692#section-7>`_
 
-        .. note::
-            Currently, picows forbids any protocol extensions during upgrade phase.
-            You may still check that it is set to False to verify behaviour of the
-            remote side.
+    .. py:attribute:: rsv2
+        :type: bool
+
+        Indicates whether rsv2 flag is set in the frame.
+        Protocol extensions can use this flag.
+
+    .. py:attribute:: rsv3
+        :type: bool
+
+        Indicates whether rsv3 flag is set in the frame.
+        Protocol extensions can use this flag.
 
     .. py:attribute:: last_in_buffer
         :type: bool
@@ -74,11 +138,13 @@ Classes
         **Available only from Cython.**
 
         Raw pointer to the beginning of the frame payload in the receiving buffer.
+        It is safe to pass this pointer with size to SIMD libraries like
+        `simdjson <https://simdjson.org/>`_.
+        **picows** guarantees to have just a little bit of extra space behind payload
+        to make sure that SIMD read instructions don't hit access violation.
 
     .. py:attribute:: payload_size
         :type: size_t
-
-        **Available only from Cython.**
 
         Size of the payload.
 
@@ -142,6 +208,8 @@ Classes
         All `send` methods never block. The data is buffered and arranged to be sent out asynchronously in case
         if it cannot be sent immediately.
         This behavior is derived from the underlying `asyncio.WriteTransport.write`
+        Once :any:`WSTransport.send_close` is called, :any:`WSTransport.is_close_frame_sent`
+        becomes ``True`` and any subsequent send calls are no-ops (they do nothing).
 
     .. py:attribute:: underlying_transport
         :type: asyncio.Transport
@@ -151,6 +219,28 @@ Classes
         .. note::
 
             Please don't use it to send data. Use only `WSTransport.send` methods to send frames.
+
+    .. py:attribute:: is_close_frame_sent
+        :type: bool
+
+        Indicates whether a CLOSE frame has already been sent with
+        :any:`WSTransport.send_close`.
+
+        When this flag is ``True``, subsequent calls to send methods
+        (:any:`WSTransport.send`, :any:`WSTransport.send_ping`,
+        :any:`WSTransport.send_pong`, and :any:`WSTransport.send_close`)
+        are no-ops and do nothing.
+
+    .. py:attribute:: is_disconnected
+        :type: bool
+
+        Indicates whether the underlying asyncio transport has reported `connection_lost` event.
+        :any:`WSTransport.send_close`.
+
+        When this flag is ``True``, subsequent calls to send methods
+        (:any:`WSTransport.send`, :any:`WSTransport.send_ping`,
+        :any:`WSTransport.send_pong`, and :any:`WSTransport.send_close`)
+        are no-ops and do nothing.
 
     .. py:attribute:: request
         :type: WSUpgradeRequest
@@ -162,13 +252,13 @@ Classes
 
         Opening handshake response.
 
-    .. py:method:: send_reuse_external_buffer(WSMsgType msg_type, char* msg_ptr, size_t msg_size, bint fin=True, bint rsv1=False)
+    .. py:method:: send_reuse_external_buffer(WSMsgType msg_type, char* msg_ptr, size_t msg_size, bint fin=True, bint rsv1=False, bint rsv2=False, bint rsv3=False)
 
         **Available only from Cython.**
 
         Send a frame over websocket with a message as its payload.
         This function does not copy message to prepare websocket frames.
-        It reuses the message's memory and appends a WebSocket header at the front.
+        It reuses the message's memory and writes a WebSocket header at the front.
 
         .. attention::
 
@@ -182,10 +272,19 @@ Classes
         :param rsv1: first reserved bit in websocket frame.
             Some protocol extensions use it to indicate that payload
             is compressed.
+        :param rsv2: second reserved bit in websocket frame.
+            Protocol extensions can use this flag.
+        :param rsv3: third reserved bit in websocket frame.
+            Protocol extensions can use this flag.
 
 Enums
 -----
 
 .. autoenum:: WSMsgType
+    :exclude-members: __new__, __init__
+
 .. autoenum:: WSCloseCode
+    :exclude-members: __new__, __init__
+
 .. autoenum:: WSAutoPingStrategy
+    :exclude-members: __new__, __init__

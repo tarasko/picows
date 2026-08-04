@@ -5,6 +5,107 @@ picows Release History
    :depth: 1
    :local:
 
+2.1.2 (2026-07-30)
+------------------
+
+* GHSA-583m-hcmv-qpq9: Invalid 64-bit WebSocket payload length causes websocket server crash
+
+2.1.1 (2026-06-05)
+-----------------
+
+* Bump aiofastnet requirements, this fixes potential issues with python distributions that are statically linked with openssl
+
+2.1.0 (2026-05-18)
+-----------------
+
+* Websockets: add open, closed attributes to ConnectionBase for compatibility with legacy API.
+* Websockets: add protocol module with State enum for compatibility
+* Websockets: alias WebsocketClientProtocol to ClientConnection for compatibility with legacy API
+
+2.0.0 (2026-05-18)
+-----------------
+
+This release does NOT introduce any breaking changes to existing code that is using picows.
+You can update safely.
+
+The major version increase is done because of the new picows.websockets subpackage,
+which is a 2x faster drop-in replacement for the popular **websockets** library.
+Check out the benchmark!
+If you're already using websockets, you only need to update
+your imports to get a decent performance boost.
+
+* Added picows.websockets subpackage
+* Expose WSFrame.payload_size property to pure python users
+* Fix: WSTransport.close_handshake wasn't properly filled in some edge cases
+* Fix: Apply max_frame_size to non-control frames only. Control frames payload size only checked against 127 bytes limit.
+
+1.20.0 (2026-05-08)
+------------------
+
+* ws_connect/ws_create_server logger_name parameter can now accept a logger-like object
+* ws_connect/ws_create_server websocket_handshake_timeout param can now accept None to disable handshake timeouts
+* Introduce new exceptions: WSInvalidMessageError, WSInvalidStatusError, WSInvalidHeaderError, WSInvalidUpgradeError
+* Allow sending close frames only using send_close to simplify logic
+* Raise ValueError instead of assert on some invalid user input
+* Added rsv2 and rsv3 to WSTransport send methods
+* WSTransport send, send_ping, send_pong, send_close can now accept `str` type as message. The message will be encoded as utf-8 before sending
+* User on_ws_connect and on_ws_frame implementation can now signalize protocol errors by raising WSProtocolError
+* Add is_disconnected property to WSTransport.
+* Fix send_* methods raising exceptions when attempting to send after connection abort and without prior CLOSE frame.
+* Add missing WSUpgradeResponse.body attribute at the client side.
+* Add missing WSTransport.request attribute for the server side.
+* ws_connect can now accept listener_factory that takes WSUpgradeRequest, WSUpgradeResponse as arguments. Old argument-less client_factory also works.
+
+1.19.0 (2026-04-24)
+------------------
+
+* Enable sse2, avx2, avx512, neon speedups for windows builds
+* Disconnect if unknown frame opcode is received (RFC 6455 requirement)
+* Disconnect if client doesn't mask frame or server mask (RFC 6455 requirement)
+* Do not log "Protocol writing pause/resume requested" if user overrides WSListener pause_writing/resume_writing
+* Allow rsv2 and rsv3 bits in frames
+* Use Transport.write_nocheck from aiofastnet 0.5.0 for performance
+
+1.18.0 (2026-04-03)
+------------------
+
+* Raise exception if WSTransport methods are called from a wrong thread.
+* Add examples illustrating how to properly utilized multithreading with free-threaded Python.
+* Install aiofastnet and use it by default.
+* Fix docs compilation and add 'free threaded python' topic guide
+
+1.17.0 (2026-03-13)
+------------------
+
+* Improve masking performance on large frames.
+* Add aiofastnet as an optional dependency to speedup networking.
+
+1.16.0 (2026-02-27)
+------------------
+
+* Add socket_factory argument to ws_connect
+* Formalize exception hierarchy, new exceptions added: WSProtocolError, WSHandshakeError
+* Send CLOSE(MESSAGE_TO_BIG) instead of CLOSE(PROTOCOL_ERROR) on frame size violation
+* Deprecate zero_copy_unsafe_ssl_write in ws_connect and ws_create_server
+
+1.15.0 (2026-02-22)
+------------------
+
+* Expose WSTransport.is_close_frame_sent read-only property
+* Add 'Graceful websocket shutdown' topic guide
+* Add 'Setting socket options' topic guide
+* Always use BufferedProtocol (previously was only used with uvloop)
+* Implement exponential grow of the internal read buffer
+* Add read_buffer_init_size argument to ws_connect and ws_create_server
+* Add zero_copy_unsafe_ssl_write argument to ws_connect and ws_create_server
+
+1.14.0 (2026-02-19)
+------------------
+
+* WSTransport.wait_disconnected raises WSError exception if disconnect was cause by protocol parsing error.
+* Transfer user exception from on_ws_disconnected to wait_disconnected on the client side
+* Expand 'Exceptions handling' topic guide to explain how exceptions are transferred from user callbacks to wait_disconnected
+
 1.13.1 (2026-02-15)
 ------------------
 
@@ -19,7 +120,7 @@ picows Release History
 ------------------
 
 * #71: add support for HTTP redirects
-* Following discussion #68 added raw_header, raw_body and response attributes to WSError exception.
+* Following discussion #68 added raw_header, raw_body and response attributes to WSUpgradeFailure exception.
 * Added additional checks for URL and WSInvalidURL exception
 * Some non-latency critical code has been "de-cythonized" for better debugging experience.
 * WSUpgradeRequest, WSUpgradeResponse, WSUpgradeResponseWithListener moved to a pure python module

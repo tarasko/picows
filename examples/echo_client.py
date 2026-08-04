@@ -1,4 +1,6 @@
 import asyncio
+import logging
+
 from picows import ws_connect, WSFrame, WSTransport, WSListener, WSMsgType, WSCloseCode
 
 
@@ -18,4 +20,5 @@ async def main(url):
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
     asyncio.run(main("ws://127.0.0.1:9001"))

@@ -3,6 +3,7 @@ picows.egg-info
 *.so
 *.pyd
 *.c
+!picows/mask_*.c
 __pycache__
 *.html
 dist
@@ -10,3 +11,9 @@ wheelhouse
 build
 perf.data
 perf.data.old
+playground.py
+.coverage
+cython_debug
+coverage.xml
+picows.etl*
+.codex

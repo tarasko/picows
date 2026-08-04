@@ -1,7 +1,7 @@
 # This example illustrates how you can emulate async iteration interface similar
 # to websockets and aiohttp interfaces.
 
-# This example works against publicly available secure websocket echo server
+# This example works against publicly available is_secure websocket echo server
 # at wss://echo.websocket.org
 
 import asyncio

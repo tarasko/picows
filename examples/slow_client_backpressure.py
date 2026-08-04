@@ -102,5 +102,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    basicConfig(level=logging.ERROR)
+    basicConfig(level=logging.WARNING)
     asyncio.run(main())

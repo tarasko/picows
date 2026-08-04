@@ -3,11 +3,10 @@ name = "picows"
 description = "Ultra-fast websocket client and server for asyncio"
 authors = [{name = "Taras Kozlov", email = "tarasko.projects@gmail.com"}]
 requires-python = '>=3.9'
-readme = "README.rst"
+readme = "README.md"
 license-files = ["LICENSE"]
-dynamic = ["version"]
+dynamic = ["version", "dependencies"]
 keywords = ["websocket", "networking"]
-dependencies = ["multidict", "python-socks[asyncio]"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Framework :: AsyncIO",
@@ -28,7 +27,7 @@ classifiers = [
 ]
 
 [build-system]
-requires = ["setuptools >= 78.0", "wheel", "Cython >= 3.0"]
+requires = ["setuptools >= 78.0", "wheel", "Cython >= 3.2"]
 build-backend = "setuptools.build_meta"
 
 [project.urls]
@@ -37,17 +36,42 @@ Repository = "https://github.com/tarasko/picows"
 Issues = "https://github.com/tarasko/picows/issues"
 Documentation = "https://picows.readthedocs.io/en/latest"
 
-[tool.setuptools]
-packages = ["picows"]
+[tool.setuptools.packages.find]
+include = ["picows*"]
 
 [tool.setuptools.dynamic]
-version = {attr = "picows.__version__"}
+dependencies = {file = ["requirements.txt"]}
+version = {attr = "picows.version.__version__"}
+
+[project.optional-dependencies]
+aiofastnet = []
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
 
 [tool.mypy]
 files = "picows"
 ignore_missing_imports = true
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["picows.websockets.asyncio.connection"]
+disable_error_code = ["untyped-decorator"]
+
+[tool.coverage.run]
+source = ["picows"]
+branch = true
+plugins = ["Cython.Coverage"]
+core = "ctrace"
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "raise MemoryError",
+    "assert False"
+]

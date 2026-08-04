@@ -19,7 +19,7 @@ Introduction
 **picows** is a high-performance Python library designed for building asyncio WebSocket clients and servers.
 Implemented in Cython, it offers exceptional speed and efficiency, surpassing other popular Python WebSocket libraries.
 
-.. image:: https://raw.githubusercontent.com/tarasko/websocket-benchmark/master/results/benchmark-256.png
+.. image:: https://raw.githubusercontent.com/tarasko/websocket-benchmark/master/results/benchmark-Linux-256.png
     :target: https://github.com/tarasko/websocket-benchmark/blob/master
     :align: center
 
@@ -41,18 +41,96 @@ Use pip to install it::
 Getting started
 ===============
 
-Echo client
------------
-Connects to an echo server, sends a message, and disconnects after receiving a reply.
+picows provides two APIs:
+
+* A reimplementation of the popular
+  `websockets <https://websockets.readthedocs.io/en/stable/>`_ library's
+  asyncio interface.
+
+* A low-level core API. It is more efficient than the high-level websockets API
+  (lower latency, higher throughput, zero-copy), but omits a few high-level
+  features that aren't always required.
+
+websockets API
+--------------
+
+This is a drop-in replacement; you only need to change imports to transition from websockets to picows.
+
+Certain features from websockets library are not supported yet. Check out :doc:`websockets`
+for the full list.
+
+Client
+~~~~~~
+
+.. code-block:: python
+
+    # Import picows.websockets instead of websockets
+    from picows.websockets.asyncio.client import connect
+    import asyncio
+
+
+    async def hello():
+        async with connect("ws://localhost:8765") as websocket:
+            await websocket.send("Hello world!")
+            message = await websocket.recv()
+            print(message)
+
+
+    if __name__ == "__main__":
+        asyncio.run(hello())
+
+Server
+~~~~~~
+
+.. code-block:: python
+
+    # Import picows.websockets instead of websockets
+    from picows.websockets.asyncio.server import serve
+    import asyncio
+
+
+    async def echo(websocket):
+        async for message in websocket:
+            await websocket.send(message)
+
+
+    async def main():
+        async with serve(echo, "localhost", 8765) as server:
+            await server.serve_forever()
+
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+
+Core API
+--------
+
+The Core API achieves superior performance by offering an efficient, non-async
+data path, similar to the
+`transport/protocol design from asyncio <https://docs.python.org/3/library/asyncio-protocol.html#asyncio-transports-protocols>`_.
+
+The user handler receives WebSocket frame objects instead of complete messages.
+Since a message can span multiple frames, it is up to the user to decide the
+most effective strategy for concatenating them. Each frame object includes
+additional low-level details about the current parser state, which may help to
+further optimize the behavior of the user's application.
+
+The Core API doesn't offer high-level features like permessage-deflate extension
+support or an async iterator interface for reading. These features are often not
+required in real-world applications, significantly slow down the data path, and
+make a true zero-copy interface impossible.
+
+Client
+~~~~~~
 
 .. code-block:: python
 
     import asyncio
     from picows import ws_connect, WSFrame, WSTransport, WSListener, WSMsgType, WSCloseCode
 
+
     class ClientListener(WSListener):
         def on_ws_connected(self, transport: WSTransport):
-            self.transport = transport
             transport.send(WSMsgType.TEXT, b"Hello world")
 
         def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
@@ -60,39 +138,35 @@ Connects to an echo server, sends a message, and disconnects after receiving a r
             transport.send_close(WSCloseCode.OK)
             transport.disconnect()
 
-    async def main(url):
-        (_, client) = await ws_connect(ClientListener, url)
-        await client.transport.wait_disconnected()
 
-    if __name__ == '__main__':
-        asyncio.run(main("ws://127.0.0.1:9001"))
+    async def main():
+        transport, client = await ws_connect(ClientListener, "ws://127.0.0.1:9001")
+        await transport.wait_disconnected()
 
-This prints:
 
-.. code-block::
+    if __name__ == "__main__":
+        asyncio.run(main())
 
-    Echo reply: Hello world
-
-Echo server
------------
+Server
+~~~~~~
 
 .. code-block:: python
 
     import asyncio
     from picows import ws_create_server, WSFrame, WSTransport, WSListener, WSMsgType, WSUpgradeRequest
 
+
     class ServerClientListener(WSListener):
         def on_ws_connected(self, transport: WSTransport):
             print("New client connected")
 
         def on_ws_frame(self, transport: WSTransport, frame: WSFrame):
-            if frame.msg_type == WSMsgType.PING:
-                transport.send_pong(frame.get_payload_as_bytes())
-            elif frame.msg_type == WSMsgType.CLOSE:
+            if frame.msg_type == WSMsgType.CLOSE:
                 transport.send_close(frame.get_close_code(), frame.get_close_message())
                 transport.disconnect()
             else:
-                transport.send(frame.msg_type, frame.get_payload_as_bytes())
+                transport.send(frame.msg_type, frame.get_payload_as_memoryview())
+
 
     async def main():
         def listener_factory(r: WSUpgradeRequest):
@@ -105,5 +179,6 @@ Echo server
 
         await server.serve_forever()
 
-    if __name__ == '__main__':
-      asyncio.run(main())
+
+    if __name__ == "__main__":
+        asyncio.run(main())
