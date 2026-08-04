@@ -1,6 +1,6 @@
 setuptools >= 78.0
 Cython >= 3.2
-aiofastnet >= 0.9.0
+aiofastnet >= 1.0.3
 multidict
 python-socks
 coverage
