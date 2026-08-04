@@ -6,7 +6,7 @@ from functools import partial
 from inspect import isawaitable
 from logging import Logger, LoggerAdapter, getLogger
 from ssl import SSLContext
-from typing import Callable, Optional, Union, Dict, Any, Awaitable, TYPE_CHECKING
+from typing import Callable, Optional, Union, Dict, Any, Awaitable, cast, TYPE_CHECKING
 
 from python_socks.async_.asyncio import Proxy
 
@@ -343,15 +343,6 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                 extra_headers,
                 read_buffer_init_size
             )
-
-        current_ssl_context = ssl_context if parsed_url.secure else None
-
-        loop = asyncio.get_running_loop()
-        conn_kwargs = dict(kwargs)
-
-        proxy_socket = None
-        host = None
-        port = None
 
         try:
             conn_kwargs = dict(kwargs)
