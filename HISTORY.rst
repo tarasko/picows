@@ -5,6 +5,11 @@ picows Release History
    :depth: 1
    :local:
 
+2.1.3 ()
+------------------
+
+* Minor optimization for TCP write path
+
 2.1.2 (2026-07-30)
 ------------------
 
