@@ -93,6 +93,14 @@ cpdef WSFrame _make_test_ws_frame(WSMsgType msg_type, bytes payload, bint fin, b
 cdef class WSTransport:
     cdef:
         object __weakref__
+        unsigned long _thread_id
+        object _loop
+        object _logger                         #: Logger
+        bint _log_debug_enabled
+        bint _is_aiofn_transport
+        object _tr_get_write_buffer_size
+        object _tr_write
+        int _socket
 
         readonly object underlying_transport        #: asyncio.Transport
         readonly object request                     #: WSUpgradeRequest
@@ -111,14 +119,8 @@ cdef class WSTransport:
         object listener_proxy
         object disconnected_future             #: asyncio.Future
 
-        object _loop
-        object _logger                         #: Logger
         MemoryBuffer _write_buffer
 
-        unsigned long _thread_id
-        int _socket
-        bint _is_aiofn_transport
-        bint _log_debug_enabled
 
     cdef inline send_reuse_external_buffer(self, WSMsgType msg_type, char* msg_ptr, Py_ssize_t msg_size, bint fin=*, bint rsv1=*, bint rsv2=*, bint rsv3=*)
     cpdef send(self, WSMsgType msg_type, message, bint fin=*, bint rsv1=*, bint rsv2=*, bint rsv3=*)

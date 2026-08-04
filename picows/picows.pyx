@@ -383,6 +383,16 @@ cdef class WSListener:
 
 cdef class WSTransport:
     def __init__(self, bint is_client_side, underlying_transport, logger, loop):
+        self._thread_id = PyThread_get_thread_ident()
+        self._loop = loop
+        self._logger = logger
+        self._log_debug_enabled = self._logger.isEnabledFor(_DEBUG_LL)
+        self._is_aiofn_transport = _is_aiofn_transport(underlying_transport)
+        self._tr_get_write_buffer_size = underlying_transport.get_write_buffer_size
+        self._tr_write = underlying_transport.write_nocheck \
+            if self._is_aiofn_transport else underlying_transport.write
+        self._socket = underlying_transport.get_extra_info('socket').fileno()
+
         self.underlying_transport = underlying_transport
         self.request = None
         self.response = None
@@ -395,13 +405,8 @@ cdef class WSTransport:
         self.pong_received_at_future = None
         self.listener_proxy = None
         self.disconnected_future = loop.create_future()
-        self._loop = loop
-        self._logger = logger
+
         self._write_buffer = MemoryBuffer(1024)
-        self._thread_id = PyThread_get_thread_ident()
-        self._socket = underlying_transport.get_extra_info('socket').fileno()
-        self._is_aiofn_transport = _is_aiofn_transport(underlying_transport)
-        self._log_debug_enabled = self._logger.isEnabledFor(_DEBUG_LL)
 
     cdef _check_thread(self, meth):
         cdef unsigned long curr_thread_id = PyThread_get_thread_ident()
@@ -845,36 +850,28 @@ cdef class WSTransport:
         self.underlying_transport.write(response_bytes)
 
     cdef _fast_write(self, char* ptr, Py_ssize_t sz):
+        cdef Py_ssize_t bytes_written
+
+        # Fast path for TCP protocol when there is not cached data in the transport
+        if not self.is_secure and not <Py_ssize_t>self._tr_get_write_buffer_size():
+            # Try to send data using system send. Pass copied data to asyncio if we
+            # get EAGAIN or any other error
+            bytes_written = send(self._socket, ptr, <size_t> sz, 0)
+            if bytes_written == sz:
+                return
+            elif bytes_written >= 0:
+                self._tr_write(PyBytes_FromStringAndSize(<char*> ptr + bytes_written, sz - bytes_written))
+                return
+
         if self._is_aiofn_transport:
             # aiofastnet guarantees that the data will be copied if it can't be
             # sent immediately, we can safely use non-owning memory view to our
             # buffer
-            self.underlying_transport.write_nocheck(
-                PyMemoryView_FromMemory(ptr, sz, PyBUF_READ))
+            self._tr_write(PyMemoryView_FromMemory(ptr, sz, PyBUF_READ))
             return
-
-        if self.is_secure:
-            self.underlying_transport.write(PyBytes_FromStringAndSize(ptr, sz))
+        else:
+            self._tr_write(PyBytes_FromStringAndSize(ptr, sz))
             return
-
-        if <Py_ssize_t>self.underlying_transport.get_write_buffer_size() > 0:
-            self.underlying_transport.write(PyBytes_FromStringAndSize(ptr, sz))
-            return
-
-        # Try to send data using system send. Pass copied data to asyncio if we
-        # get EAGAIN.
-
-        cdef Py_ssize_t bytes_written = send(self._socket, ptr, <size_t>sz, 0)
-
-        if bytes_written == sz:
-            return
-        elif bytes_written >= 0:
-            self.underlying_transport.write(PyBytes_FromStringAndSize(<char*> ptr + bytes_written, sz - bytes_written))
-            return
-
-        # In case any errors we ask asyncio to try sending again.
-        # Asyncio will try and based on error code may report 'disconnected' event.
-        self.underlying_transport.write(PyBytes_FromStringAndSize(<char *> ptr, sz))
 
 
 # uvloop and asyncio use different checks to detect BufferedProtocol
