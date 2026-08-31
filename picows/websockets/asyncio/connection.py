@@ -9,7 +9,7 @@ from collections import deque
 from collections.abc import AsyncIterable, Iterable
 from time import monotonic
 from typing import Any, AsyncIterator, Awaitable, Optional, \
-    Union, Dict, Tuple, Iterator, Mapping, NoReturn
+    Union, Dict, Tuple, Iterator, Mapping, NoReturn, Callable
 
 import cython
 
@@ -250,6 +250,7 @@ class ConnectionBase(WSListener):  # type: ignore[misc]
     _subprotocol: Optional[Subprotocol]
     _permessage_deflate: Optional[_PerMessageDeflate]
     _loop: asyncio.AbstractEventLoop
+    _loop_create_future: Callable[[], asyncio.Future[Any]]
 
     # Send side
     _send_in_progress: cython.bint
@@ -305,6 +306,7 @@ class ConnectionBase(WSListener):  # type: ignore[misc]
         self._subprotocol = subprotocol
         self._permessage_deflate = permessage_deflate
         self._loop = asyncio.get_running_loop()
+        self._loop_create_future = self._loop.create_future
 
         self._send_in_progress = False
         self._send_waiters = deque()
@@ -323,7 +325,7 @@ class ConnectionBase(WSListener):  # type: ignore[misc]
         self._incoming_message_size = 0
 
         self._close_timeout = close_timeout
-        self._close_fut = self._loop.create_future()
+        self._close_fut = self._loop_create_future()
         self._close_exc: Optional[ConnectionClosed] = None
 
         self._pending_pings: dict[bytes, tuple[asyncio.Future[float], float]] = {}
@@ -439,7 +441,7 @@ class ConnectionBase(WSListener):  # type: ignore[misc]
     @cython.ccall
     def pause_writing(self) -> None:
         if self._write_ready is None:
-            self._write_ready = self._loop.create_future()
+            self._write_ready = self._loop_create_future()
 
     @cython.ccall
     def resume_writing(self) -> None:
@@ -508,7 +510,7 @@ class ConnectionBase(WSListener):  # type: ignore[misc]
         if self._close_exc is not None:
             raise self._close_exc
 
-        waiter: asyncio.Future[None] = self._loop.create_future()
+        waiter: asyncio.Future[None] = self._loop_create_future()
         self._recv_waiter = waiter
         return waiter
 
@@ -685,7 +687,7 @@ class ConnectionBase(WSListener):  # type: ignore[misc]
         # waiter future is not shielded intentionally, it turns into Cancelled
         # state and removed from waiters by _release_send.
         # _wait_close_and_raise shields _close_fut.
-        waiter: asyncio.Future[None] = self._loop.create_future()
+        waiter: asyncio.Future[None] = self._loop_create_future()
         self._send_waiters.append(waiter)
         await waiter
         if not self._is_in_open_state():
