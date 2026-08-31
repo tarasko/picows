@@ -47,13 +47,6 @@ class _NotImplemented(Exception):
     pass
 
 
-# "unlikely" works only for gcc, but still nice to have
-# https://github.com/cython/cython/issues/7667
-cdef extern from *:
-    cdef bint unlikely(bint val) noexcept
-    cdef bint likely(bint val) noexcept
-
-
 cdef extern from "compat.h" nogil:
     uint32_t ntohl(uint32_t)
     uint32_t htonl(uint32_t)
@@ -105,7 +98,7 @@ cdef inline uint8_t* _mask_payload(uint8_t* input, size_t input_len, uint32_t ma
 
 cdef inline NoResult _unpack_buffer(object buffer, char** ptr_out,
                                     Py_ssize_t* size_out) except NoResult.EXC:
-    if unlikely(buffer is None):
+    if cython.unlikely(buffer is None):
         ptr_out[0] = NULL
         size_out[0] = 0
         return NoResult.SUCCESS
@@ -506,7 +499,7 @@ cdef class WSTransport:
     cdef NoResult _send_buffer(self, WSMsgType msg_type,
                                char* msg_ptr, Py_ssize_t msg_size,
                                bint fin, bint rsv1, bint rsv2, bint rsv3) except NoResult.EXC:
-        if unlikely(self.is_close_frame_sent or self.is_disconnected):
+        if cython.unlikely(self.is_close_frame_sent or self.is_disconnected):
             self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
             return NoResult.SUCCESS
 
@@ -523,7 +516,7 @@ cdef class WSTransport:
 
     cdef NoResult _send(self, WSMsgType msg_type, message,
                         bint fin, bint rsv1, bint rsv2, bint rsv3) except NoResult.EXC:
-        if unlikely(self.is_close_frame_sent or self.is_disconnected):
+        if cython.unlikely(self.is_close_frame_sent or self.is_disconnected):
             self._logger.debug("Ignore attempt to send a message after WSMsgType.CLOSE has already been sent")
             return NoResult.SUCCESS
 
@@ -1182,7 +1175,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         # Therefore, ignore it and just implement exponential buffer grow
         # after reading data when buffer utilization hits a thresholds.
 
-        if unlikely(self._log_debug_enabled):
+        if cython.unlikely(self._log_debug_enabled):
             self._logger.log(_DEBUG_LL, "get_buffer(%d), provide=%d, total=%d, cap=%d",
                              size_hint,
                              self._read_buffer.size - self._f_new_data_start_pos,
@@ -1195,7 +1188,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             PyBUF_WRITE)
 
     def buffer_updated(self, Py_ssize_t nbytes):
-        if unlikely(self._log_debug_enabled):
+        if cython.unlikely(self._log_debug_enabled):
             self._logger.log(_DEBUG_LL, "buffer_updated(%d), write_pos %d -> %d", nbytes,
                              self._f_new_data_start_pos, self._f_new_data_start_pos + nbytes)
 
@@ -1338,7 +1331,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         cdef double idle_delay
         cdef object sleep = asyncio.sleep
         try:
-            if unlikely(self._log_debug_enabled):
+            if cython.unlikely(self._log_debug_enabled):
                 self._logger.log(_DEBUG_LL, "Auto-ping loop started with idle_timeout=%s, reply_timeout=%s",
                                  self._auto_ping_idle_timeout, self._auto_ping_reply_timeout)
 
@@ -1352,12 +1345,12 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                     if self._last_data_time > prev_last_data_time:
                         continue
 
-                    if unlikely(self._log_debug_enabled):
+                    if cython.unlikely(self._log_debug_enabled):
                         self._logger.log(_DEBUG_LL, "Send PING because no new data over the last %s seconds", self._auto_ping_idle_timeout)
                 else:
                     await sleep(self._auto_ping_idle_timeout)
 
-                    if unlikely(self._log_debug_enabled):
+                    if cython.unlikely(self._log_debug_enabled):
                         self._logger.log(_DEBUG_LL, "Send periodic PING")
 
                 if self.transport.pong_received_at_future is not None:
@@ -1387,7 +1380,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                     self._loop.call_later(_DISCONNECT_AFTER_ERROR_DELAY, self.transport.underlying_transport.abort)
                     break
         except asyncio.CancelledError:
-            if unlikely(self._log_debug_enabled):
+            if cython.unlikely(self._log_debug_enabled):
                 self._logger.log(_DEBUG_LL, "Auto-ping loop cancelled")
         except:
             self._logger.exception("Auto-ping loop failed, disconnect websocket")
@@ -1410,7 +1403,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             self._logger.info("Disconnect because upgrade request violated max_size threshold: %d", 16*1024)
             return None, None
 
-        if unlikely(self._log_debug_enabled):
+        if cython.unlikely(self._log_debug_enabled):
             self._logger.log(_DEBUG_LL, "New data: %s", data)
 
         cdef list lines = <list>raw_headers.split(b"\r\n")
@@ -1609,7 +1602,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         memmove(self._read_buffer.data, self._read_buffer.data + len(raw_headers) + 4, self._read_buffer.size - len(raw_headers) - 4)
         self._f_new_data_start_pos = len(tail)
         self._state = WSParserState.READ_HEADER
-        if unlikely(self._log_debug_enabled):
+        if cython.unlikely(self._log_debug_enabled):
             self._logger.log(_DEBUG_LL, "WS handshake done, switch to upgraded state")
 
         return response
@@ -1775,7 +1768,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             self._f_curr_frame_start_pos = self._f_curr_state_start_pos
             self._state = WSParserState.READ_HEADER
 
-            if unlikely(frame.msg_type == WSMsgType.CLOSE):
+            if cython.unlikely(frame.msg_type == WSMsgType.CLOSE):
                 close_code = frame.get_close_code()
                 if close_code < 3000 and close_code not in _ALLOWED_CLOSE_CODES:
                     raise WSProtocolError(WSCloseCode.PROTOCOL_ERROR,
@@ -1833,14 +1826,14 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
     cdef inline NoResult _invoke_on_ws_frame(self, WSFrame frame) except NoResult.EXC:
         try:
-            if unlikely(self._enable_auto_pong and frame.msg_type == WSMsgType.PING):
+            if cython.unlikely(self._enable_auto_pong and frame.msg_type == WSMsgType.PING):
                 payload = frame.get_payload_as_bytes()
                 self.transport.send_pong(payload)
                 if self._log_debug_enabled:
                     self._logger.log(_DEBUG_LL, "PING(%s) frame received, replied with PONG", payload)
                 return NoResult.SUCCESS
 
-            if unlikely(self._enable_auto_ping and self.transport.auto_ping_expect_pong or self.transport.pong_received_at_future is not None):
+            if cython.unlikely(self._enable_auto_ping and self.transport.auto_ping_expect_pong or self.transport.pong_received_at_future is not None):
                 if self.listener.is_user_specific_pong(frame):
                     self.transport.auto_ping_expect_pong = False
                     if self.transport.pong_received_at_future is not None:
