@@ -1,5 +1,7 @@
+import asyncio
 import socket
 import ssl
+import sys
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from logging import getLogger
@@ -7,14 +9,16 @@ from typing import Optional
 
 import anyio
 import pytest
+from anyio.streams.tls import TLSListener
 from tiny_proxy import HttpProxyHandler, Socks4ProxyHandler, Socks5ProxyHandler
 
 import picows
 from picows.url import parse_url
+
 from tests.utils import AsyncClient, WSClient, WSServer
 from tests.fixtures import (
     multiloop_event_loop_policy,
-    create_server_ssl_context
+    create_server_ssl_context, create_client_ssl_context
 )
 
 event_loop_policy = multiloop_event_loop_policy()
@@ -27,6 +31,10 @@ def _create_proxy_handler(proxy_type: str):
         return HttpProxyHandler()
     if proxy_type == "http_auth":
         return HttpProxyHandler(username="user", password="password")
+    if proxy_type == "https":
+        return HttpProxyHandler()
+    if proxy_type == "https_auth":
+        return HttpProxyHandler(username="user", password="password")
     if proxy_type == "socks4":
         return Socks4ProxyHandler()
     if proxy_type == "socks5":
@@ -38,6 +46,8 @@ def _create_proxy_handler(proxy_type: str):
 _proxy_url_templates = {
     "http": "http://127.0.0.1:{port}",
     "http_auth": "http://user:password@127.0.0.1:{port}",
+    "https": "https://127.0.0.1:{port}",
+    "https_auth": "https://user:password@127.0.0.1:{port}",
     "socks4": "socks4://127.0.0.1:{port}",
     "socks5": "socks5://user:password@127.0.0.1:{port}"
 }
@@ -51,10 +61,11 @@ async def ProxyServer(proxy_type: str):
     url_template = _proxy_url_templates[proxy_type]
     handler = _create_proxy_handler(proxy_type)
     listener = await anyio.create_tcp_listener(local_host="127.0.0.1")
+    proxy_listener = TLSListener(listener, create_server_ssl_context()) if proxy_type.startswith("https") else listener
 
     task_group = anyio.create_task_group()
     await task_group.__aenter__()
-    task_group.start_soon(listener.serve, handler.handle)
+    task_group.start_soon(proxy_listener.serve, handler.handle)
 
     try:
         proxy_port = listener.listeners[0].extra(anyio.abc.SocketAttribute.local_port)
@@ -62,7 +73,7 @@ async def ProxyServer(proxy_type: str):
     finally:
         task_group.cancel_scope.cancel()
         await task_group.__aexit__(None, None, None)
-        await listener.aclose()
+        await proxy_listener.aclose()
 
 
 @pytest.fixture(params=["tcp", "ssl"])
@@ -101,7 +112,7 @@ async def redirect_server_2(redirect_server_1):
         yield server.url
 
 
-@pytest.mark.parametrize("proxy_type", ["direct", "http", "http_auth", "socks4", "socks5"])
+@pytest.mark.parametrize("proxy_type", ["direct", "http", "http_auth", "socks4", "socks5", "https", "https_auth"])
 @pytest.mark.parametrize("custom_sock", ["none", "new", "connected"])
 @pytest.mark.parametrize("cb_type", ["cb", "awaitable"])
 async def test_redirect_through_proxy(use_aiofastnet, ssl_context, proxy_type: str, custom_sock: str, cb_type: str):
@@ -113,6 +124,14 @@ async def test_redirect_through_proxy(use_aiofastnet, ssl_context, proxy_type: s
     # echo server, send request and validate response.
     #
     # God bless pytest!
+
+    is_https = proxy_type in ("https", "https_auth")
+    is_asyncio_loop = isinstance(asyncio.get_event_loop_policy(), asyncio.DefaultEventLoopPolicy)
+
+    if sys.version_info < (3, 11) and is_asyncio_loop and is_https:
+        pytest.skip("HTTPS proxy using asyncio requires Python 3.11+")
+
+    proxy_ssl_ctx = create_client_ssl_context() if is_https else None
 
     def socket_factory_cb(parsed_url) -> Optional[socket.socket]:
         nonlocal last_socket
@@ -155,6 +174,7 @@ async def test_redirect_through_proxy(use_aiofastnet, ssl_context, proxy_type: s
                     async with WSClient(redirect_server_2,
                                         ssl_context=ssl_context.client,
                                         proxy=proxy_url,
+                                        proxy_ssl_context=proxy_ssl_ctx,
                                         socket_factory=socket_factory,
                                         use_aiofastnet=use_aiofastnet) as client:
                         # Check that we are using the same socket that was produced by socket_factory
@@ -179,14 +199,23 @@ async def test_redirect_through_proxy(use_aiofastnet, ssl_context, proxy_type: s
                         await picows.ws_connect(AsyncClient, redirect_server_2.url, max_redirects=1, proxy=proxy_url)
 
 
-@pytest.mark.parametrize("proxy_type", ["direct", "http", "socks4", "socks5"])
+@pytest.mark.parametrize("proxy_type", ["direct", "http", "https", "socks4", "socks5"])
 async def test_proxy_dns_resolution(proxy_type):
+    is_https = proxy_type in ("https", "https_auth")
+    is_asyncio_loop = isinstance(asyncio.get_event_loop_policy(), asyncio.DefaultEventLoopPolicy)
+
+    if sys.version_info < (3, 11) and is_asyncio_loop and is_https:
+        pytest.skip("HTTPS proxy using asyncio requires Python 3.11+")
+
     client_ssl_ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+    proxy_ssl_ctx = create_client_ssl_context() if is_https else None
 
     async with ProxyServer(proxy_type) as proxy_url:
         try:
             async with WSClient("wss://echo.websocket.org",
-                                ssl_context=client_ssl_ctx, proxy=proxy_url,
+                                ssl_context=client_ssl_ctx,
+                                proxy=proxy_url,
+                                proxy_ssl_context=proxy_ssl_ctx,
                                 websocket_handshake_timeout=1.0) as client:
                 frame = await client.get_message()
                 _logger.debug("Welcome frame from echo.websocket.org: %s", frame.payload_as_ascii_text)

@@ -16,7 +16,6 @@ from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: igno
                      WSProtocol)
 from .url import parse_url, WSInvalidURL, WSParsedURL
 
-
 WSListenerFactory = Union[
     Callable[[], WSListener],
     Callable[[WSUpgradeRequest, WSUpgradeResponse], WSListener],
