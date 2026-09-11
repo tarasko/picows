@@ -123,6 +123,9 @@ class InvalidStatus(InvalidHandshake):
         super().__init__(response)
         self.response = response
 
+    def __str__(self) -> str:
+        return f"server rejected WebSocket connection: HTTP {self.response.status_code:d}"
+
 
 class InvalidHeader(InvalidHandshake):
     def __init__(self, name: str, value: Optional[str] = None):

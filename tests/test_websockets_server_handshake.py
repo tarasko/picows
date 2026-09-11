@@ -36,7 +36,13 @@ async def test_serve_process_request_can_reject_handshake():
         with pytest.raises(websockets.InvalidStatus) as exc_info:
             async with websockets.connect(f"ws://127.0.0.1:{port}/", compression=None):
                 pass
-        assert int(exc_info.value.response.status) == 418
+        response = exc_info.value.response
+        assert isinstance(response, websockets.Response)
+        assert response.status_code == 418
+        assert response.status == 418
+        assert response.reason_phrase == "I'm a Teapot"
+        assert response.headers["X-Test"] == "yes"
+        assert str(exc_info.value) == "server rejected WebSocket connection: HTTP 418"
 
 
 async def test_serve_process_response_can_mutate_handshake_response():
