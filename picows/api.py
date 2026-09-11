@@ -409,6 +409,10 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
         as health checks. A 101 response is sent only after validating the
         WebSocket upgrade request.
 
+        Incoming requests must be HTTP/1.1 GET requests without a body.
+        ``Content-Length`` may be omitted or set to zero; ``Transfer-Encoding``
+        and non-zero content lengths are rejected.
+
         The user handler must derive from WSListener and is responsible for
         processing incoming data.
 

@@ -36,6 +36,8 @@ cdef:
     object _DISCONNECT_AFTER_ERROR_DELAY = 0.01
     set _ALLOWED_CLOSE_CODES = {int(i) for i in WSCloseCode}
     bytes _WS_KEY = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+    bytes _HTTP_TOKEN_SPECIALS = b"!#$%&'*+-.^_`|~"
+    Py_ssize_t _HTTP_MAX_NUM_HEADERS = 128
     object _DEBUG_LL = PICOWS_DEBUG_LL
 
 
@@ -270,6 +272,124 @@ cpdef WSFrame _make_test_ws_frame(WSMsgType msg_type, bytes payload, bint fin, b
     self.rsv3 = False
     self.last_in_buffer = True
     return self
+
+
+cdef inline bint _is_http_token(bytes value):
+    cdef unsigned char character
+
+    if not value:
+        return False
+
+    for character in value:
+        if (b"0"[0] <= character <= b"9"[0]
+                or b"A"[0] <= character <= b"Z"[0]
+                or b"a"[0] <= character <= b"z"[0]
+                or character in _HTTP_TOKEN_SPECIALS):
+            continue
+        return False
+
+    return True
+
+
+cdef inline bint _is_valid_http_field_value(bytes value):
+    cdef unsigned char character
+
+    for character in value:
+        if character == 9 or 32 <= character <= 126 or character >= 128:
+            continue
+        return False
+
+    return True
+
+
+cpdef object _parse_http_request(bytes raw_headers):
+    cdef list lines = <list>raw_headers.split(b"\r\n")
+    cdef bytes request_line = <bytes>lines[0]
+    cdef list request_line_parts = request_line.split(b" ")
+    if len(request_line_parts) != 3:
+        raise RuntimeError(f"Malformed request line: {request_line}")
+
+    cdef bytes method = <bytes>request_line_parts[0]
+    cdef bytes path = <bytes>request_line_parts[1]
+    cdef bytes version = <bytes>request_line_parts[2]
+    if method != b"GET":
+        raise RuntimeError(f"Unsupported HTTP method: {method}")
+    if not path:
+        raise RuntimeError("HTTP request target cannot be empty")
+    if version != b"HTTP/1.1":
+        raise RuntimeError(f"Unsupported HTTP version: {version}")
+
+    if len(lines) - 1 > _HTTP_MAX_NUM_HEADERS:
+        raise RuntimeError(f"HTTP request contains more than {_HTTP_MAX_NUM_HEADERS} headers")
+
+    cdef object headers = CIMultiDict()
+    cdef list parts
+    cdef bytes line, name, value
+    cdef Py_ssize_t idx
+    for idx in range(1, len(lines)):
+        line = <bytes>lines[idx]
+        if line.startswith((b" ", b"\t")):
+            raise RuntimeError(f"Obsolete folded HTTP header is not supported: {line}")
+
+        parts = <list>line.split(b":", 1)
+        if len(parts) != 2:
+            raise RuntimeError(f"Malformed header in HTTP request: {line}")
+
+        name, value = <bytes>parts[0], <bytes>parts[1]
+        if not _is_http_token(name):
+            raise RuntimeError(f"Invalid HTTP header name: {name}")
+
+        value = value.strip(b" \t")
+        if not _is_valid_http_field_value(value):
+            raise RuntimeError(f"Invalid HTTP header value for {name}: {value}")
+
+        headers.add(name.decode("ascii"), value.decode("ascii", "surrogateescape"))
+
+    if "Transfer-Encoding" in headers:
+        raise RuntimeError("Transfer-Encoding is not supported in HTTP requests")
+
+    cdef list content_length_values = headers.getall("Content-Length", [])
+    if len(content_length_values) > 1:
+        raise RuntimeError("Multiple Content-Length headers are not supported")
+    if content_length_values:
+        content_length = content_length_values[0]
+        if not content_length or content_length.strip("0"):
+            raise RuntimeError(f"HTTP request body is not supported: Content-Length is {content_length!r}")
+
+    request = WSUpgradeRequest()
+    request.method = method
+    request.path = path
+    request.version = version
+    request.headers = headers
+    return request
+
+
+cpdef bytes _validate_upgrade_request(object upgrade_request):
+    cdef object headers = upgrade_request.headers
+
+    if "websocket" != headers.get("upgrade"):
+        raise RuntimeError("No WebSocket UPGRADE header. Can 'Upgrade' only to 'websocket'")
+
+    if "connection" not in headers:
+        raise RuntimeError("No CONNECTION upgrade header")
+
+    if "upgrade" != headers["connection"].lower():
+        raise RuntimeError("CONNECTION header value is not 'upgrade'")
+
+    version = headers.get("sec-websocket-version")
+    if headers.get("sec-websocket-version") not in ("13", "8", "7"):
+        raise RuntimeError(f"Upgrade requested to unsupported websocket version: {version}")
+
+    cdef str key = <str>headers.get("sec-websocket-key")
+    cdef bytes key_bytes
+    try:
+        key_bytes = key.encode("ascii") if key else b""
+        if not key_bytes or len(b64decode(key_bytes)) != 16:
+            raise RuntimeError(f"Handshake error, invalid key: {key!r}")
+    except (UnicodeEncodeError, binascii.Error):
+        raise RuntimeError(f"Handshake error, invalid key: {key!r}") from None
+
+    return b64encode(sha1(<bytes>key_bytes + _WS_KEY).digest())
 
 
 cdef class MemoryBuffer:
@@ -1312,7 +1432,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 return False
 
             try:
-                accept_val = self._validate_upgrade_request(upgrade_request)
+                accept_val = _validate_upgrade_request(upgrade_request)
             except RuntimeError as ex:
                 response = WSUpgradeResponse.create_error_response(
                     HTTPStatus.BAD_REQUEST, str(ex).encode())
@@ -1417,29 +1537,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         if cython.unlikely(self._log_debug_enabled):
             self._logger.log(_DEBUG_LL, "New data: %s", data)
 
-        cdef list lines = <list>raw_headers.split(b"\r\n")
-        cdef bytes request_line = <bytes>lines[0]
-        cdef list request_line_parts = request_line.split(b" ")
-        if len(request_line_parts) != 3:
-            raise RuntimeError(f"Malformed request line: {request_line}")
-
-        cdef object headers = CIMultiDict()
-        cdef list parts
-        cdef bytes line, name, value
-        cdef Py_ssize_t idx
-        for idx in range(1, len(lines)):
-            line = <bytes>lines[idx]
-            parts = <list>line.split(b":", 1)
-            if len(parts) != 2:
-                raise RuntimeError(f"Malformed header in HTTP request: {raw_headers}")
-            name, value = <bytes>parts[0], <bytes>parts[1]
-            headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
-
-        upgrade_request = WSUpgradeRequest()
-        upgrade_request.method = <bytes>request_line_parts[0]
-        upgrade_request.path = <bytes>request_line_parts[1]
-        upgrade_request.version = <bytes>request_line_parts[2]
-        upgrade_request.headers = headers
+        upgrade_request = _parse_http_request(raw_headers)
 
         memmove(self._read_buffer.data,
                 self._read_buffer.data + len(raw_headers) + 4,
@@ -1449,31 +1547,6 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         self._f_new_data_start_pos = len(tail)
 
         return upgrade_request
-
-    cdef inline bytes _validate_upgrade_request(self, upgrade_request):
-        cdef object headers = upgrade_request.headers
-
-        if "websocket" != headers.get("upgrade"):
-            raise RuntimeError("No WebSocket UPGRADE header. Can 'Upgrade' only to 'websocket'")
-
-        if "connection" not in headers:
-            raise RuntimeError("No CONNECTION upgrade header")
-
-        if "upgrade" != headers["connection"].lower():
-            raise RuntimeError("CONNECTION header value is not 'upgrade'")
-
-        version = headers.get("sec-websocket-version")
-        if headers.get("sec-websocket-version") not in ("13", "8", "7"):
-            raise RuntimeError(f"Upgrade requested to unsupported websocket version: {version}")
-
-        cdef str key = <str>headers.get("sec-websocket-key")
-        try:
-            if not key or len(b64decode(key)) != 16:
-                raise RuntimeError(f"Handshake error, invalid key: {key!r}")
-        except binascii.Error:
-            raise RuntimeError(f"Handshake error, invalid key: {key!r}") from None
-
-        return b64encode(sha1(<bytes>key.encode() + _WS_KEY).digest())
 
     cdef inline object _try_read_and_process_upgrade_response(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._read_buffer.data, self._f_new_data_start_pos)
