@@ -1,3 +1,5 @@
+# This example shows how to serve a WebSocket endpoint and an HTTP health check on the same port.
+
 import asyncio
 from logging import basicConfig
 
