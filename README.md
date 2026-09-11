@@ -8,7 +8,10 @@
     <a href='https://pypistats.org/packages/picows' target="_blank"><img alt='downloads' src='https://img.shields.io/pypi/dm/picows'></a>
     <a href='https://picows.readthedocs.io/en/latest/' target="_blank"><img alt='docs' src='https://readthedocs.org/projects/picows/badge/?version=latest'></a>
     <a href='https://codspeed.io/tarasko/picows?utm_source=badge' target="_blank"><img alt='codspeed' src='https://img.shields.io/endpoint?url=https://codspeed.io/badge.json'></a>
-    <a href='https://deepwiki.com/tarasko/picows' target="_blank"><img alt='codspeed' src='https://deepwiki.com/badge.svg'></a>
+</p>
+
+<p align="center">
+    <a href='https://deepwiki.com/tarasko/picows' target="_blank"><img alt='DeepWiki' src='https://deepwiki.com/badge.svg'></a>
     <a href='https://keepthewhy.com' target="_blank"><img alt='Keep the Why' src='https://keepthewhy.com/assets/badge.svg'></a>
 </p>
 
