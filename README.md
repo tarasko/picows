@@ -13,6 +13,7 @@
 <p align="center">
     <a href='https://deepwiki.com/tarasko/picows' target="_blank"><img alt='DeepWiki' src='https://deepwiki.com/badge.svg'></a>
     <a href='https://keepthewhy.com' target="_blank"><img alt='Keep the Why' src='https://keepthewhy.com/assets/badge.svg'></a>
+    <a href='https://github.com/tarasko/picows/actions/workflows/ktw-lint.yml?query=branch%3Amaster' target="_blank"><img alt='ktw-lint' src='https://img.shields.io/github/actions/workflow/status/tarasko/picows/ktw-lint.yml?branch=master&label=ktw-lint'></a>
 </p>
 
 <div align="center">
