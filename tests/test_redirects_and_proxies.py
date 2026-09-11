@@ -193,10 +193,22 @@ async def test_redirect_through_proxy(use_aiofastnet, ssl_context, proxy_type: s
                         assert frame.payload_as_bytes == b"hello over proxy"
 
                     with pytest.raises(picows.WSError, match="status 101"):
-                        await picows.ws_connect(AsyncClient, redirect_server_2.url, max_redirects=0, proxy=proxy_url)
+                        await picows.ws_connect(
+                            AsyncClient,
+                            redirect_server_2.url,
+                            max_redirects=0,
+                            proxy=proxy_url,
+                            proxy_ssl_context=proxy_ssl_ctx,
+                        )
 
                     with pytest.raises(picows.WSError, match="status 101"):
-                        await picows.ws_connect(AsyncClient, redirect_server_2.url, max_redirects=1, proxy=proxy_url)
+                        await picows.ws_connect(
+                            AsyncClient,
+                            redirect_server_2.url,
+                            max_redirects=1,
+                            proxy=proxy_url,
+                            proxy_ssl_context=proxy_ssl_ctx,
+                        )
 
 
 @pytest.mark.parametrize("proxy_type", ["direct", "http", "https", "socks4", "socks5"])
