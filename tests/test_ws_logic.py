@@ -11,6 +11,7 @@ from typing import Optional
 
 import async_timeout
 import pytest
+from multidict import CIMultiDict
 
 import picows
 from picows.api import _resolve_logger
@@ -238,6 +239,96 @@ async def test_server_bad_request():
         async with async_timeout.timeout(TIMEOUT):
             await r.read()
         assert r.at_eof()
+
+
+async def test_server_custom_http_response_for_non_upgrade_request():
+    received_request = None
+
+    def listener_factory(request):
+        nonlocal received_request
+        received_request = request
+
+        response = picows.WSUpgradeResponse()
+        response.version = b"HTTP/1.1"
+        response.status = HTTPStatus.OK
+        response.headers = CIMultiDict({"X-Test": "custom-response"})
+        response.body = b"healthy"
+        return picows.WSUpgradeResponseWithListener(response, None)
+
+    async with WSServer(listener_factory) as server:
+        reader, writer = await asyncio.open_connection(server.host, server.port)
+        writer.write(
+            b"GET /health HTTP/1.1\r\n"
+            b"Host: localhost\r\n"
+            b"\r\n"
+        )
+        await writer.drain()
+        response = await reader.read()
+        writer.close()
+        await writer.wait_closed()
+
+    assert received_request.method == b"GET"
+    assert received_request.path == b"/health"
+    assert received_request.version == b"HTTP/1.1"
+    assert received_request.headers["Host"] == "localhost"
+    assert response.startswith(b"HTTP/1.1 200 OK\r\n")
+    assert b"X-Test: custom-response\r\n" in response
+    assert response.endswith(b"\r\n\r\nhealthy")
+
+
+async def test_server_waits_for_complete_http_request_before_calling_listener_factory():
+    factory_called = asyncio.Event()
+
+    def listener_factory(request):
+        factory_called.set()
+        return None
+
+    async with WSServer(listener_factory) as server:
+        reader, writer = await asyncio.open_connection(server.host, server.port)
+        writer.write(b"GET /health HTTP/1.1\r\nHost: local")
+        await writer.drain()
+        await asyncio.sleep(0)
+        assert not factory_called.is_set()
+
+        writer.write(b"host\r\n\r\n")
+        await writer.drain()
+        response = await reader.read()
+        writer.close()
+        await writer.wait_closed()
+
+    assert factory_called.is_set()
+    assert response.startswith(b"HTTP/1.1 404 Not Found\r\n")
+
+
+async def test_server_validates_non_upgrade_request_before_sending_custom_101_response():
+    listener_connected = False
+
+    class Listener(picows.WSListener):
+        def on_ws_connected(self, transport):
+            nonlocal listener_connected
+            listener_connected = True
+
+    def listener_factory(request):
+        return picows.WSUpgradeResponseWithListener(
+            picows.WSUpgradeResponse.create_101_response(),
+            Listener(),
+        )
+
+    async with WSServer(listener_factory) as server:
+        reader, writer = await asyncio.open_connection(server.host, server.port)
+        writer.write(
+            b"GET / HTTP/1.1\r\n"
+            b"Host: localhost\r\n"
+            b"\r\n"
+        )
+        await writer.drain()
+        response = await reader.read()
+        writer.close()
+        await writer.wait_closed()
+
+    assert response.startswith(b"HTTP/1.1 400 Bad Request\r\n")
+    assert b"Sec-WebSocket-Accept" not in response
+    assert not listener_connected
 
 
 async def test_custom_response():

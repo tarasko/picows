@@ -951,7 +951,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         object _handshake_timeout
         object _handshake_timeout_handle
         object _handshake_complete_future
-        Py_ssize_t _upgrade_request_max_size
+        Py_ssize_t _http_request_max_size
 
         bytes _websocket_key_b64
         Py_ssize_t _max_frame_size
@@ -1015,7 +1015,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         self._handshake_timeout = websocket_handshake_timeout
         self._handshake_timeout_handle = None
         self._handshake_complete_future = self._loop.create_future()
-        self._upgrade_request_max_size = 16 * 1024
+        self._http_request_max_size = 16 * 1024
 
         self._websocket_key_b64 = b64encode(os.urandom(16))
         self._max_frame_size = max_frame_size
@@ -1267,7 +1267,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 return False
         else:
             try:
-                upgrade_request, accept_val = self._try_read_upgrade_request()
+                upgrade_request = self._try_read_http_request()
             except RuntimeError as ex:
                 response = WSUpgradeResponse.create_error_response(
                     HTTPStatus.BAD_REQUEST, str(ex).encode())
@@ -1276,8 +1276,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 self.transport.disconnect()
                 return False
 
-            if accept_val is None:
-                # Upgrade request hasn't fully arrived yet
+            if upgrade_request is None:
+                # HTTP request hasn't fully arrived yet
                 return False
 
             listener_factory = self._listener_factory
@@ -1299,8 +1299,6 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 else:
                     raise TypeError("user listener_factory returned wrong listener type")
 
-                if self.listener is not None:
-                    self.transport.listener_proxy = weakref.proxy(self.listener)
             except Exception as ex:
                 response = WSUpgradeResponse.create_error_response(
                     HTTPStatus.INTERNAL_SERVER_ERROR, str(ex).encode())
@@ -1312,8 +1310,19 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                 self.transport._send_http_handshake_response(response, None)
                 self.transport.disconnect()
                 return False
-            else:
-                self.transport._send_http_handshake_response(response, accept_val)
+
+            try:
+                accept_val = self._validate_upgrade_request(upgrade_request)
+            except RuntimeError as ex:
+                response = WSUpgradeResponse.create_error_response(
+                    HTTPStatus.BAD_REQUEST, str(ex).encode())
+                self.transport._send_http_handshake_response(response, None)
+                self.transport.disconnect()
+                return False
+
+            self.transport.listener_proxy = weakref.proxy(self.listener)
+            self._state = WSParserState.READ_HEADER
+            self.transport._send_http_handshake_response(response, accept_val)
 
         if self._handshake_timeout_handle is not None:
             self._handshake_timeout_handle.cancel()
@@ -1387,49 +1396,71 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
             self.transport.send_close(WSCloseCode.INTERNAL_ERROR, "an exception occurred in auto-ping loop")
             self._loop.call_later(_DISCONNECT_AFTER_ERROR_DELAY, self.transport.disconnect)
 
-    cdef inline tuple _try_read_upgrade_request(self):
+    cdef inline object _try_read_http_request(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._read_buffer.data, self._f_new_data_start_pos)
         cdef list request = <list>data.split(b"\r\n\r\n", 1)
         if len(request) < 2:
-            if len(data) >= self._upgrade_request_max_size:
+            if len(data) >= self._http_request_max_size:
                 self.transport.disconnect()
-                self._logger.info("Disconnect because upgrade request violated max_size threshold: %d", 16*1024)
+                self._logger.info("Disconnect because HTTP request violated max_size threshold: %d",
+                                  self._http_request_max_size)
 
-            return None, None
+            return None
 
         cdef bytes raw_headers = <bytes>request[0]
-        if len(raw_headers) >= self._upgrade_request_max_size:
+        if len(raw_headers) >= self._http_request_max_size:
             self.transport.disconnect()
-            self._logger.info("Disconnect because upgrade request violated max_size threshold: %d", 16*1024)
-            return None, None
+            self._logger.info("Disconnect because HTTP request violated max_size threshold: %d",
+                              self._http_request_max_size)
+            return None
 
         if cython.unlikely(self._log_debug_enabled):
             self._logger.log(_DEBUG_LL, "New data: %s", data)
 
         cdef list lines = <list>raw_headers.split(b"\r\n")
-        cdef bytes response_status_line = <bytes>lines[0]
+        cdef bytes request_line = <bytes>lines[0]
+        cdef list request_line_parts = request_line.split(b" ")
+        if len(request_line_parts) != 3:
+            raise RuntimeError(f"Malformed request line: {request_line}")
 
         cdef object headers = CIMultiDict()
         cdef list parts
         cdef bytes line, name, value
-        cdef str name_str
         cdef Py_ssize_t idx
         for idx in range(1, len(lines)):
             line = <bytes>lines[idx]
             parts = <list>line.split(b":", 1)
             if len(parts) != 2:
-                raise RuntimeError(f"Mailformed header in upgrade request: {raw_headers}")
+                raise RuntimeError(f"Malformed header in HTTP request: {raw_headers}")
             name, value = <bytes>parts[0], <bytes>parts[1]
             headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
 
+        upgrade_request = WSUpgradeRequest()
+        upgrade_request.method = <bytes>request_line_parts[0]
+        upgrade_request.path = <bytes>request_line_parts[1]
+        upgrade_request.version = <bytes>request_line_parts[2]
+        upgrade_request.headers = headers
+
+        memmove(self._read_buffer.data,
+                self._read_buffer.data + len(raw_headers) + 4,
+                self._read_buffer.size - len(raw_headers) - 4)
+
+        cdef bytes tail = request[1]
+        self._f_new_data_start_pos = len(tail)
+
+        return upgrade_request
+
+    cdef inline bytes _validate_upgrade_request(self, upgrade_request):
+        cdef object headers = upgrade_request.headers
+
         if "websocket" != headers.get("upgrade"):
-            raise RuntimeError(f"No WebSocket UPGRADE header: {raw_headers}\n Can 'Upgrade' only to 'websocket'")
+            raise RuntimeError("No WebSocket UPGRADE header. Can 'Upgrade' only to 'websocket'")
 
         if "connection" not in headers:
-            raise RuntimeError(f"No CONNECTION upgrade header: {raw_headers}\n")
+            raise RuntimeError("No CONNECTION upgrade header")
 
         if "upgrade" != headers["connection"].lower():
-            raise RuntimeError(f"CONNECTION header value is not 'upgrade' : {raw_headers}\n")
+            raise RuntimeError("CONNECTION header value is not 'upgrade'")
 
         version = headers.get("sec-websocket-version")
         if headers.get("sec-websocket-version") not in ("13", "8", "7"):
@@ -1442,22 +1473,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         except binascii.Error:
             raise RuntimeError(f"Handshake error, invalid key: {key!r}") from None
 
-        cdef bytes accept_val = b64encode(sha1(<bytes>key.encode() + _WS_KEY).digest())
-
-        cdef list status_line_parts = response_status_line.split(b" ")
-        upgrade_request = WSUpgradeRequest()
-        upgrade_request.method = <bytes>status_line_parts[0]
-        upgrade_request.path = <bytes>status_line_parts[1]
-        upgrade_request.version = <bytes>status_line_parts[2]
-        upgrade_request.headers = headers
-
-        memmove(self._read_buffer.data, self._read_buffer.data + len(raw_headers) + 4, self._read_buffer.size - len(raw_headers) - 4)
-
-        cdef bytes tail = request[1]
-        self._f_new_data_start_pos = len(tail)
-        self._state = WSParserState.READ_HEADER
-
-        return upgrade_request, accept_val
+        return b64encode(sha1(<bytes>key.encode() + _WS_KEY).digest())
 
     cdef inline object _try_read_and_process_upgrade_response(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._read_buffer.data, self._f_new_data_start_pos)
