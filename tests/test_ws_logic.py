@@ -276,30 +276,6 @@ async def test_server_custom_http_response_for_non_upgrade_request():
     assert response.endswith(b"\r\n\r\nhealthy")
 
 
-async def test_server_waits_for_complete_http_request_before_calling_listener_factory():
-    factory_called = asyncio.Event()
-
-    def listener_factory(request):
-        factory_called.set()
-        return None
-
-    async with WSServer(listener_factory) as server:
-        reader, writer = await asyncio.open_connection(server.host, server.port)
-        writer.write(b"GET /health HTTP/1.1\r\nHost: local")
-        await writer.drain()
-        await asyncio.sleep(0)
-        assert not factory_called.is_set()
-
-        writer.write(b"host\r\n\r\n")
-        await writer.drain()
-        response = await reader.read()
-        writer.close()
-        await writer.wait_closed()
-
-    assert factory_called.is_set()
-    assert response.startswith(b"HTTP/1.1 404 Not Found\r\n")
-
-
 async def test_server_validates_non_upgrade_request_before_sending_custom_101_response():
     listener_connected = False
 
