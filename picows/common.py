@@ -24,7 +24,10 @@ def add_extra_headers(headers: CIMultiDict[str], extra_headers: Optional[WSHeade
             if not isinstance(k, str) or not isinstance(v, str):
                 raise TypeError("extra_headers key/value must be str types")
 
-            headers.add(k, v)
+            if k.lower() == "host":
+                headers[k] = v
+            else:
+                headers.add(k, v)
 
 
 class WSUpgradeRequest:
