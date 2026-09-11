@@ -31,32 +31,30 @@ examples - Various examples for users on how to use picows + perf_test that coul
   If the same conversion, check, or tiny code pattern appears in multiple sibling paths after a refactor, stop and normalize it before considering the work done.
   Do not remove one layer of abstraction only to inline the same logic redundantly in several places.
   After a refactor, scan for duplicated branch bodies and duplicated type-specific handling introduced by the change.
-- `picows.websockets` aims for import-level compatibility with the official `websockets` package on the client side.
-  We can skip complicated areas such as the full server interface, but simple surface-area compatibility matters.
-  Type definitions, exception definitions, and other lightweight importable names should exist when upstream exposes them.
-  People switching from `websockets` to `picows.websockets` should notice as little difference as possible.
-- For `picows.websockets` compatibility work, treat the original `websockets`
-  package as the behavioral source of truth.
-  When behavior is unclear, surprising, or test expectations need to change,
-  first verify the same scenario against the installed upstream `websockets`
-  package or its official tests/docs before changing implementation or tests.
-  Do not update tests to match current `picows.websockets` behavior unless it
-  has been confirmed to match upstream behavior, or unless an intentional
-  compatibility deviation has been explicitly agreed and documented.
-- In Cythonized Python modules, avoid `typing.cast(...)` in hot paths.
-  Cython may compile `cast(...)` into a real runtime global lookup and function call instead of erasing it like a type checker would.
-  Prefer control-flow narrowing, assertions, or narrowly scoped type-ignore comments when needed.
-- If `picows` core exposes an inconsistent runtime shape or behavior that looks like a bug, do not silently normalize around it in wrapper code.
-  Stop and ask first, or at least clearly call out that it appears to be a core bug instead of assuming it is an intentional quirk.
-  Wrapper-level workarounds for such inconsistencies should be treated as temporary and explicit, not as the default resolution.
-  Legitimate intentional quirks can be documented in this file separately once confirmed.
-- `WSUpgradeRequest` / `WSUpgradeResponse` expose a mixed bytes/str API and this is public API.
-  Request `method`, `path`, `version` and response `version` are low-level protocol bytes, while headers are decoded strings and response `status` is `HTTPStatus`.
-  Do not change this shape casually in core or silently normalize it away in wrappers; treat it as a stable compatibility constraint unless an intentional breaking change is agreed.
-- In `picows` core, once a CLOSE frame has been sent, later send-side API calls are effectively no-ops.
-  This applies to `send_close()` as well as the other send methods.
-  Also, `disconnect()` and `wait_disconnected()` are safe to call multiple times.
-  Wrapper code should rely on these idempotency guarantees instead of adding its own state-based suppression around shutdown operations.
+- In Cythonized modules, avoid `typing.cast(...)` in hot paths; use control-flow narrowing, assertions, or a narrowly
+  scoped type-ignore instead. Why: `context/cython.md`.
+- For `picows.websockets` work, the installed upstream `websockets` package (and its tests/docs) is the behavioral source
+  of truth: verify a scenario there before changing implementation or tests. Do not update tests to match current
+  `picows.websockets` behavior unless it matches upstream or a deviation has been explicitly agreed and documented.
+  Why, and what "compatibility" means here: `context/websockets-compat.md`.
+- If `picows` core exposes an inconsistent runtime shape or behavior that looks like a bug, do not silently normalize
+  around it in wrapper code: stop and ask, or clearly call it out as a suspected core bug. Confirmed intentional quirks
+  are recorded in `context/core-api.md` (the mixed bytes/str upgrade objects, send-after-close no-ops); rely on those
+  instead of adding wrapper-side state.
+
+## Why things are the way they are
+- `context/index.md` lists the recorded decisions, constraints and workarounds behind the code. Read it before
+  non-trivial changes, so prior decisions are not re-litigated or accidentally reverted.
+
+## Keep the Why
+
+This project records the reasoning behind its code with the Keep the Why
+skill (https://keepthewhy.com) — the `.keep-the-why` file at the project
+root is its config. Before doing anything else in a session, whatever the
+first request is about, load the skill: in Claude Code, invoke the
+`keep-the-why` skill (Skill tool); in Codex or any other agent, load the
+installed `keep-the-why` skill (or read its `SKILL.md`) and follow it,
+including the `references/*.md` files it points to for the situation at hand.
 
 ## Testing instructions
 - Run lint after updating code with:
