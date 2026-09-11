@@ -4,6 +4,7 @@
 <p align="center">
     <a href='https://github.com/tarasko/picows/actions/workflows/run-tests.yml?query=branch%3Amaster' target="_blank"><img alt='tests' src='https://img.shields.io/github/actions/workflow/status/tarasko/picows/run-tests.yml?branch=master&label=tests'></a>
     <a href='https://codecov.io/github/tarasko/picows' target="_blank"><img alt='codecov' src='https://codecov.io/github/tarasko/picows/graph/badge.svg?token=5XWETRS10A'></a>
+    <a href='https://github.com/tarasko/picows/actions/workflows/ktw-lint.yml?query=branch%3Amaster' target="_blank"><img alt='ktw-lint' src='https://img.shields.io/github/actions/workflow/status/tarasko/picows/ktw-lint.yml?branch=master&label=ktw-lint'></a>
     <a href='https://pypi.org/project/picows' target="_blank"><img alt='pypi' src='https://badge.fury.io/py/picows.svg'></a>
     <a href='https://pypistats.org/packages/picows' target="_blank"><img alt='downloads' src='https://img.shields.io/pypi/dm/picows'></a>
     <a href='https://picows.readthedocs.io/en/latest/' target="_blank"><img alt='docs' src='https://readthedocs.org/projects/picows/badge/?version=latest'></a>
@@ -13,7 +14,6 @@
 <p align="center">
     <a href='https://deepwiki.com/tarasko/picows' target="_blank"><img alt='DeepWiki' src='https://deepwiki.com/badge.svg'></a>
     <a href='https://keepthewhy.com' target="_blank"><img alt='Keep the Why' src='https://keepthewhy.com/assets/badge.svg'></a>
-    <a href='https://github.com/tarasko/picows/actions/workflows/ktw-lint.yml?query=branch%3Amaster' target="_blank"><img alt='ktw-lint' src='https://img.shields.io/github/actions/workflow/status/tarasko/picows/ktw-lint.yml?branch=master&label=ktw-lint'></a>
 </p>
 
 <div align="center">
