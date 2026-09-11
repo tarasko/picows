@@ -241,7 +241,7 @@ async def test_server_bad_request():
         assert r.at_eof()
 
 
-async def test_server_incomplete_http_request_times_out():
+async def test_server_rejects_incomplete_oversized_http_request():
     listener_factory_called = False
 
     def listener_factory(request):
@@ -249,15 +249,18 @@ async def test_server_incomplete_http_request_times_out():
         listener_factory_called = True
         return None
 
+    request = (
+        b"GET /health HTTP/1.1\r\n"
+        b"X-Oversized: " + b"a" * (16 * 1024)
+    )
+
     async with WSServer(
         listener_factory,
-        websocket_handshake_timeout=0.05,
+        read_buffer_init_size=64 * 1024,
+        use_aiofastnet=False,
     ) as server:
         reader, writer = await asyncio.open_connection(server.host, server.port)
-        writer.write(
-            b"GET /health HTTP/1.1\r\n"
-            b"Host: localhost\r\n"
-        )
+        writer.write(request)
         await writer.drain()
         assert await reader.read() == b""
         writer.close()
