@@ -8,6 +8,7 @@ from multidict import CIMultiDict
 
 from picows import websockets
 from picows.websockets.asyncio.server import _parse_basic_authorization
+from tests.utils import send_http_request
 
 
 async def test_serve_process_request_can_reject_handshake():
@@ -76,6 +77,38 @@ async def test_serve_process_request_can_respond():
 
     assert exc_info.value.response.status_code == 200
     assert exc_info.value.response.headers["X-Request-Path"] == "/health"
+
+
+async def test_serve_process_request_can_respond_to_plain_http_request():
+    async def handler(ws: websockets.ServerConnection) -> None:
+        raise AssertionError("handler must not be called")
+
+    def process_request(
+        ws: websockets.ServerHandshakeConnection,
+        request: websockets.Request,
+    ) -> Optional[websockets.Response]:
+        if request.path == "/health":
+            return ws.respond(http.HTTPStatus.OK, "healthy\n")
+        return None
+
+    async with websockets.serve(
+        handler,
+        "127.0.0.1",
+        0,
+        compression=None,
+        process_request=process_request,
+    ) as server:
+        port = server.sockets[0].getsockname()[1]
+        response = await send_http_request(
+            "127.0.0.1",
+            port,
+            b"GET /health HTTP/1.1\r\n"
+            b"Host: localhost\r\n"
+            b"\r\n",
+        )
+
+    assert response.startswith(b"HTTP/1.1 200 OK\r\n")
+    assert response.endswith(b"\r\n\r\nhealthy\n")
 
 
 async def test_serve_process_response_can_mutate_handshake_response():

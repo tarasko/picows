@@ -11,10 +11,11 @@ from typing import Optional
 
 import async_timeout
 import pytest
+from multidict import CIMultiDict
 
 import picows
 from picows.api import _resolve_logger
-from tests.utils import WSServer, WSClient, AsyncClient, TIMEOUT
+from tests.utils import WSServer, WSClient, AsyncClient, send_http_request
 from tests.fixtures import use_aiofastnet, ssl_context
 
 
@@ -230,14 +231,139 @@ async def test_server_internal_error():
 
 async def test_server_bad_request():
     async with WSServer() as server:
-        r, w = await asyncio.open_connection(server.host, server.port)
+        response = await send_http_request(server.host, server.port, b"zzzz\r\nasdfasdf\r\n\r\n")
 
-        w.write(b"zzzz\r\nasdfasdf\r\n\r\n")
-        resp_header = await r.readuntil(b"\r\n\r\n")
-        assert b"400 Bad Request" in resp_header
-        async with async_timeout.timeout(TIMEOUT):
-            await r.read()
-        assert r.at_eof()
+    assert b"400 Bad Request" in response
+    assert b"Connection: close\r\n" in response
+
+
+def test_create_ok_response_defaults():
+    response = picows.WSUpgradeResponse.create_ok_response()
+
+    assert response.version == b"HTTP/1.1"
+    assert response.status == HTTPStatus.OK
+    assert response.headers == CIMultiDict({"Content-Type": "text/plain; charset=utf-8"})
+    assert response.body is None
+
+
+def test_create_ok_response_allows_content_type_override():
+    response = picows.WSUpgradeResponse.create_ok_response(
+        extra_headers={"Content-Type": "application/json"},
+    )
+
+    assert response.headers.getall("Content-Type") == ["application/json"]
+
+
+async def test_server_rejects_incomplete_oversized_http_request():
+    listener_factory_called = False
+
+    def listener_factory(request):
+        nonlocal listener_factory_called
+        listener_factory_called = True
+        return None
+
+    request = (
+        b"GET /health HTTP/1.1\r\n"
+        b"X-Oversized: " + b"a" * (16 * 1024)
+    )
+
+    async with WSServer(
+        listener_factory,
+        read_buffer_init_size=64 * 1024,
+        use_aiofastnet=False,
+    ) as server:
+        assert await send_http_request(server.host, server.port, request) == b""
+
+    assert not listener_factory_called
+
+
+async def test_server_rejects_complete_oversized_http_request():
+    listener_factory_called = False
+
+    def listener_factory(request):
+        nonlocal listener_factory_called
+        listener_factory_called = True
+        return None
+
+    request = (
+        b"GET /health HTTP/1.1\r\n"
+        b"X-Oversized: " + b"a" * (16 * 1024) + b"\r\n"
+        b"\r\n"
+    )
+
+    async with WSServer(
+        listener_factory,
+        read_buffer_init_size=64 * 1024,
+        use_aiofastnet=False,
+    ) as server:
+        assert await send_http_request(server.host, server.port, request) == b""
+
+    assert not listener_factory_called
+
+
+async def test_server_custom_http_response_for_non_upgrade_request():
+    received_request = None
+
+    def listener_factory(request):
+        nonlocal received_request
+        received_request = request
+
+        response = picows.WSUpgradeResponse.create_ok_response(
+            b"healthy",
+            {
+                "X-Test": "custom-response",
+                "Connection": "keep-alive",
+            },
+        )
+        return picows.WSUpgradeResponseWithListener(response, None)
+
+    async with WSServer(listener_factory) as server:
+        response = await send_http_request(
+            server.host,
+            server.port,
+            b"GET /health HTTP/1.1\r\n"
+            b"Host: localhost\r\n"
+            b"\r\n",
+        )
+
+    assert received_request.method == b"GET"
+    assert received_request.path == b"/health"
+    assert received_request.version == b"HTTP/1.1"
+    assert received_request.headers["Host"] == "localhost"
+    assert response.startswith(b"HTTP/1.1 200 OK\r\n")
+    assert b"X-Test: custom-response\r\n" in response
+    assert b"Content-Type: text/plain; charset=utf-8\r\n" in response
+    assert b"Connection: close\r\n" in response
+    assert b"Connection: keep-alive\r\n" not in response
+    assert response.endswith(b"\r\n\r\nhealthy")
+
+
+async def test_server_validates_non_upgrade_request_before_sending_custom_101_response():
+    listener_connected = False
+
+    class Listener(picows.WSListener):
+        def on_ws_connected(self, transport):
+            nonlocal listener_connected
+            listener_connected = True
+
+    def listener_factory(request):
+        return picows.WSUpgradeResponseWithListener(
+            picows.WSUpgradeResponse.create_101_response(),
+            Listener(),
+        )
+
+    async with WSServer(listener_factory) as server:
+        response = await send_http_request(
+            server.host,
+            server.port,
+            b"GET / HTTP/1.1\r\n"
+            b"Host: localhost\r\n"
+            b"\r\n",
+        )
+
+    assert response.startswith(b"HTTP/1.1 400 Bad Request\r\n")
+    assert b"Sec-WebSocket-Accept" not in response
+    assert not listener_connected
 
 
 async def test_custom_response():
