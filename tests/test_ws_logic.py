@@ -234,6 +234,24 @@ async def test_server_bad_request():
         response = await send_http_request(server.host, server.port, b"zzzz\r\nasdfasdf\r\n\r\n")
 
     assert b"400 Bad Request" in response
+    assert b"Connection: close\r\n" in response
+
+
+def test_create_ok_response_defaults():
+    response = picows.WSUpgradeResponse.create_ok_response()
+
+    assert response.version == b"HTTP/1.1"
+    assert response.status == HTTPStatus.OK
+    assert response.headers == CIMultiDict({"Content-Type": "text/plain; charset=utf-8"})
+    assert response.body is None
+
+
+def test_create_ok_response_allows_content_type_override():
+    response = picows.WSUpgradeResponse.create_ok_response(
+        extra_headers={"Content-Type": "application/json"},
+    )
+
+    assert response.headers.getall("Content-Type") == ["application/json"]
 
 
 async def test_server_rejects_incomplete_oversized_http_request():
@@ -290,11 +308,13 @@ async def test_server_custom_http_response_for_non_upgrade_request():
         nonlocal received_request
         received_request = request
 
-        response = picows.WSUpgradeResponse()
-        response.version = b"HTTP/1.1"
-        response.status = HTTPStatus.OK
-        response.headers = CIMultiDict({"X-Test": "custom-response"})
-        response.body = b"healthy"
+        response = picows.WSUpgradeResponse.create_ok_response(
+            b"healthy",
+            {
+                "X-Test": "custom-response",
+                "Connection": "keep-alive",
+            },
+        )
         return picows.WSUpgradeResponseWithListener(response, None)
 
     async with WSServer(listener_factory) as server:
@@ -312,6 +332,9 @@ async def test_server_custom_http_response_for_non_upgrade_request():
     assert received_request.headers["Host"] == "localhost"
     assert response.startswith(b"HTTP/1.1 200 OK\r\n")
     assert b"X-Test: custom-response\r\n" in response
+    assert b"Content-Type: text/plain; charset=utf-8\r\n" in response
+    assert b"Connection: close\r\n" in response
+    assert b"Connection: keep-alive\r\n" not in response
     assert response.endswith(b"\r\n\r\nhealthy")
 
 

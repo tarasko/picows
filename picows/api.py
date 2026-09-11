@@ -404,10 +404,11 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
         * None. In such case 404 Not Found response will be sent and the client will be disconnected.
 
         Returning a response whose status isn't 101 Switching Protocols sends
-        that response without validating WebSocket upgrade headers and then
-        disconnects the client. This can be used for small HTTP endpoints such
-        as health checks. A 101 response is sent only after validating the
-        WebSocket upgrade request.
+        that response with ``Connection: close``, without validating WebSocket
+        upgrade headers, and then disconnects the client. Any user-provided
+        ``Connection`` response header is overridden. This can be used for small
+        HTTP endpoints such as health checks. A 101 response is sent only after
+        validating the WebSocket upgrade request.
 
         Incoming requests must be HTTP/1.1 GET requests without a body.
         ``Content-Length`` may be omitted or set to zero; ``Transfer-Encoding``

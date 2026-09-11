@@ -993,7 +993,9 @@ cdef class WSTransport:
 
     cdef NoResult _send_http_handshake_response(self, response,
                                                 bytes accept_val) except NoResult.EXC:
-        if accept_val is not None:
+        if accept_val is None:
+            response.headers["Connection"] = "close"
+        else:
             response.headers["Sec-WebSocket-Accept"] = accept_val.decode()
 
         cdef bytearray response_bytes = response.to_bytes()
