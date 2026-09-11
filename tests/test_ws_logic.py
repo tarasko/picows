@@ -15,7 +15,7 @@ from multidict import CIMultiDict
 
 import picows
 from picows.api import _resolve_logger
-from tests.utils import WSServer, WSClient, AsyncClient, TIMEOUT
+from tests.utils import WSServer, WSClient, AsyncClient, send_http_request
 from tests.fixtures import use_aiofastnet, ssl_context
 
 
@@ -231,14 +231,9 @@ async def test_server_internal_error():
 
 async def test_server_bad_request():
     async with WSServer() as server:
-        r, w = await asyncio.open_connection(server.host, server.port)
+        response = await send_http_request(server.host, server.port, b"zzzz\r\nasdfasdf\r\n\r\n")
 
-        w.write(b"zzzz\r\nasdfasdf\r\n\r\n")
-        resp_header = await r.readuntil(b"\r\n\r\n")
-        assert b"400 Bad Request" in resp_header
-        async with async_timeout.timeout(TIMEOUT):
-            await r.read()
-        assert r.at_eof()
+    assert b"400 Bad Request" in response
 
 
 async def test_server_rejects_incomplete_oversized_http_request():
@@ -259,12 +254,7 @@ async def test_server_rejects_incomplete_oversized_http_request():
         read_buffer_init_size=64 * 1024,
         use_aiofastnet=False,
     ) as server:
-        reader, writer = await asyncio.open_connection(server.host, server.port)
-        writer.write(request)
-        await writer.drain()
-        assert await reader.read() == b""
-        writer.close()
-        await writer.wait_closed()
+        assert await send_http_request(server.host, server.port, request) == b""
 
     assert not listener_factory_called
 
@@ -288,12 +278,7 @@ async def test_server_rejects_complete_oversized_http_request():
         read_buffer_init_size=64 * 1024,
         use_aiofastnet=False,
     ) as server:
-        reader, writer = await asyncio.open_connection(server.host, server.port)
-        writer.write(request)
-        await writer.drain()
-        assert await reader.read() == b""
-        writer.close()
-        await writer.wait_closed()
+        assert await send_http_request(server.host, server.port, request) == b""
 
     assert not listener_factory_called
 
@@ -313,16 +298,13 @@ async def test_server_custom_http_response_for_non_upgrade_request():
         return picows.WSUpgradeResponseWithListener(response, None)
 
     async with WSServer(listener_factory) as server:
-        reader, writer = await asyncio.open_connection(server.host, server.port)
-        writer.write(
+        response = await send_http_request(
+            server.host,
+            server.port,
             b"GET /health HTTP/1.1\r\n"
             b"Host: localhost\r\n"
-            b"\r\n"
+            b"\r\n",
         )
-        await writer.drain()
-        response = await reader.read()
-        writer.close()
-        await writer.wait_closed()
 
     assert received_request.method == b"GET"
     assert received_request.path == b"/health"
@@ -348,16 +330,13 @@ async def test_server_validates_non_upgrade_request_before_sending_custom_101_re
         )
 
     async with WSServer(listener_factory) as server:
-        reader, writer = await asyncio.open_connection(server.host, server.port)
-        writer.write(
+        response = await send_http_request(
+            server.host,
+            server.port,
             b"GET / HTTP/1.1\r\n"
             b"Host: localhost\r\n"
-            b"\r\n"
+            b"\r\n",
         )
-        await writer.drain()
-        response = await reader.read()
-        writer.close()
-        await writer.wait_closed()
 
     assert response.startswith(b"HTTP/1.1 400 Bad Request\r\n")
     assert b"Sec-WebSocket-Accept" not in response

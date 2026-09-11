@@ -1,4 +1,3 @@
-import asyncio
 import base64
 import http
 import re
@@ -9,6 +8,7 @@ from multidict import CIMultiDict
 
 from picows import websockets
 from picows.websockets.asyncio.server import _parse_basic_authorization
+from tests.utils import send_http_request
 
 
 async def test_serve_process_request_can_reject_handshake():
@@ -99,16 +99,13 @@ async def test_serve_process_request_can_respond_to_plain_http_request():
         process_request=process_request,
     ) as server:
         port = server.sockets[0].getsockname()[1]
-        reader, writer = await asyncio.open_connection("127.0.0.1", port)
-        writer.write(
+        response = await send_http_request(
+            "127.0.0.1",
+            port,
             b"GET /health HTTP/1.1\r\n"
             b"Host: localhost\r\n"
-            b"\r\n"
+            b"\r\n",
         )
-        await writer.drain()
-        response = await reader.read()
-        writer.close()
-        await writer.wait_closed()
 
     assert response.startswith(b"HTTP/1.1 200 OK\r\n")
     assert response.endswith(b"\r\n\r\nhealthy\n")

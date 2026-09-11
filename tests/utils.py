@@ -12,6 +12,17 @@ from picows import ws_create_server, ws_connect
 TIMEOUT = 1.0
 
 
+async def send_http_request(host: str, port: int, request: bytes, timeout: float = TIMEOUT) -> bytes:
+    reader, writer = await asyncio.open_connection(host, port)
+    try:
+        writer.write(request)
+        await writer.drain()
+        return await asyncio.wait_for(reader.read(), timeout)
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
 class SomeException(Exception):
     pass
 
