@@ -5,12 +5,12 @@ picows Release History
    :depth: 1
    :local:
 
-2.2.0 ()
+2.2.0 (2026-09-11)
 ------------------
 
-* Allow to override Host header through extra_headers in Core API and additional_headers in websockets API
-* #108: fix picows.websockets.InvalidStatus.response is the raw WSUpgradeResponse not websockets.Response
-* #108: process_request receives ServerHandshakeConnection object that doesn't have respond method.
+* #107: allow to override Host header through extra_headers in Core API and additional_headers in websockets API
+* #108: fix websockets.InvalidStatus.response is the raw WSUpgradeResponse not websockets.Response
+* #108: fix websockets.serve process_request receives ServerHandshakeConnection object that doesn't have respond method.
 
 2.1.3 (2026-08-04)
 ------------------
