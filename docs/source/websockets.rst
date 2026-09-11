@@ -56,9 +56,6 @@ The following features from ``websockets`` aren't currently supported:
   ``unix_route()``.
 * ``websockets.asyncio.router.route()`` and the router classes. You can route at the
   application level from ``websocket.request.path`` instead.
-* ``ServerConnection.respond()`` for building plain-text HTTP responses in
-  handshake hooks. Construct and return a ``picows.websockets.Response``
-  directly from synchronous ``process_request`` / ``process_response`` hooks.
 * The full upstream distribution surface, including the threading, Sans-I/O, and
   legacy APIs. ``picows.websockets`` focuses on the asyncio API.
 * Proxy support covers the common ``proxy=True``, ``proxy=None``, and explicit

@@ -1,4 +1,5 @@
 import base64
+import http
 import re
 from typing import Optional
 
@@ -43,6 +44,38 @@ async def test_serve_process_request_can_reject_handshake():
         assert response.reason_phrase == "I'm a Teapot"
         assert response.headers["X-Test"] == "yes"
         assert str(exc_info.value) == "server rejected WebSocket connection: HTTP 418"
+
+
+async def test_serve_process_request_can_respond():
+    async def handler(ws: websockets.ServerConnection) -> None:
+        raise AssertionError("handler must not be called")
+
+    def process_request(
+        ws: websockets.ServerHandshakeConnection,
+        request: websockets.Request,
+    ) -> websockets.Response:
+        response = ws.respond(http.HTTPStatus.OK, "H\N{LATIN SMALL LETTER E WITH ACUTE}llo\n")
+        assert response.status_code == 200
+        assert response.reason_phrase == "OK"
+        assert response.headers["Content-Type"] == "text/plain; charset=utf-8"
+        assert response.body == "H\N{LATIN SMALL LETTER E WITH ACUTE}llo\n".encode()
+        response.headers["X-Request-Path"] = request.path
+        return response
+
+    async with websockets.serve(
+        handler,
+        "127.0.0.1",
+        0,
+        compression=None,
+        process_request=process_request,
+    ) as server:
+        port = server.sockets[0].getsockname()[1]
+        with pytest.raises(websockets.InvalidStatus) as exc_info:
+            async with websockets.connect(f"ws://127.0.0.1:{port}/health", compression=None):
+                pass
+
+    assert exc_info.value.response.status_code == 200
+    assert exc_info.value.response.headers["X-Request-Path"] == "/health"
 
 
 async def test_serve_process_response_can_mutate_handshake_response():
