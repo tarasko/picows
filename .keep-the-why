@@ -1,0 +1,21 @@
+This is machine-readable project state for the Keep the Why skill
+(https://keepthewhy.com). See context/index.md, or this project's own
+README, for what Keep the Why actually is.
+
+<!-- keep-the-why:config -->
+- id: tarasko---picows
+- context: `context/`
+- init: complete
+- context-schema: 0.16.1
+- capture-confirmation: automatic
+- source-reference: never
+<!-- /keep-the-why:config -->
+
+<!-- keep-the-why:personal-defaults -->
+- capture-mode: proactive
+- confirmation-flow: batch
+- update-check: every 14 days
+- consistency-check: every 30 days
+- pending-confirmation-check: no
+- local-lint: auto
+<!-- /keep-the-why:personal-defaults -->
