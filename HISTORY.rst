@@ -5,6 +5,11 @@ picows Release History
    :depth: 1
    :local:
 
+2.2.0 ()
+------------------
+
+* Allow to override Host header through extra_headers in Core API and additional_headers in websockets API
+
 2.1.3 (2026-08-04)
 ------------------
 

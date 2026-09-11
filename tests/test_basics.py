@@ -107,8 +107,8 @@ async def test_client_multiple_disconnect(use_aiofastnet, ssl_context):
 
 
 @pytest.mark.parametrize("extra_headers", [
-    {"User-Agent": "picows", "Token": "abc"},
-    [("User-Agent", "picows"), ("Token", "abc")]
+    {"User-Agent": "picows", "Token": "abc", "Host": "example.com"},
+    [("User-Agent", "picows"), ("Token", "abc"), ("host", "example.com")]
 ])
 async def test_client_extra_headers(extra_headers):
     request_from_client = None
@@ -122,8 +122,10 @@ async def test_client_extra_headers(extra_headers):
         async with WSClient(server, extra_headers=extra_headers) as client:
             assert request_from_client.headers["User-Agent"] == "picows"
             assert request_from_client.headers["token"] == "abc"
+            assert request_from_client.headers.getall("Host") == ["example.com"]
             assert client.transport.request.headers["User-Agent"] == "picows"
             assert client.transport.request.headers["token"] == "abc"
+            assert client.transport.request.headers.getall("Host") == ["example.com"]
 
 
 async def test_ws_on_connected_raise_client_side(use_aiofastnet, ssl_context):

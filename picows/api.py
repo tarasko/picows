@@ -163,11 +163,10 @@ async def _connect_through_optional_proxy(
                     port=parsed_url.port,
                 )
             except ReplyError as e:
-                await stream.close()  # type: ignore[no-untyped-call]
-                raise ProxyError(  # type: ignore[no-untyped-call]
-                    e, error_code=e.error_code)
+                await stream.close()
+                raise ProxyError(e, error_code=e.error_code)
             except (asyncio.CancelledError, Exception):
-                await stream.close()  # type: ignore[no-untyped-call]
+                await stream.close()
                 raise
         else:
             proxy_socket = await proxy_obj.connect(
@@ -260,6 +259,9 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
         * Maximum allowed frame size. Disconnect will be initiated if client receives a frame that is bigger than max size.
     :param extra_headers:
         Arbitrary HTTP headers to add to the handshake request.
+        ``Host`` is treated specially: it replaces the value generated from
+        ``url`` instead of adding a second ``Host`` header. Header names are
+        matched case-insensitively.
     :param max_redirects:
         * How many times we can follow HTTP redirects. Set to 0 in order to disable redirects.
     :param proxy:
