@@ -306,16 +306,20 @@ cpdef object _parse_http_request(bytes raw_headers):
     cdef list lines = <list>raw_headers.split(b"\r\n")
     cdef bytes request_line = <bytes>lines[0]
     cdef list request_line_parts = request_line.split(b" ")
+
     if len(request_line_parts) != 3:
         raise RuntimeError(f"Malformed request line: {request_line}")
 
     cdef bytes method = <bytes>request_line_parts[0]
     cdef bytes path = <bytes>request_line_parts[1]
     cdef bytes version = <bytes>request_line_parts[2]
+
     if method != b"GET":
         raise RuntimeError(f"Unsupported HTTP method: {method}")
+
     if not path:
         raise RuntimeError("HTTP request target cannot be empty")
+
     if version != b"HTTP/1.1":
         raise RuntimeError(f"Unsupported HTTP version: {version}")
 
