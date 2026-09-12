@@ -259,8 +259,12 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                         new_transport = await start_tls(
                             transport, transport.get_protocol(), target_ssl_context,
                             server_hostname=server_hostname, **start_tls_kwargs)
+
+                        # asyncio docs says that start_tls can potentially return None if transport
+                        # is already closing
                         if new_transport is None:
                             raise ConnectionError("connection closed while starting TLS")
+
                         transport = new_transport
 
                     ws_protocol = ws_protocol_factory()
