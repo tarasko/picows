@@ -24,7 +24,10 @@ def add_extra_headers(headers: CIMultiDict[str], extra_headers: Optional[WSHeade
             if not isinstance(k, str) or not isinstance(v, str):
                 raise TypeError("extra_headers key/value must be str types")
 
-            headers.add(k, v)
+            if k.lower() == "host":
+                headers[k] = v
+            else:
+                headers.add(k, v)
 
 
 class WSUpgradeRequest:
@@ -41,6 +44,28 @@ class WSUpgradeResponse:
     status  : HTTPStatus
     headers : CIMultiDict[str]
     body    : Optional[bytes]
+
+    @staticmethod
+    def create_ok_response(body: Optional[bytes] = None,
+                           extra_headers: Optional[WSHeadersLike] = None) -> Any:
+        """
+        Create an HTTP 200 OK response.
+
+        :param body: optional response body
+        :param extra_headers: optional additional headers. Content-Type defaults
+            to ``text/plain; charset=utf-8`` when it isn't provided.
+        :return: a new WSUpgradeResponse object
+        """
+        self = WSUpgradeResponse()
+        self.version = b"HTTP/1.1"
+        self.status = HTTPStatus.OK
+        self.headers = CIMultiDict()
+        add_extra_headers(self.headers, extra_headers)
+        if "Content-Type" not in self.headers:
+            self.headers["Content-Type"] = "text/plain; charset=utf-8"
+        self.body = body
+
+        return self
 
     @staticmethod
     def create_error_response(status: Union[int, HTTPStatus],

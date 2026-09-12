@@ -5,6 +5,22 @@ picows Release History
    :depth: 1
    :local:
 
+2.3.0 ()
+------------------
+
+* #112: allow serving custom HTTP responses for non-upgrade requests
+* Add ``WSUpgradeResponse.create_ok_response`` for constructing HTTP 200 responses
+* Validate incoming HTTP request lines (GET, non-empty target, HTTP/1.1), header names and values
+  (token names, no folded headers or invalid control characters, 128-header limit), and body framing
+  (no Transfer-Encoding; Content-Length, when present, must be a single zero value).
+
+2.2.0 (2026-09-11)
+------------------
+
+* #107: allow to override Host header through extra_headers in Core API and additional_headers in websockets API
+* #108: fix websockets.InvalidStatus.response is the raw WSUpgradeResponse not websockets.Response
+* #108: fix websockets.serve process_request receives ServerHandshakeConnection object that doesn't have respond method.
+
 2.1.3 (2026-08-04)
 ------------------
 

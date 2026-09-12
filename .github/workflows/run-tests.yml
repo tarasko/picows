@@ -18,9 +18,9 @@ jobs:
     timeout-minutes: 1
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.x"
     - name: Install dependencies
@@ -44,10 +44,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.pyver }}
 
@@ -65,9 +65,9 @@ jobs:
     timeout-minutes: 5
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.x"
     - name: Install dependencies
@@ -91,10 +91,10 @@ jobs:
     timeout-minutes: 4
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.14"
 
@@ -128,9 +128,9 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python ${{ matrix.pyver }}
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.pyver }}
 
@@ -142,7 +142,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements-test.txt
 
-#    - uses: actions/checkout@v6
+#    - uses: actions/checkout@v7
 #    - name: Setup tmate session
 #      uses: mxschmitt/action-tmate@v3
 

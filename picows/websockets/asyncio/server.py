@@ -24,7 +24,7 @@ from .negotiation import configure_permessage_deflate
 from .utils import default_server_header, normalize_max_size, resolve_logger
 from ..compat import Request, Response, State
 from ..exceptions import ConcurrencyError, InvalidHandshake, InvalidOrigin
-from ..typing import DataLike, LoggerLike, LoggerProtocol, MaxSize, Origin, Subprotocol
+from ..typing import DataLike, LoggerLike, LoggerProtocol, MaxSize, Origin, StatusLike, Subprotocol
 
 if sys.version_info >= (3, 11):
     from builtins import ExceptionGroup
@@ -226,6 +226,10 @@ def basic_auth(
 class ServerHandshakeConnection:
     request: Request
     username: Optional[str] = None
+
+    def respond(self, status: StatusLike, text: str) -> Response:
+        """Create a plain-text HTTP response for a handshake hook."""
+        return _make_error_response(http.HTTPStatus(status), text.encode())
 
     @property
     def state(self) -> State:

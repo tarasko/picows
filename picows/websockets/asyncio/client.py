@@ -191,7 +191,8 @@ class _Connect:
         except picows.WSInvalidURL as exc:
             raise InvalidURI(exc.args[0], exc.args[1] if len(exc.args) > 1 else str(exc)) from exc
         except picows.WSInvalidStatusError as exc:
-            raise InvalidStatus(exc.response) from exc
+            assert exc.response is not None
+            raise InvalidStatus(Response.from_picows(exc.response)) from exc
         except picows.WSInvalidUpgradeError as exc:
             raise InvalidUpgrade(exc.name, exc.value) from exc
         except picows.WSInvalidHeaderError as exc:

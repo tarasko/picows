@@ -403,6 +403,53 @@ control connection establishment behavior), use ``socket_factory``:
     **picows** already enables `TCP_NODELAY` and, when available on the
     platform, `TCP_QUICKACK` to reduce latency by default.
 
+Serving a health check alongside a WebSocket endpoint
+------------------------------------------------------
+
+The listener factory passed to :any:`ws_create_server` can route both regular
+HTTP requests and WebSocket upgrade requests. Return a response for a small HTTP
+endpoint, return a :any:`WSListener` for a WebSocket endpoint, and return
+``None`` to send ``404 Not Found``:
+
+.. code-block:: python
+
+    from picows import (
+        WSUpgradeResponse,
+        WSUpgradeResponseWithListener,
+        ws_create_server,
+    )
+
+    def listener_factory(request):
+        if request.path == b"/health":
+            response = WSUpgradeResponse.create_ok_response(
+                b"healthy\n",
+            )
+            return WSUpgradeResponseWithListener(response, None)
+
+        if request.path == b"/ws":
+            # EchoListener is your WSListener implementation.
+            return EchoListener()
+
+        return None
+
+    server = await ws_create_server(listener_factory, "127.0.0.1", 9001)
+
+The listener factory receives the parsed request before WebSocket upgrade
+headers are validated. Returning a response whose status isn't ``101 Switching
+Protocols`` sends it with ``Connection: close`` and closes the connection. This
+header is added or overridden automatically. Returning a listener validates the
+WebSocket upgrade request and sends the standard ``101`` response.
+
+This support is intended for small endpoints such as health checks, not for use
+as a general-purpose HTTP server. Incoming requests must be HTTP/1.1 ``GET``
+requests without a body. Chunked transfer encoding, non-zero content lengths,
+request pipelining, and persistent HTTP connections aren't supported.
+
+See the complete runnable
+`websocket_and_health_check.py
+<https://raw.githubusercontent.com/tarasko/picows/master/examples/websocket_and_health_check.py>`_
+echo-server example.
+
 Free-threaded Python support
 ----------------------------
 

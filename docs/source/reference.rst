@@ -192,7 +192,7 @@ Classes
     .. py:attribute:: body
         :type: bytes
 
-        Optional response body. It can be non-empty in case of errors
+        Optional response body.
 
 .. autoclass:: WSUpgradeResponseWithListener
     :members:

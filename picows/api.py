@@ -162,11 +162,10 @@ async def _connect_through_optional_proxy(
                     port=parsed_url.port,
                 )
             except ReplyError as e:
-                await stream.close()  # type: ignore[no-untyped-call]
-                raise ProxyError(  # type: ignore[no-untyped-call]
-                    e, error_code=e.error_code)
+                await stream.close()
+                raise ProxyError(e, error_code=e.error_code)
             except (asyncio.CancelledError, Exception):
-                await stream.close()  # type: ignore[no-untyped-call]
+                await stream.close()
                 raise
         else:
             proxy_socket = await proxy_obj.connect(
@@ -259,6 +258,9 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
         * Maximum allowed frame size. Disconnect will be initiated if client receives a frame that is bigger than max size.
     :param extra_headers:
         Arbitrary HTTP headers to add to the handshake request.
+        ``Host`` is treated specially: it replaces the value generated from
+        ``url`` instead of adding a second ``Host`` header. Header names are
+        matched case-insensitively.
     :param max_redirects:
         * How many times we can follow HTTP redirects. Set to 0 in order to disable redirects.
     :param proxy:
@@ -393,11 +395,23 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
     It has a few extra parameters to control WebSocket behavior.
 
     :param ws_listener_factory:
-        A factory function that accepts WSUpgradeRequest object and returns one of:
+        A factory function that accepts a parsed WSUpgradeRequest object before
+        WebSocket upgrade headers are validated and returns one of:
 
         * User handler object. A standard 101 response will be sent to the client.
         * WSUpgradeResponseWithListener object. This allows to send a custom response with extra headers and an optional body.
         * None. In such case 404 Not Found response will be sent and the client will be disconnected.
+
+        Returning a response whose status isn't 101 Switching Protocols sends
+        that response with ``Connection: close``, without validating WebSocket
+        upgrade headers, and then disconnects the client. Any user-provided
+        ``Connection`` response header is overridden. This can be used for small
+        HTTP endpoints such as health checks. A 101 response is sent only after
+        validating the WebSocket upgrade request.
+
+        Incoming requests must be HTTP/1.1 GET requests without a body.
+        ``Content-Length`` may be omitted or set to zero; ``Transfer-Encoding``
+        and non-zero content lengths are rejected.
 
         The user handler must derive from WSListener and is responsible for
         processing incoming data.

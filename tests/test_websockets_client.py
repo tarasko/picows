@@ -84,6 +84,26 @@ async def test_connect_await_style_and_socket_options():
             assert await ws.recv() == "override"
 
 
+async def test_connect_additional_headers_overrides_host():
+    request_from_client = None
+
+    def listener_factory(request: picows.WSUpgradeRequest):
+        nonlocal request_from_client
+        request_from_client = request
+        return ServerEchoListener()
+
+    async with WSServer(listener_factory) as server:
+        async with websockets.connect(
+            server.url,
+            compression=None,
+            ping_interval=None,
+            proxy=None,
+            additional_headers={"Host": "ws.example.com"},
+        ):
+            assert request_from_client is not None
+            assert request_from_client.headers.getall("Host") == ["ws.example.com"]
+
+
 async def test_connect_rejects_conflicting_and_invalid_socket_options():
     async with WSServer() as server:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
