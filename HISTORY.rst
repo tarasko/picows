@@ -5,16 +5,16 @@ picows Release History
    :depth: 1
    :local:
 
-2.3.0 ()
+2.3.0 (2026-09-13)
 ------------------
 
 * #112: allow serving custom HTTP responses for non-upgrade requests
-* Add ``WSUpgradeResponse.create_ok_response`` for constructing HTTP 200 responses
-* Add HTTPS proxy support to ``ws_connect``, including proxy authentication and a separate
-  ``proxy_ssl_context`` for the TLS connection to the proxy
 * Validate incoming HTTP request lines (GET, non-empty target, HTTP/1.1), header names and values
   (token names, no folded headers or invalid control characters, 128-header limit), and body framing
   (no Transfer-Encoding; Content-Length, when present, must be a single zero value).
+* Add ``WSUpgradeResponse.create_ok_response`` for constructing HTTP 200 responses
+* Add HTTPS proxy support to ``ws_connect``, including proxy authentication and a separate
+  ``proxy_ssl_context`` for the TLS connection to the proxy
 
 2.2.0 (2026-09-11)
 ------------------
