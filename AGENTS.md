@@ -9,6 +9,7 @@ examples - Various examples for users on how to use picows + perf_test that coul
 
 ## Code style notes
 - Max line width is 120
+- Do not start Python module names with an underscore.
 - The project supports Python 3.9. Do not use PEP 604 union syntax
   like `A | B` in files that may be imported on Python 3.9 unless the file
   has `from __future__ import annotations`.

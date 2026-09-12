@@ -61,7 +61,7 @@ The following features from ``websockets`` aren't currently supported:
 * Proxy support covers the common ``proxy=True``, ``proxy=None``, and explicit
   proxy URL cases. Advanced upstream proxy TLS keyword handling, such as
   ``proxy_ssl`` and related ``proxy_*`` options for HTTPS proxies, isn't mirrored.
-  The picows core currently supports HTTP, SOCKS4, and SOCKS5 proxies, not HTTPS
-  proxy URLs.
+  The picows core supports HTTPS proxy URLs through its ``proxy_ssl_context``
+  argument.
 * ``ssl`` may be omitted, set to ``True`` / ``None``, or set to an
   ``ssl.SSLContext``. Passing ``ssl=False`` for ``wss://`` URIs isn't supported.
