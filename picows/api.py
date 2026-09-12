@@ -1,27 +1,24 @@
 import asyncio
-import socket
+import ssl as ssl_module
 import urllib.parse
-from dataclasses import dataclass
 from functools import partial
-from inspect import isawaitable
 from logging import Logger, LoggerAdapter, getLogger
 from ssl import SSLContext
-from typing import Callable, Optional, Union, Dict, Any, Awaitable, cast, TYPE_CHECKING
+from typing import Any, Awaitable, Callable, Optional, Union, cast, TYPE_CHECKING
 
-from python_socks.async_.asyncio import Proxy
-
-from .common import (WSHeadersLike, WSUpgradeRequest, WSUpgradeResponse, WSHost, WSPort,
+from .proxy import (ConnectedSocket, ConnectedTransport, HostPort, WSSocketFactory,
+                    connect_through_optional_proxy)
+from .common import (WSHeadersLike, WSUpgradeRequest, WSUpgradeResponse,
                      WSUpgradeResponseWithListener, WSHandshakeError)
 from .picows import (WSListener, WSTransport, WSAutoPingStrategy,   # type: ignore [attr-defined]
                      WSProtocol)
-from .url import parse_url, WSInvalidURL, WSParsedURL
+from .url import parse_url, WSParsedURL
 
 WSListenerFactory = Union[
     Callable[[], WSListener],
     Callable[[WSUpgradeRequest, WSUpgradeResponse], WSListener],
 ]
 WSServerListenerFactory = Callable[[WSUpgradeRequest], Union[WSListener, WSUpgradeResponseWithListener, None]]
-WSSocketFactory = Callable[[WSParsedURL], Union[Optional[socket.socket], Awaitable[Optional[socket.socket]]]]
 
 if TYPE_CHECKING:
     _WSLoggerAdapter = LoggerAdapter[Any]
@@ -63,14 +60,6 @@ def _maybe_handle_redirect(exc: WSHandshakeError, old_parsed_url: WSParsedURL, m
     return parsed_url
 
 
-def _is_connected(sock: socket.socket) -> bool:
-    try:
-        sock.getpeername()
-        return True
-    except OSError:
-        return False
-
-
 def _resolve_logger(
         logger_name: WSLoggerLike,
         default_suffix: str,
@@ -83,109 +72,6 @@ def _resolve_logger(
         return getLogger(f"{prefix}{logger_name}")
 
     return logger_name
-
-@dataclass
-class _ConnectedSocket:
-    sock: Optional[socket.socket]
-    host: Optional[WSHost]
-    port: Optional[WSPort]
-
-
-async def _create_connected_socket(
-        loop: asyncio.AbstractEventLoop,
-        socket_factory: Optional[WSSocketFactory],
-        parsed_url: WSParsedURL
-) -> Optional[socket.socket]:
-    if socket_factory is None:
-        return None
-
-    sock_or_awaitable = socket_factory(parsed_url)
-    sock: Optional[socket.socket]
-    if sock_or_awaitable is None or isinstance(sock_or_awaitable, socket.socket):
-        sock = sock_or_awaitable
-    elif isawaitable(sock_or_awaitable):
-        sock = await sock_or_awaitable
-    else:
-        raise TypeError(f"user socket_factory() returned invalid type: {type(sock_or_awaitable).__name__}")
-
-    if sock is not None:
-        sock.setblocking(False)
-    if sock is not None:
-        if not _is_connected(sock):
-            await loop.sock_connect(sock, (parsed_url.host, parsed_url.port))
-
-    return sock
-
-
-async def _connect_through_optional_proxy(
-        loop: asyncio.AbstractEventLoop,
-        parsed_url: WSParsedURL,
-        proxy_parsed_url: Optional[WSParsedURL],
-        socket_factory: Optional[WSSocketFactory],
-        ssl_context: Optional[Union[SSLContext, bool]],
-        conn_kwargs: Dict[str, Any]
-) -> _ConnectedSocket:
-    if proxy_parsed_url is not None and proxy_parsed_url.scheme == "https":
-        raise WSInvalidURL(proxy_parsed_url.url,
-            "HTTPS proxy URL scheme is not supported, use http://, socks4:// or socks5://")
-
-    if proxy_parsed_url is not None:
-        proxy_obj = Proxy.from_url(proxy_parsed_url.url, loop=loop)
-        proxy_socket = await _create_connected_socket(loop, socket_factory, proxy_parsed_url)
-        if proxy_socket is not None:
-            # It is so ugly that I have to use python_socks internals
-            # I could not figure out how to pass existing connected socket using public
-            # interface. Maybe I should just copy that part of the code?
-
-            # Import everthing as local as possible
-            # If imports will stop working, picows ws_connect will break but only
-            # if user has passed proxy together with socket_factory
-
-            from python_socks import ProxyError
-            from python_socks._connectors.factory_async import create_connector
-            from python_socks._protocols.errors import ReplyError
-            from python_socks.async_.asyncio._stream import AsyncioSocketStream
-
-            stream = AsyncioSocketStream(sock=proxy_socket, loop=loop)
-
-            try:
-                connector = create_connector(
-                    proxy_type=proxy_obj._proxy_type,
-                    username=proxy_obj._username,
-                    password=proxy_obj._password,
-                    rdns=proxy_obj._rdns,
-                    resolver=proxy_obj._resolver,
-                )
-                await connector.connect(
-                    stream=stream,
-                    host=parsed_url.host,
-                    port=parsed_url.port,
-                )
-            except ReplyError as e:
-                await stream.close()
-                raise ProxyError(e, error_code=e.error_code)
-            except (asyncio.CancelledError, Exception):
-                await stream.close()
-                raise
-        else:
-            proxy_socket = await proxy_obj.connect(
-                dest_host=parsed_url.host,
-                dest_port=parsed_url.port,
-            )
-
-        if ssl_context and "server_hostname" not in conn_kwargs:
-            conn_kwargs["server_hostname"] = parsed_url.host
-
-        return _ConnectedSocket(proxy_socket, None, None)
-    else:
-        sock = await _create_connected_socket(loop, socket_factory, parsed_url)
-        if sock is not None:
-            if ssl_context and "server_hostname" not in conn_kwargs:
-                conn_kwargs["server_hostname"] = parsed_url.host
-
-            return _ConnectedSocket(sock, None, None)
-        else:
-            return _ConnectedSocket(None, parsed_url.host, parsed_url.port)
 
 
 async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-untyped-def]
@@ -204,6 +90,7 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                      extra_headers: Optional[WSHeadersLike] = None,
                      max_redirects: int = 5,
                      proxy: Optional[str] = None,
+                     proxy_ssl_context: Optional[SSLContext] = None,
                      read_buffer_init_size: int = 16 * 1024,
                      socket_factory: Optional[WSSocketFactory] = None,
                      use_aiofastnet: Optional[bool] = None,
@@ -264,9 +151,11 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
     :param max_redirects:
         * How many times we can follow HTTP redirects. Set to 0 in order to disable redirects.
     :param proxy:
-        Optional proxy URL. Supported schemes are ``http://``, ``socks4://``
-        and ``socks5://`` (including authenticated variants).
-        HTTPS proxy scheme (``https://``) is currently not supported.
+        Optional proxy URL. Supported schemes are ``http://``, ``https://``,
+        ``socks4://`` and ``socks5://`` (including authenticated variants).
+    :param proxy_ssl_context:
+        Optional SSLContext for the TLS connection to an ``https://`` proxy.
+        A default client context is used when this isn't provided.
     :param read_buffer_init_size:
         Initial size (in bytes) of the internal read buffer.
         The buffer grows exponentially when incoming data does not fit.
@@ -312,10 +201,13 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
     parsed_proxy_url = parse_url(proxy, False) if proxy is not None else None
     loop = asyncio.get_running_loop()
 
+    start_tls: Callable[..., Awaitable[Optional[asyncio.Transport]]]
     if use_aiofastnet:
         create_connection = partial(aiofastnet.create_connection, loop)
+        start_tls = partial(aiofastnet.start_tls, loop)
     else:
         create_connection = loop.create_connection # type: ignore [assignment]
+        start_tls = loop.start_tls
 
     ssl: Optional[Union[SSLContext, bool]]
     while True:
@@ -348,17 +240,54 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
 
         try:
             conn_kwargs = dict(kwargs)
-            conn_socket = await _connect_through_optional_proxy(
-                loop, parsed_url, parsed_proxy_url, socket_factory, ssl, conn_kwargs)
+            connection = await connect_through_optional_proxy(
+                loop, parsed_url, parsed_proxy_url, socket_factory, ssl,
+                proxy_ssl_context, conn_kwargs, create_connection)
 
-            (_, ws_protocol) = await create_connection(
-                ws_protocol_factory,
-                conn_socket.host,
-                conn_socket.port,
-                ssl=ssl,
-                sock=conn_socket.sock,
-                **conn_kwargs
-                )
+            if isinstance(connection, ConnectedTransport):
+                transport = connection.transport
+                try:
+                    ws_protocol = ws_protocol_factory()
+                    transport.set_protocol(ws_protocol)
+
+                    if ssl is not None:
+                        target_ssl_context = ssl if isinstance(ssl, SSLContext) \
+                            else ssl_module.create_default_context()
+                        server_hostname = conn_kwargs.get("server_hostname", parsed_url.host)
+                        start_tls_kwargs = {
+                            key: value for key, value in conn_kwargs.items()
+                            if key.startswith("ssl_")
+                        }
+
+                        new_transport = await start_tls(
+                            transport, ws_protocol, target_ssl_context,
+                            server_hostname=server_hostname, **start_tls_kwargs)
+                        if new_transport is None:
+                            raise ConnectionError("connection closed while starting TLS")
+                        transport = new_transport
+
+                    ws_protocol.connection_made(transport)
+                except (asyncio.CancelledError, Exception):
+                    transport.abort()
+                    raise
+            else:
+                if isinstance(connection, HostPort):
+                    host = connection.host
+                    port = connection.port
+                    sock = None
+                else:
+                    host = None
+                    port = None
+                    sock = connection.sock
+
+                (_, ws_protocol) = await create_connection(
+                    ws_protocol_factory,
+                    host,
+                    port,
+                    ssl=ssl,
+                    sock=sock,
+                    **conn_kwargs
+                    )
 
             await ws_protocol.wait_until_handshake_complete()
             return ws_protocol.transport, ws_protocol.listener
