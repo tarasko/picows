@@ -57,8 +57,12 @@ async def test_data_received_accepts_fragmented_success_and_ignores_later_data()
 
 
 @pytest.mark.parametrize(("response", "connect_transport"), [
-    (b"x" * (proxy._MAX_PROXY_RESPONSE_SIZE + 1), True),
-    (b"x" * (proxy._MAX_PROXY_RESPONSE_SIZE + 1) + b"\r\n\r\n", False),
+    pytest.param(b"x" * (proxy._MAX_PROXY_RESPONSE_SIZE + 1), True, id="unterminated"),
+    pytest.param(
+        b"x" * (proxy._MAX_PROXY_RESPONSE_SIZE + 1) + b"\r\n\r\n",
+        False,
+        id="terminator-beyond-limit",
+    ),
 ])
 async def test_data_received_rejects_oversized_headers(response: bytes, connect_transport: bool) -> None:
     protocol = HTTPProxyConnectProtocol("example.com", 443, None, None)
