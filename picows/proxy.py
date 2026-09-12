@@ -177,14 +177,12 @@ async def connect_through_optional_proxy(
         }
 
         if proxy_parsed_url.scheme == "https":
-            proxy_tls: Optional[SSLContext] = proxy_ssl_context
-            if proxy_tls is None:
-                proxy_tls = ssl_module.create_default_context()
+            if proxy_ssl_context is None:
+                proxy_ssl_context = ssl_module.create_default_context()
             proxy_server_hostname: Optional[str] = proxy_parsed_url.host
         else:
             if proxy_ssl_context is not None:
                 raise ValueError("proxy_ssl_context is only supported for https:// proxies")
-            proxy_tls = None
             proxy_server_hostname = None
 
         def proxy_protocol_factory() -> HTTPProxyConnectProtocol:
@@ -206,7 +204,7 @@ async def connect_through_optional_proxy(
             proxy_protocol_factory,
             proxy_host,
             proxy_port,
-            ssl=proxy_tls,
+            ssl=proxy_ssl_context,
             sock=proxy_socket,
             server_hostname=proxy_server_hostname,
             **proxy_conn_kwargs,
