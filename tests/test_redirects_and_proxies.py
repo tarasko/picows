@@ -13,6 +13,7 @@ from anyio.streams.tls import TLSListener
 from tiny_proxy import HttpProxyHandler, Socks4ProxyHandler, Socks5ProxyHandler
 
 import picows
+from picows.proxy import HTTPProxyConnectProtocol
 from picows.url import parse_url
 
 from tests.utils import AsyncClient, WSClient, WSServer
@@ -24,6 +25,15 @@ from tests.fixtures import (
 event_loop_policy = multiloop_event_loop_policy()
 
 _logger = getLogger(__name__)
+
+
+def _is_native_asyncio_policy() -> bool:
+    policy = asyncio.get_event_loop_policy()
+    if isinstance(policy, asyncio.DefaultEventLoopPolicy):
+        return True
+    if sys.platform == "win32":
+        return isinstance(policy, asyncio.WindowsSelectorEventLoopPolicy)
+    return False
 
 
 def _create_proxy_handler(proxy_type: str):
@@ -126,7 +136,7 @@ async def test_redirect_through_proxy(use_aiofastnet, ssl_context, proxy_type: s
     # God bless pytest!
 
     is_https = proxy_type in ("https", "https_auth")
-    is_asyncio_loop = isinstance(asyncio.get_event_loop_policy(), asyncio.DefaultEventLoopPolicy)
+    is_asyncio_loop = _is_native_asyncio_policy()
 
     if sys.version_info < (3, 11) and is_asyncio_loop and is_https:
         pytest.skip("HTTPS proxy using asyncio requires Python 3.11+")
@@ -211,10 +221,32 @@ async def test_redirect_through_proxy(use_aiofastnet, ssl_context, proxy_type: s
                         )
 
 
+async def test_start_tls_failure_before_ws_protocol_handoff(monkeypatch):
+    loop = asyncio.get_running_loop()
+
+    async def failing_start_tls(transport, protocol, ssl_context, **kwargs):
+        assert isinstance(protocol, HTTPProxyConnectProtocol)
+        raise TypeError("nested TLS is not supported")
+
+    async with ProxyServer("https") as proxy_url:
+        async with WSServer(ssl=create_server_ssl_context(), use_aiofastnet=False) as echo_server:
+            monkeypatch.setattr(loop, "start_tls", failing_start_tls)
+
+            with pytest.raises(TypeError, match="nested TLS is not supported"):
+                await picows.ws_connect(
+                    AsyncClient,
+                    echo_server.url,
+                    ssl_context=create_client_ssl_context(),
+                    proxy=proxy_url,
+                    proxy_ssl_context=create_client_ssl_context(),
+                    use_aiofastnet=False,
+                )
+
+
 @pytest.mark.parametrize("proxy_type", ["direct", "http", "https", "socks4", "socks5"])
 async def test_proxy_dns_resolution(proxy_type):
     is_https = proxy_type in ("https", "https_auth")
-    is_asyncio_loop = isinstance(asyncio.get_event_loop_policy(), asyncio.DefaultEventLoopPolicy)
+    is_asyncio_loop = _is_native_asyncio_policy()
 
     if sys.version_info < (3, 11) and is_asyncio_loop and is_https:
         pytest.skip("HTTPS proxy using asyncio requires Python 3.11+")

@@ -247,9 +247,6 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
             if isinstance(connection, ConnectedTransport):
                 transport = connection.transport
                 try:
-                    ws_protocol = ws_protocol_factory()
-                    transport.set_protocol(ws_protocol)
-
                     if ssl is not None:
                         target_ssl_context = ssl if isinstance(ssl, SSLContext) \
                             else ssl_module.create_default_context()
@@ -260,12 +257,14 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                         }
 
                         new_transport = await start_tls(
-                            transport, ws_protocol, target_ssl_context,
+                            transport, transport.get_protocol(), target_ssl_context,
                             server_hostname=server_hostname, **start_tls_kwargs)
                         if new_transport is None:
                             raise ConnectionError("connection closed while starting TLS")
                         transport = new_transport
 
+                    ws_protocol = ws_protocol_factory()
+                    transport.set_protocol(ws_protocol)
                     ws_protocol.connection_made(transport)
                 except (asyncio.CancelledError, Exception):
                     transport.abort()
