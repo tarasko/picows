@@ -29,7 +29,7 @@ jobs:
       run: python -m build -s
 
     - name: Publish source dist to github
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: dist-src
         path: dist/*.tar.*
@@ -90,16 +90,16 @@ jobs:
 
       - name: Set up QEMU
         if: runner.os == 'Linux'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v3.3.0
+        uses: pypa/cibuildwheel@v4.2.0
         with:
           only: ${{ matrix.only }}
         env:
           CIBW_BUILD_VERBOSITY: 1
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist-${{ matrix.only }}
           path: wheelhouse/*.whl
@@ -117,7 +117,7 @@ jobs:
         fetch-depth: 5
         submodules: false
 
-    - uses: actions/download-artifact@v4
+    - uses: actions/download-artifact@v8
       with:
         path: dist/
         pattern: dist-*
