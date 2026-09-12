@@ -6,7 +6,7 @@ from logging import Logger, LoggerAdapter, getLogger
 from ssl import SSLContext
 from typing import Any, Awaitable, Callable, Optional, Union, cast, TYPE_CHECKING
 
-from .proxy import (ConnectedSocket, ConnectedTransport, HostPort, WSSocketFactory,
+from .proxy import (ConnectedTransport, WSSocketFactory,
                     connect_through_optional_proxy)
 from .common import (WSHeadersLike, WSUpgradeRequest, WSUpgradeResponse,
                      WSUpgradeResponseWithListener, WSHandshakeError)
@@ -270,21 +270,12 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                     transport.abort()
                     raise
             else:
-                if isinstance(connection, HostPort):
-                    host = connection.host
-                    port = connection.port
-                    sock = None
-                else:
-                    host = None
-                    port = None
-                    sock = connection.sock
-
                 (_, ws_protocol) = await create_connection(
                     ws_protocol_factory,
-                    host,
-                    port,
+                    connection.host,
+                    connection.port,
                     ssl=ssl,
-                    sock=sock,
+                    sock=connection.sock,
                     **conn_kwargs
                     )
 

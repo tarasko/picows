@@ -106,14 +106,10 @@ class HTTPProxyConnectProtocol(asyncio.Protocol):
 
 
 @dataclass(frozen=True)
-class HostPort:
-    host: WSHost
-    port: WSPort
-
-
-@dataclass(frozen=True)
 class ConnectedSocket:
-    sock: socket.socket
+    sock: Optional[socket.socket]
+    host: Optional[WSHost]
+    port: Optional[WSPort]
 
 
 @dataclass(frozen=True)
@@ -163,15 +159,15 @@ async def connect_through_optional_proxy(
         proxy_ssl_context: Optional[SSLContext],
         conn_kwargs: Dict[str, Any],
         create_connection: Callable[..., Awaitable[Any]]
-) -> Union[HostPort, ConnectedSocket, ConnectedTransport]:
+) -> Union[ConnectedSocket, ConnectedTransport]:
     if proxy_parsed_url is None:
         sock = await _create_connected_socket(loop, socket_factory, parsed_url)
         if sock is not None:
             if ssl_context and "server_hostname" not in conn_kwargs:
                 conn_kwargs["server_hostname"] = parsed_url.host
 
-            return ConnectedSocket(sock)
-        return HostPort(parsed_url.host, parsed_url.port)
+            return ConnectedSocket(sock, None, None)
+        return ConnectedSocket(None, parsed_url.host, parsed_url.port)
 
     if proxy_parsed_url.scheme in ("http", "https"):
         proxy_socket = await _create_connected_socket(loop, socket_factory, proxy_parsed_url)
@@ -264,4 +260,4 @@ async def connect_through_optional_proxy(
     if ssl_context and "server_hostname" not in conn_kwargs:
         conn_kwargs["server_hostname"] = parsed_url.host
 
-    return ConnectedSocket(proxy_socket)
+    return ConnectedSocket(proxy_socket, None, None)
