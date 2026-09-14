@@ -6,7 +6,7 @@ README, for what Keep the Why actually is.
 - id: tarasko---picows
 - context: `context/`
 - init: complete
-- context-schema: 0.16.2
+- context-schema: 0.16.3
 - capture-confirmation: automatic
 - source-reference: never
 <!-- /keep-the-why:config -->
