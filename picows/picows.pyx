@@ -302,6 +302,31 @@ cdef inline bint _is_valid_http_field_value(bytes value):
     return True
 
 
+cdef inline NoResult _parse_http_headers(list lines, Py_ssize_t start_idx,
+                                         object headers, str malformed_error) except NoResult.EXC:
+    cdef list parts
+    cdef bytes line, name, value
+    cdef Py_ssize_t idx
+    for idx in range(start_idx, len(lines)):
+        line = <bytes>lines[idx]
+        if line.startswith((b" ", b"\t")):
+            raise RuntimeError(f"Obsolete folded HTTP header is not supported: {line}")
+
+        parts = <list>line.split(b":", 1)
+        if len(parts) != 2:
+            raise RuntimeError(f"{malformed_error}: {line}")
+
+        name, value = <bytes>parts[0], <bytes>parts[1]
+        if not _is_http_token(name):
+            raise RuntimeError(f"Invalid HTTP header name: {name}")
+
+        value = value.strip(b" \t")
+        if not _is_valid_http_field_value(value):
+            raise RuntimeError(f"Invalid HTTP header value for {name}: {value}")
+
+        headers.add(name.decode("ascii"), value.decode("ascii", "surrogateescape"))
+
+
 cpdef object _parse_http_request(bytes raw_headers):
     cdef list lines = <list>raw_headers.split(b"\r\n")
     cdef bytes request_line = <bytes>lines[0]
@@ -327,27 +352,7 @@ cpdef object _parse_http_request(bytes raw_headers):
         raise RuntimeError(f"HTTP request contains more than {_HTTP_MAX_NUM_HEADERS} headers")
 
     cdef object headers = CIMultiDict()
-    cdef list parts
-    cdef bytes line, name, value
-    cdef Py_ssize_t idx
-    for idx in range(1, len(lines)):
-        line = <bytes>lines[idx]
-        if line.startswith((b" ", b"\t")):
-            raise RuntimeError(f"Obsolete folded HTTP header is not supported: {line}")
-
-        parts = <list>line.split(b":", 1)
-        if len(parts) != 2:
-            raise RuntimeError(f"Malformed header in HTTP request: {line}")
-
-        name, value = <bytes>parts[0], <bytes>parts[1]
-        if not _is_http_token(name):
-            raise RuntimeError(f"Invalid HTTP header name: {name}")
-
-        value = value.strip(b" \t")
-        if not _is_valid_http_field_value(value):
-            raise RuntimeError(f"Invalid HTTP header value for {name}: {value}")
-
-        headers.add(name.decode("ascii"), value.decode("ascii", "surrogateescape"))
+    _parse_http_headers(lines, 1, headers, "Malformed header in HTTP request")
 
     if "Transfer-Encoding" in headers:
         raise RuntimeError("Transfer-Encoding is not supported in HTTP requests")
@@ -388,7 +393,7 @@ cpdef bytes _validate_upgrade_request(object upgrade_request):
     cdef bytes key_bytes
     try:
         key_bytes = key.encode("ascii") if key else b""
-        if not key_bytes or len(b64decode(key_bytes)) != 16:
+        if not key_bytes or len(b64decode(key_bytes, validate=True)) != 16:
             raise RuntimeError(f"Handshake error, invalid key: {key!r}")
     except (UnicodeEncodeError, binascii.Error):
         raise RuntimeError(f"Handshake error, invalid key: {key!r}") from None
@@ -408,7 +413,6 @@ cpdef object _parse_upgrade_response(bytes data, bytes websocket_key_b64):
     cdef bytes response_status_line = <bytes>lines[0]
     cdef str response_status_line_str
     cdef bytes status_code
-    cdef bytes line, name, value
     cdef str transfer_encoding
     cdef object connection_value
     cdef object upgrade_value
@@ -444,18 +448,23 @@ cpdef object _parse_upgrade_response(bytes data, bytes websocket_key_b64):
 
     response.headers = CIMultiDict()
     response.body = None
-    for idx in range(1, len(lines)):
-        line = <bytes>lines[idx]
-        try:
-            name, value = <list>line.split(b":", 1)
-            response.headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
-        except (ValueError, UnicodeDecodeError):
-            raise WSInvalidMessageError(
-                f"cannot upgrade, malformed header in upgrade response: {line!r}",
-                raw_headers,
-                tail,
-                response,
-            ) from None
+    if len(lines) - 1 > _HTTP_MAX_NUM_HEADERS:
+        raise WSInvalidMessageError(
+            f"upgrade response contains more than {_HTTP_MAX_NUM_HEADERS} headers",
+            raw_headers,
+            tail,
+            response,
+        )
+
+    try:
+        _parse_http_headers(lines, 1, response.headers, "malformed header in upgrade response")
+    except RuntimeError as ex:
+        raise WSInvalidMessageError(
+            f"cannot upgrade, {ex}",
+            raw_headers,
+            tail,
+            response,
+        ) from None
 
     if response.status != HTTPStatus.SWITCHING_PROTOCOLS:
         raise WSInvalidStatusError(
@@ -466,7 +475,7 @@ cpdef object _parse_upgrade_response(bytes data, bytes websocket_key_b64):
         )
 
     transfer_encoding = response.headers.get("transfer-encoding")
-    if transfer_encoding == "chunked":
+    if transfer_encoding is not None:
         raise WSInvalidHeaderError(
             "101 response cannot have Transfer-Encoding but it has",
             "Transfer-Encoding",
@@ -1218,7 +1227,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         object _handshake_timeout
         object _handshake_timeout_handle
         object _handshake_complete_future
-        Py_ssize_t _http_request_max_size
+        Py_ssize_t _http_max_size
 
         bytes _websocket_key_b64
         Py_ssize_t _max_frame_size
@@ -1282,7 +1291,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         self._handshake_timeout = websocket_handshake_timeout
         self._handshake_timeout_handle = None
         self._handshake_complete_future = self._loop.create_future()
-        self._http_request_max_size = 16 * 1024
+        self._http_max_size = 16 * 1024
 
         self._websocket_key_b64 = b64encode(os.urandom(16))
         self._max_frame_size = max_frame_size
@@ -1667,18 +1676,18 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
         cdef bytes data = PyBytes_FromStringAndSize(self._read_buffer.data, self._f_new_data_start_pos)
         cdef list request = <list>data.split(b"\r\n\r\n", 1)
         if len(request) < 2:
-            if len(data) >= self._http_request_max_size:
+            if len(data) >= self._http_max_size:
                 self.transport.disconnect()
                 self._logger.info("Disconnect because HTTP request violated max_size threshold: %d",
-                                  self._http_request_max_size)
+                                  self._http_max_size)
 
             return None
 
         cdef bytes raw_headers = <bytes>request[0]
-        if len(raw_headers) >= self._http_request_max_size:
+        if len(raw_headers) >= self._http_max_size:
             self.transport.disconnect()
             self._logger.info("Disconnect because HTTP request violated max_size threshold: %d",
-                              self._http_request_max_size)
+                              self._http_max_size)
             return None
 
         if cython.unlikely(self._log_debug_enabled):
@@ -1697,11 +1706,25 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
     cdef inline object _try_read_and_process_upgrade_response(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._read_buffer.data, self._f_new_data_start_pos)
-        response = _parse_upgrade_response(data, self._websocket_key_b64)
-        if response is None:
+        cdef Py_ssize_t header_end = data.find(b"\r\n\r\n")
+        if header_end < 0:
+            if len(data) >= self._http_max_size:
+                raise WSInvalidMessageError(
+                    f"upgrade response headers exceed max_size threshold: {self._http_max_size}",
+                    data,
+                    b"",
+                )
             return None
 
-        cdef Py_ssize_t header_size = data.find(b"\r\n\r\n") + 4
+        if header_end >= self._http_max_size:
+            raise WSInvalidMessageError(
+                f"upgrade response headers exceed max_size threshold: {self._http_max_size}",
+                data[:header_end],
+                data[header_end + 4:],
+            )
+
+        response = _parse_upgrade_response(data, self._websocket_key_b64)
+        cdef Py_ssize_t header_size = header_end + 4
         memmove(self._read_buffer.data, self._read_buffer.data + header_size, self._read_buffer.size - header_size)
         self._f_new_data_start_pos = len(data) - header_size
         self._state = WSParserState.READ_HEADER
