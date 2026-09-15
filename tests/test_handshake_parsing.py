@@ -150,9 +150,10 @@ def make_upgrade_request(headers: Iterable[bytes]) -> picows.WSUpgradeRequest:
 
 
 @pytest.mark.parametrize("version", [b"7", b"8", b"13"])
-def test_validate_upgrade_request(version: bytes):
+@pytest.mark.parametrize("upgrade", [b"websocket", b"WebSocket", b"WEBSOCKET"])
+def test_validate_upgrade_request(version: bytes, upgrade: bytes):
     request = make_upgrade_request([
-        b"Upgrade: websocket",
+        b"Upgrade: " + upgrade,
         b"Connection: Upgrade",
         b"Sec-WebSocket-Version: " + version,
         b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",

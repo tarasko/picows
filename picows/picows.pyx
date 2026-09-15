@@ -371,7 +371,7 @@ cpdef object _parse_http_request(bytes raw_headers):
 cpdef bytes _validate_upgrade_request(object upgrade_request):
     cdef object headers = upgrade_request.headers
 
-    if "websocket" != headers.get("upgrade"):
+    if "websocket" != headers.get("upgrade", "").lower():
         raise RuntimeError("No WebSocket UPGRADE header. Can 'Upgrade' only to 'websocket'")
 
     if "connection" not in headers:
