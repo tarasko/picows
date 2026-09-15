@@ -5,6 +5,12 @@ picows Release History
    :depth: 1
    :local:
 
+2.3.1 ()
+------------------
+
+* #115: fix error 400 when upgrade header is not in lowercase
+* Harden some other checks in HTTP request/response parser.
+
 2.3.0 (2026-09-13)
 ------------------
 
