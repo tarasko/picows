@@ -396,6 +396,147 @@ cpdef bytes _validate_upgrade_request(object upgrade_request):
     return b64encode(sha1(<bytes>key_bytes + _WS_KEY).digest())
 
 
+cpdef object _parse_upgrade_response(bytes data, bytes websocket_key_b64):
+    cdef list data_parts = <list>data.split(b"\r\n\r\n", 1)
+    if len(data_parts) < 2:
+        return None
+
+    cdef bytes raw_headers, tail
+    raw_headers, tail = <bytes>data_parts[0], <bytes>data_parts[1]
+
+    cdef list lines = <list>raw_headers.split(b"\r\n")
+    cdef bytes response_status_line = <bytes>lines[0]
+    cdef str response_status_line_str
+    cdef bytes status_code
+    cdef bytes line, name, value
+    cdef str transfer_encoding
+    cdef object connection_value
+    cdef object upgrade_value
+    cdef object r_key
+    cdef Py_ssize_t content_length
+
+    try:
+        response_status_line_str = response_status_line.decode().lower()
+    except UnicodeDecodeError:
+        raise WSInvalidMessageError(
+            "cannot upgrade, invalid HTTP status line in upgrade response",
+            raw_headers,
+            tail,
+        ) from None
+
+    if not response_status_line_str.startswith("http/1.1 "):
+        raise WSInvalidMessageError(
+            f"cannot upgrade, unknown protocol (expected HTTP/1.1) in upgrade response: {response_status_line_str}",
+            raw_headers,
+            tail,
+        )
+
+    response = WSUpgradeResponse()
+    try:
+        response.version, status_code, status_phrase = response_status_line.split(b" ", 2)
+        response.status = HTTPStatus(int(status_code.decode()))
+    except (ValueError, UnicodeDecodeError):
+        raise WSInvalidMessageError(
+            f"cannot upgrade, invalid HTTP status line in upgrade response: {response_status_line!r}",
+            raw_headers,
+            tail,
+        ) from None
+
+    response.headers = CIMultiDict()
+    response.body = None
+    for idx in range(1, len(lines)):
+        line = <bytes>lines[idx]
+        try:
+            name, value = <list>line.split(b":", 1)
+            response.headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
+        except (ValueError, UnicodeDecodeError):
+            raise WSInvalidMessageError(
+                f"cannot upgrade, malformed header in upgrade response: {line!r}",
+                raw_headers,
+                tail,
+                response,
+            ) from None
+
+    if response.status != HTTPStatus.SWITCHING_PROTOCOLS:
+        raise WSInvalidStatusError(
+            f"expected upgrade response with status 101 Switching Protocols, but received {response.status}",
+            raw_headers,
+            tail,
+            response,
+        )
+
+    transfer_encoding = response.headers.get("transfer-encoding")
+    if transfer_encoding == "chunked":
+        raise WSInvalidHeaderError(
+            "101 response cannot have Transfer-Encoding but it has",
+            "Transfer-Encoding",
+            transfer_encoding,
+            raw_headers,
+            tail,
+            response,
+        )
+
+    try:
+        content_length = int(response.headers.get("content-length", "0"))
+    except ValueError:
+        raise WSInvalidHeaderError(
+            "101 response has invalid Content-Length header",
+            "Content-Length",
+            response.headers.get("content-length"),
+            raw_headers,
+            tail,
+            response,
+        ) from None
+
+    if content_length != 0:
+        raise WSInvalidHeaderError(
+            "101 response has non-zero Content-Length, but it can't have body",
+            "Content-Length",
+            response.headers.get("content-length"),
+            raw_headers,
+            tail,
+            response,
+        )
+
+    upgrade_value = response.headers.get("upgrade")
+    upgrade_value = upgrade_value if upgrade_value is None else upgrade_value.lower()
+    if upgrade_value != "websocket":
+        raise WSInvalidUpgradeError(
+            "cannot upgrade, invalid upgrade header",
+            "Upgrade",
+            response.headers.get("upgrade"),
+            raw_headers,
+            tail,
+            response,
+        )
+
+    connection_value = response.headers.get("connection")
+    connection_value = connection_value if connection_value is None else connection_value.lower()
+    if connection_value != "upgrade":
+        raise WSInvalidUpgradeError(
+            "cannot upgrade, invalid connection header",
+            "Connection",
+            response.headers.get("connection"),
+            raw_headers,
+            tail,
+            response,
+        )
+
+    r_key = response.headers.get("sec-websocket-accept")
+    match = b64encode(sha1(websocket_key_b64 + _WS_KEY).digest()).decode()
+    if r_key != match:
+        raise WSInvalidHeaderError(
+            "cannot upgrade, invalid sec-websocket-accept response",
+            "Sec-WebSocket-Accept",
+            response.headers.get("sec-websocket-accept"),
+            raw_headers,
+            tail,
+            response,
+        )
+
+    return response
+
+
 cdef class MemoryBuffer:
     def __init__(self, Py_ssize_t initial_capacity):
         self.size = 0
@@ -1556,146 +1697,13 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
     cdef inline object _try_read_and_process_upgrade_response(self):
         cdef bytes data = PyBytes_FromStringAndSize(self._read_buffer.data, self._f_new_data_start_pos)
-        cdef list data_parts = <list>data.split(b"\r\n\r\n", 1)
-        if len(data_parts) < 2:
+        response = _parse_upgrade_response(data, self._websocket_key_b64)
+        if response is None:
             return None
 
-        cdef bytes raw_headers, tail
-        raw_headers, tail = <bytes>data_parts[0], <bytes>data_parts[1]
-
-        cdef list lines = <list>raw_headers.split(b"\r\n")
-        cdef bytes response_status_line = <bytes>lines[0]
-        cdef str response_status_line_str
-        cdef bytes status_code
-        cdef bytes line, name, value
-        cdef str transfer_encoding
-        cdef object connection_value
-        cdef object upgrade_value
-        cdef object r_key
-        cdef Py_ssize_t content_length
-
-        try:
-            response_status_line_str = response_status_line.decode().lower()
-        except UnicodeDecodeError:
-            raise WSInvalidMessageError(
-                "cannot upgrade, invalid HTTP status line in upgrade response",
-                raw_headers,
-                tail,
-            ) from None
-
-        # check handshake
-        if not response_status_line_str.startswith("http/1.1 " ):
-            raise WSInvalidMessageError(
-                f"cannot upgrade, unknown protocol (expected HTTP/1.1) in upgrade response: {response_status_line_str}",
-                raw_headers,
-                tail,
-            )
-
-        response = WSUpgradeResponse()
-        try:
-            response.version, status_code, status_phrase = response_status_line.split(b" ", 2)
-            response.status = HTTPStatus(int(status_code.decode()))
-        except (ValueError, UnicodeDecodeError):
-            raise WSInvalidMessageError(
-                f"cannot upgrade, invalid HTTP status line in upgrade response: {response_status_line!r}",
-                raw_headers,
-                tail,
-            ) from None
-
-        response.headers = CIMultiDict()
-        response.body = None
-        for idx in range(1, len(lines)):
-            line = <bytes>lines[idx]
-            try:
-                name, value = <list>line.split(b":", 1)
-                response.headers.add((<bytes>name.strip()).decode(), (<bytes>value.strip()).decode())
-            except (ValueError, UnicodeDecodeError):
-                raise WSInvalidMessageError(
-                    f"cannot upgrade, malformed header in upgrade response: {line!r}",
-                    raw_headers,
-                    tail,
-                    response,
-                ) from None
-
-        if response.status != HTTPStatus.SWITCHING_PROTOCOLS:
-            raise WSInvalidStatusError(
-                f"expected upgrade response with status 101 Switching Protocols, but received {response.status}",
-                raw_headers,
-                tail,
-                response,
-            )
-
-        transfer_encoding = response.headers.get("transfer-encoding")
-        if transfer_encoding == "chunked":
-            raise WSInvalidHeaderError(
-                "101 response cannot have Transfer-Encoding but it has",
-                "Transfer-Encoding",
-                transfer_encoding,
-                raw_headers,
-                tail,
-                response,
-            )
-
-        try:
-            content_length = int(response.headers.get("content-length", "0"))
-        except ValueError:
-            raise WSInvalidHeaderError(
-                "101 response has invalid Content-Length header",
-                "Content-Length",
-                response.headers.get("content-length"),
-                raw_headers,
-                tail,
-                response,
-            ) from None
-
-        if content_length != 0:
-            raise WSInvalidHeaderError(
-                "101 response has non-zero Content-Length, but it can't have body",
-                "Content-Length",
-                response.headers.get("content-length"),
-                raw_headers,
-                tail,
-                response,
-            )
-
-        upgrade_value = response.headers.get("upgrade")
-        upgrade_value = upgrade_value if upgrade_value is None else upgrade_value.lower()
-        if upgrade_value != "websocket":
-            raise WSInvalidUpgradeError(
-                "cannot upgrade, invalid upgrade header",
-                "Upgrade",
-                response.headers.get("upgrade"),
-                raw_headers,
-                tail,
-                response,
-            )
-
-        connection_value = response.headers.get("connection")
-        connection_value = connection_value if connection_value is None else connection_value.lower()
-        if connection_value != "upgrade":
-            raise WSInvalidUpgradeError(
-                "cannot upgrade, invalid connection header",
-                "Connection",
-                response.headers.get("connection"),
-                raw_headers,
-                tail,
-                response,
-            )
-
-        r_key = response.headers.get("sec-websocket-accept")
-        match = b64encode(sha1(self._websocket_key_b64 + _WS_KEY).digest()).decode()
-        if r_key != match:
-            raise WSInvalidHeaderError(
-                "cannot upgrade, invalid sec-websocket-accept response",
-                "Sec-WebSocket-Accept",
-                response.headers.get("sec-websocket-accept"),
-                raw_headers,
-                tail,
-                response,
-            )
-
-        memmove(self._read_buffer.data, self._read_buffer.data + len(raw_headers) + 4, self._read_buffer.size - len(raw_headers) - 4)
-        self._f_new_data_start_pos = len(tail)
+        cdef Py_ssize_t header_size = data.find(b"\r\n\r\n") + 4
+        memmove(self._read_buffer.data, self._read_buffer.data + header_size, self._read_buffer.size - header_size)
+        self._f_new_data_start_pos = len(data) - header_size
         self._state = WSParserState.READ_HEADER
         if cython.unlikely(self._log_debug_enabled):
             self._logger.log(_DEBUG_LL, "WS handshake done, switch to upgraded state")
