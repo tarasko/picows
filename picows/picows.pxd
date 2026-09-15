@@ -99,6 +99,7 @@ cdef class WSFrame:
 cpdef WSFrame _make_test_ws_frame(WSMsgType msg_type, bytes payload, bint fin, bint rsv1)
 cpdef object _parse_http_request(bytes raw_headers)
 cpdef bytes _validate_upgrade_request(object upgrade_request)
+cpdef object _parse_upgrade_response(bytes data, bytes websocket_key_b64)
 
 
 cdef class WSTransport:

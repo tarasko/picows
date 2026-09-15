@@ -672,6 +672,25 @@ async def test_handshake_invalid_message_error():
             await picows.ws_connect(AsyncClient, url)
 
 
+@pytest.mark.parametrize("complete", [False, True])
+async def test_client_rejects_oversized_upgrade_response(complete: bool):
+    response = (
+        b"HTTP/1.1 101 Switching Protocols\r\n"
+        b"X-Oversized: " + b"a" * (16 * 1024)
+    )
+    if complete:
+        response += b"\r\n\r\n"
+
+    async with raw_handshake_server(response) as url:
+        with pytest.raises(picows.WSInvalidMessageError, match="max_size"):
+            await picows.ws_connect(
+                AsyncClient,
+                url,
+                read_buffer_init_size=64 * 1024,
+                use_aiofastnet=False,
+            )
+
+
 async def test_client_handshake_timeout_none():
     async with delayed_handshake_server(0.2) as url:
         transport, _ = await picows.ws_connect(

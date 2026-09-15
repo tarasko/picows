@@ -1,9 +1,23 @@
-from typing import Iterable, Tuple
+from http import HTTPStatus
+from typing import Iterable, Optional, Tuple
 
 import pytest
 
 import picows
-from picows.picows import _parse_http_request, _validate_upgrade_request
+from picows.picows import (
+    _parse_http_request,
+    _parse_upgrade_response,
+    _validate_upgrade_request,
+)
+
+
+WEBSOCKET_KEY = b"dGhlIHNhbXBsZSBub25jZQ=="
+WEBSOCKET_ACCEPT = b"s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+VALID_UPGRADE_RESPONSE_HEADERS = (
+    b"Upgrade: websocket",
+    b"Connection: Upgrade",
+    b"Sec-WebSocket-Accept: " + WEBSOCKET_ACCEPT,
+)
 
 
 def make_raw_request(headers: Iterable[bytes] = ()) -> bytes:
@@ -150,9 +164,10 @@ def make_upgrade_request(headers: Iterable[bytes]) -> picows.WSUpgradeRequest:
 
 
 @pytest.mark.parametrize("version", [b"7", b"8", b"13"])
-def test_validate_upgrade_request(version: bytes):
+@pytest.mark.parametrize("upgrade", [b"websocket", b"WebSocket", b"WEBSOCKET"])
+def test_validate_upgrade_request(version: bytes, upgrade: bytes):
     request = make_upgrade_request([
-        b"Upgrade: websocket",
+        b"Upgrade: " + upgrade,
         b"Connection: Upgrade",
         b"Sec-WebSocket-Version: " + version,
         b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
@@ -203,6 +218,15 @@ def test_validate_upgrade_request(version: bytes):
         ),
         "invalid key",
     ),
+    (
+        (
+            b"Upgrade: websocket",
+            b"Connection: Upgrade",
+            b"Sec-WebSocket-Version: 13",
+            b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==!!!",
+        ),
+        "invalid key",
+    ),
 ])
 def test_validate_upgrade_request_rejects_invalid_headers(
     headers: Tuple[bytes, ...],
@@ -211,3 +235,176 @@ def test_validate_upgrade_request_rejects_invalid_headers(
     request = make_upgrade_request(headers)
     with pytest.raises(RuntimeError, match=error):
         _validate_upgrade_request(request)
+
+
+def make_upgrade_response(
+    status_line: bytes = b"HTTP/1.1 101 Switching Protocols",
+    headers: Iterable[bytes] = VALID_UPGRADE_RESPONSE_HEADERS,
+    tail: bytes = b"",
+) -> bytes:
+    return b"\r\n".join([status_line, *headers, b"", tail])
+
+
+@pytest.mark.parametrize("data", [
+    b"",
+    b"HTTP/1.1 101 Switching Protocols",
+    b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n",
+])
+def test_parse_upgrade_response_returns_none_until_headers_are_complete(data: bytes):
+    assert _parse_upgrade_response(data, WEBSOCKET_KEY) is None
+
+
+@pytest.mark.parametrize(("upgrade", "connection"), [
+    (b"websocket", b"upgrade"),
+    (b"WebSocket", b"Upgrade"),
+    (b"WEBSOCKET", b"UPGRADE"),
+])
+def test_parse_upgrade_response(upgrade: bytes, connection: bytes):
+    response = _parse_upgrade_response(
+        make_upgrade_response(
+            headers=(
+                b"Upgrade: " + upgrade,
+                b"Connection: " + connection,
+                b"Content-Length: 0",
+                b"Sec-WebSocket-Accept: " + WEBSOCKET_ACCEPT,
+                b"X-Extended: \x80",
+            ),
+            tail=b"\x81\x00",
+        ),
+        WEBSOCKET_KEY,
+    )
+
+    assert response.version == b"HTTP/1.1"
+    assert response.status == HTTPStatus.SWITCHING_PROTOCOLS
+    assert response.headers["Upgrade"] == upgrade.decode()
+    assert response.headers["Connection"] == connection.decode()
+    assert response.headers["X-Extended"] == "\udc80"
+    assert response.body is None
+
+
+@pytest.mark.parametrize(("status_line", "error"), [
+    (b"HTTP/1.1 101 \xff", "invalid HTTP status line"),
+    (b"HTTP/1.0 101 Switching Protocols", "unknown protocol"),
+    (b"HTTP/1.1 invalid Switching Protocols", "invalid HTTP status line"),
+])
+def test_parse_upgrade_response_rejects_invalid_status_line(status_line: bytes, error: str):
+    data = make_upgrade_response(status_line=status_line, tail=b"response body")
+
+    with pytest.raises(picows.WSInvalidMessageError, match=error) as exc_info:
+        _parse_upgrade_response(data, WEBSOCKET_KEY)
+
+    assert exc_info.value.raw_header == data.split(b"\r\n\r\n", 1)[0]
+    assert exc_info.value.raw_body == b"response body"
+    assert exc_info.value.response is None
+
+
+@pytest.mark.parametrize(("header", "error"), [
+    (b"Malformed header", "malformed header"),
+    (b" Upgrade: websocket", "Obsolete folded HTTP header"),
+    (b"Upgrade : websocket", "Invalid HTTP header name"),
+    (b"Bad(Name: value", "Invalid HTTP header name"),
+    (b"X-Invalid: ok\x00bad", "Invalid HTTP header value"),
+])
+def test_parse_upgrade_response_rejects_malformed_header(header: bytes, error: str):
+    data = make_upgrade_response(headers=(header,), tail=b"response body")
+
+    with pytest.raises(picows.WSInvalidMessageError, match=error) as exc_info:
+        _parse_upgrade_response(data, WEBSOCKET_KEY)
+
+    assert exc_info.value.raw_header == data.split(b"\r\n\r\n", 1)[0]
+    assert exc_info.value.raw_body == b"response body"
+    assert exc_info.value.response.status == HTTPStatus.SWITCHING_PROTOCOLS
+
+
+def test_parse_upgrade_response_limits_number_of_headers():
+    headers = (*VALID_UPGRADE_RESPONSE_HEADERS, *(b"X-Test: value" for _ in range(126)))
+
+    with pytest.raises(picows.WSInvalidMessageError, match="more than 128 headers"):
+        _parse_upgrade_response(make_upgrade_response(headers=headers), WEBSOCKET_KEY)
+
+
+def test_parse_upgrade_response_rejects_non_switching_protocols_status():
+    data = make_upgrade_response(
+        status_line=b"HTTP/1.1 400 Bad Request",
+        headers=(b"Transfer-Encoding: invalid", b"Content-Length: 11"),
+        tail=b"Bad Request",
+    )
+
+    with pytest.raises(picows.WSInvalidStatusError, match="received 400") as exc_info:
+        _parse_upgrade_response(data, WEBSOCKET_KEY)
+
+    assert exc_info.value.raw_body == b"Bad Request"
+    assert exc_info.value.response.status == HTTPStatus.BAD_REQUEST
+
+
+@pytest.mark.parametrize("transfer_encoding", [b"chunked", b"Chunked", b"gzip"])
+def test_parse_upgrade_response_rejects_transfer_encoding(transfer_encoding: bytes):
+    headers = (*VALID_UPGRADE_RESPONSE_HEADERS, b"Transfer-Encoding: " + transfer_encoding)
+
+    with pytest.raises(picows.WSInvalidHeaderError, match="Transfer-Encoding") as exc_info:
+        _parse_upgrade_response(make_upgrade_response(headers=headers), WEBSOCKET_KEY)
+
+    assert exc_info.value.name == "Transfer-Encoding"
+    assert exc_info.value.value == transfer_encoding.decode()
+
+
+@pytest.mark.parametrize(("content_length", "error"), [
+    (b"invalid", "invalid Content-Length"),
+    (b"1", "non-zero Content-Length"),
+])
+def test_parse_upgrade_response_rejects_invalid_content_length(content_length: bytes, error: str):
+    headers = (*VALID_UPGRADE_RESPONSE_HEADERS, b"Content-Length: " + content_length)
+
+    with pytest.raises(picows.WSInvalidHeaderError, match=error) as exc_info:
+        _parse_upgrade_response(make_upgrade_response(headers=headers), WEBSOCKET_KEY)
+
+    assert exc_info.value.name == "Content-Length"
+    assert exc_info.value.value == content_length.decode()
+
+
+@pytest.mark.parametrize("upgrade", [None, b"not-websocket"])
+def test_parse_upgrade_response_rejects_invalid_upgrade_header(upgrade: Optional[bytes]):
+    headers = [
+        b"Connection: Upgrade",
+        b"Sec-WebSocket-Accept: " + WEBSOCKET_ACCEPT,
+    ]
+    if upgrade is not None:
+        headers.append(b"Upgrade: " + upgrade)
+
+    with pytest.raises(picows.WSInvalidUpgradeError, match="invalid upgrade header") as exc_info:
+        _parse_upgrade_response(make_upgrade_response(headers=headers), WEBSOCKET_KEY)
+
+    assert exc_info.value.name == "Upgrade"
+    expected_value = None if upgrade is None else upgrade.decode()
+    assert exc_info.value.value == expected_value
+
+
+@pytest.mark.parametrize("connection", [None, b"close"])
+def test_parse_upgrade_response_rejects_invalid_connection_header(connection: Optional[bytes]):
+    headers = [
+        b"Upgrade: websocket",
+        b"Sec-WebSocket-Accept: " + WEBSOCKET_ACCEPT,
+    ]
+    if connection is not None:
+        headers.append(b"Connection: " + connection)
+
+    with pytest.raises(picows.WSInvalidUpgradeError, match="invalid connection header") as exc_info:
+        _parse_upgrade_response(make_upgrade_response(headers=headers), WEBSOCKET_KEY)
+
+    assert exc_info.value.name == "Connection"
+    expected_value = None if connection is None else connection.decode()
+    assert exc_info.value.value == expected_value
+
+
+@pytest.mark.parametrize("accept", [None, b"invalid"])
+def test_parse_upgrade_response_rejects_invalid_accept_header(accept: Optional[bytes]):
+    headers = [b"Upgrade: websocket", b"Connection: Upgrade"]
+    if accept is not None:
+        headers.append(b"Sec-WebSocket-Accept: " + accept)
+
+    with pytest.raises(picows.WSInvalidHeaderError, match="invalid sec-websocket-accept") as exc_info:
+        _parse_upgrade_response(make_upgrade_response(headers=headers), WEBSOCKET_KEY)
+
+    assert exc_info.value.name == "Sec-WebSocket-Accept"
+    expected_value = None if accept is None else accept.decode()
+    assert exc_info.value.value == expected_value
