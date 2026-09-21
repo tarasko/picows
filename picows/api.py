@@ -92,6 +92,7 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                      proxy: Optional[str] = None,
                      proxy_ssl_context: Optional[SSLContext] = None,
                      read_buffer_init_size: int = 16 * 1024,
+                     max_read_size: int = 0,
                      socket_factory: Optional[WSSocketFactory] = None,
                      use_aiofastnet: Optional[bool] = None,
                      **kwargs
@@ -161,6 +162,14 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
         The buffer grows exponentially when incoming data does not fit.
         Unlike `max_frame_size` (a safety limit), this value affects actual
         memory allocation, so very large values increase baseline memory usage.
+    :param max_read_size:
+        Maximum number of bytes taken from the socket in a single read, 0 (the
+        default) means no limit beyond the free space of the read buffer.
+        When the peer sends faster than the application consumes, the socket
+        receive buffer can hold megabytes and one read would pull all of it
+        into the read buffer at once; frames are then copied out and decoded
+        after the data has left the CPU cache. A cap in the range of the
+        expected frame size (e.g. 256 KB) keeps each read cache-resident.
     :param socket_factory:
         Optional socket factory. Can be a regular function or coroutine.
         Receive WSParsedURL object as the only argument. Returns pre-created socket.
@@ -235,7 +244,8 @@ async def ws_connect(ws_listener_factory: WSListenerFactory, # type: ignore [no-
                 enable_auto_pong,
                 max_frame_size,
                 extra_headers,
-                read_buffer_init_size
+                read_buffer_init_size,
+                max_read_size
             )
 
         try:
@@ -307,6 +317,7 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
                            enable_auto_pong: bool = True,
                            max_frame_size: int = 10 * 1024 * 1024,
                            read_buffer_init_size: int = 16 * 1024,
+                           max_read_size: int = 0,
                            use_aiofastnet: Optional[bool] = None,
                            **kwargs
                            ) -> asyncio.Server:
@@ -424,7 +435,8 @@ async def ws_create_server(ws_listener_factory: WSServerListenerFactory,        
             enable_auto_pong,
             max_frame_size,
             None,            # extra_headers,
-            read_buffer_init_size
+            read_buffer_init_size,
+            max_read_size
         )
 
     server = await create_server(

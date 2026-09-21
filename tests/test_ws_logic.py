@@ -161,6 +161,19 @@ async def test_max_frame_size_violation_huge_frame_from_server(use_aiofastnet, s
                     await client.transport.wait_disconnected()
 
 
+async def test_max_read_size_reassembles_large_frames(use_aiofastnet, ssl_context):
+    # With the per-read cap far below the frame size, every frame arrives in
+    # many small reads and the read buffer still has to grow to hold it.
+    msg = os.urandom(512 * 1024)
+    async with WSServer(ssl=ssl_context.server, use_aiofastnet=use_aiofastnet, max_read_size=16 * 1024) as server:
+        async with WSClient(server, ssl_context=ssl_context.client, use_aiofastnet=use_aiofastnet, max_read_size=16 * 1024) as client:
+            for _ in range(3):
+                client.transport.send(picows.WSMsgType.BINARY, msg)
+                frame = await client.get_message()
+                assert frame.msg_type == picows.WSMsgType.BINARY
+                assert frame.payload_as_bytes == msg
+
+
 @pytest.mark.parametrize("request_path", ["/v1/ws", "/v1/ws?key=blablabla&data=fhhh"])
 async def test_request_path_and_params(request_path):
     def listener_factory(request: picows.WSUpgradeRequest):

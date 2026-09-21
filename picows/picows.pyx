@@ -1231,6 +1231,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
         bytes _websocket_key_b64
         Py_ssize_t _max_frame_size
+        Py_ssize_t _max_read_size
 
         bint _enable_auto_pong
         bint _enable_auto_ping
@@ -1273,7 +1274,8 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                  enable_auto_pong,
                  max_frame_size,
                  extra_headers,
-                 read_buffer_init_size):
+                 read_buffer_init_size,
+                 max_read_size):
         self.transport = None
         self.listener = None
 
@@ -1312,6 +1314,7 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
 
         self._state = WSParserState.WAIT_UPGRADE_RESPONSE
         self._read_buffer = MemoryBuffer(max(<Py_ssize_t>read_buffer_init_size, 2048))
+        self._max_read_size = <Py_ssize_t>max_read_size
         self._read_buffer.size = self._read_buffer.capacity - 256 # Leave space for simd parsers
         self._f_new_data_start_pos = 0
         self._f_curr_state_start_pos = 0
@@ -1458,9 +1461,17 @@ cdef class WSProtocol(WSProtocolBase, asyncio.BufferedProtocol):
                              self._read_buffer.size,
                              self._read_buffer.capacity)
 
+        cdef Py_ssize_t provide = self._read_buffer.size - self._f_new_data_start_pos
+        if self._max_read_size > 0 and provide > self._max_read_size:
+            # Cap what a single read may bring in. When the peer is faster than
+            # the consumer, the socket buffer holds megabytes and one recv would
+            # otherwise pull all of it into user space at once; the frames are
+            # then copied out and decoded after the data has left the CPU
+            # cache. Smaller reads keep each frame's bytes hot.
+            provide = self._max_read_size
         return PyMemoryView_FromMemory(
             self._read_buffer.data + self._f_new_data_start_pos,
-            self._read_buffer.size - self._f_new_data_start_pos,
+            provide,
             PyBUF_WRITE)
 
     def buffer_updated(self, Py_ssize_t nbytes):
