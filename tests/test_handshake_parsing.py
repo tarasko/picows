@@ -18,6 +18,18 @@ VALID_UPGRADE_RESPONSE_HEADERS = (
     b"Connection: Upgrade",
     b"Sec-WebSocket-Accept: " + WEBSOCKET_ACCEPT,
 )
+VALID_CONNECTION_HEADER_VALUES = [
+    b"upgrade",
+    b"Upgrade",
+    b"keep-alive,upgrade",
+    b"keep-alive, upgrade",
+    b"upgrade,  keep-alive",
+    b"  keep-alive,   upgrade",
+    b"keep-alive ,upgrade",
+    b"keep-alive , upgrade",
+    b"keep-alive   ,   upgrade",
+    b"Keep-Alive, UPGRADE",
+]
 
 
 def make_raw_request(headers: Iterable[bytes] = ()) -> bytes:
@@ -176,13 +188,37 @@ def test_validate_upgrade_request(version: bytes, upgrade: bytes):
     assert _validate_upgrade_request(request) == b"s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
 
 
+@pytest.mark.parametrize("connection", VALID_CONNECTION_HEADER_VALUES)
+def test_validate_upgrade_request_accepts_connection_token_list(connection: bytes):
+    request = make_upgrade_request([
+        b"Upgrade: websocket",
+        b"Connection: " + connection,
+        b"Sec-WebSocket-Version: 13",
+        b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+    ])
+
+    assert _validate_upgrade_request(request) == b"s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+
+
 @pytest.mark.parametrize(("headers", "error"), [
     ((), "No WebSocket UPGRADE header"),
     ((b"Upgrade: h2c",), "No WebSocket UPGRADE header"),
     ((b"Upgrade: websocket",), "No CONNECTION upgrade header"),
     (
         (b"Upgrade: websocket", b"Connection: close"),
-        "CONNECTION header value is not 'upgrade'",
+        "CONNECTION header does not contain 'upgrade'",
+    ),
+    (
+        (b"Upgrade: websocket", b"Connection: keep-alive"),
+        "CONNECTION header does not contain 'upgrade'",
+    ),
+    (
+        (b"Upgrade: websocket", b"Connection: keep-alive, close"),
+        "CONNECTION header does not contain 'upgrade'",
+    ),
+    (
+        (b"Upgrade: websocket", b"Connection: not-upgrade"),
+        "CONNECTION header does not contain 'upgrade'",
     ),
     (
         (b"Upgrade: websocket", b"Connection: Upgrade"),
@@ -379,7 +415,22 @@ def test_parse_upgrade_response_rejects_invalid_upgrade_header(upgrade: Optional
     assert exc_info.value.value == expected_value
 
 
-@pytest.mark.parametrize("connection", [None, b"close"])
+@pytest.mark.parametrize("connection", VALID_CONNECTION_HEADER_VALUES)
+def test_parse_upgrade_response_accepts_connection_token_list(connection: bytes):
+    response = _parse_upgrade_response(
+        make_upgrade_response(headers=(
+            b"Upgrade: websocket",
+            b"Connection: " + connection,
+            b"Sec-WebSocket-Accept: " + WEBSOCKET_ACCEPT,
+        )),
+        WEBSOCKET_KEY,
+    )
+
+    assert response.status == HTTPStatus.SWITCHING_PROTOCOLS
+    assert response.headers["Connection"] == connection.strip().decode()
+
+
+@pytest.mark.parametrize("connection", [None, b"close", b"keep-alive", b"keep-alive, close", b"not-upgrade"])
 def test_parse_upgrade_response_rejects_invalid_connection_header(connection: Optional[bytes]):
     headers = [
         b"Upgrade: websocket",
