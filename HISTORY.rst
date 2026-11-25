@@ -5,7 +5,7 @@ picows Release History
    :depth: 1
    :local:
 
-2.3.2 ()
+2.3.2 (2026-11-25)
 ------------------
 
 * #119: fix 400 Bad Request due to "Connection: keep-alive, Upgrade" header from the Firefox browser by @anzz1
