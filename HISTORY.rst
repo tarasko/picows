@@ -8,7 +8,7 @@ picows Release History
 2.3.2 ()
 ------------------
 
-* #119: fix 400 Bad Request due to "Connection: keep-alive, Upgrade" header from the Firefox browser
+* #119: fix 400 Bad Request due to "Connection: keep-alive, Upgrade" header from the Firefox browser by @anzz1
 
 2.3.1 (2026-09-15)
 ------------------
