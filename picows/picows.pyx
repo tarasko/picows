@@ -382,11 +382,15 @@ cpdef bytes _validate_upgrade_request(object upgrade_request):
     if "connection" not in headers:
         raise RuntimeError("No CONNECTION upgrade header")
 
-    if "upgrade" != headers["connection"].lower():
-        raise RuntimeError("CONNECTION header value is not 'upgrade'")
+    connection_params = [
+        token.strip().lower()
+        for token in ','.join(headers.getall('connection', [])).split(',')
+    ]
+    if "upgrade" not in connection_params:
+        raise RuntimeError("CONNECTION header does not contain 'upgrade'")
 
     version = headers.get("sec-websocket-version")
-    if headers.get("sec-websocket-version") not in ("13", "8", "7"):
+    if version not in ("13", "8", "7"):
         raise RuntimeError(f"Upgrade requested to unsupported websocket version: {version}")
 
     cdef str key = <str>headers.get("sec-websocket-key")
@@ -519,9 +523,11 @@ cpdef object _parse_upgrade_response(bytes data, bytes websocket_key_b64):
             response,
         )
 
-    connection_value = response.headers.get("connection")
-    connection_value = connection_value if connection_value is None else connection_value.lower()
-    if connection_value != "upgrade":
+    connection_params = [
+        token.strip().lower()
+        for token in ','.join(response.headers.getall('connection', [])).split(',')
+    ]
+    if "upgrade" not in connection_params:
         raise WSInvalidUpgradeError(
             "cannot upgrade, invalid connection header",
             "Connection",
